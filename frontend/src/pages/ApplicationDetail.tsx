@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { STAGES, api, daysAgo, fmtDate, label, type Stage, type TimelineEvent } from "../api";
+import { STAGES, api, daysAgo, fmtDate, fmtSalary, label, type Stage, type TimelineEvent } from "../api";
 import { Card, Loading, StatusBadge } from "../components";
+import { PasteAssistant } from "../PasteAssistant";
 import { useAsync } from "../useAsync";
 
 export default function ApplicationDetail() {
@@ -36,11 +37,18 @@ export default function ApplicationDetail() {
           <dt>Source</dt><dd>{[app.source_ats, app.source_channel].filter(Boolean).join(" · ") || "—"}</dd>
           {app.seniority && <><dt>Seniority</dt><dd>{app.seniority}</dd></>}
           {app.stack.length > 0 && <><dt>Stack</dt><dd>{app.stack.join(", ")}</dd></>}
+          {fmtSalary(app) && <><dt>Salary</dt><dd>{fmtSalary(app)}</dd></>}
+          {app.benefits && <><dt>Other benefits</dt><dd>{app.benefits}</dd></>}
+          {app.location && <><dt>Location</dt><dd>{app.location}</dd></>}
           {app.job_url && <><dt>Posting</dt><dd><a href={app.job_url} target="_blank" rel="noreferrer">{app.job_url}</a></dd></>}
           {app.aliases.length > 0 && <><dt>Matches mail from</dt><dd className="small">{app.aliases.map((a) => a.value).join(", ")}</dd></>}
           {app.notes && <><dt>Notes</dt><dd>{app.notes}</dd></>}
         </dl>
         <StageForm appId={app.id} current={app.current_stage} onDone={reload} />
+      </Card>
+
+      <Card title="Paste more info">
+        <PasteAssistant applicationId={app.id} onApplied={reload} />
       </Card>
 
       <Card title="Timeline">

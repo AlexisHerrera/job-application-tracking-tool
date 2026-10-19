@@ -148,6 +148,10 @@ class Application:
     seniority: str | None = None
     stack: list[str] = field(default_factory=list)
     location: str | None = None
+    salary_min: int | None = None  # yearly
+    salary_max: int | None = None  # yearly
+    salary_currency: str | None = None
+    benefits: str | None = None
     applied_at: datetime | None = None
     current_stage: Stage = Stage.APPLIED
     current_round: int | None = None

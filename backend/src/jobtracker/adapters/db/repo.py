@@ -40,7 +40,7 @@ APP_COLUMNS = [
     "id", "company_id", "role_title", "job_url", "job_description", "source_ats", "source_channel",
     "seniority", "stack", "location", "applied_at", "current_stage", "current_round",
     "max_stage_reached", "outcome", "last_event_at", "next_interview_at", "origin", "needs_review",
-    "notes", "created_at", "updated_at",
+    "notes", "created_at", "updated_at", "salary_min", "salary_max", "salary_currency", "benefits",
 ]  # fmt: skip
 EVENT_COLUMNS = [
     "id", "application_id", "company_hint_id", "kind", "event_type", "occurred_at", "message_id",
@@ -74,6 +74,10 @@ def _app_from(r: dict) -> Application:
         seniority=r["seniority"],
         stack=list(r["stack"] or []),
         location=r["location"],
+        salary_min=r["salary_min"],
+        salary_max=r["salary_max"],
+        salary_currency=r["salary_currency"],
+        benefits=r["benefits"],
         applied_at=r["applied_at"],
         current_stage=Stage(r["current_stage"]),
         current_round=r["current_round"],

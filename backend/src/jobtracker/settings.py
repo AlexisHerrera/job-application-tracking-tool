@@ -47,6 +47,7 @@ class Settings:
     anthropic_api_key: str
     llm_model: str
     llm_effort: str
+    llm_paste_effort: str
     llm_body_chars: int
     timezone: str
     ghost_days: int
@@ -71,6 +72,7 @@ class Settings:
             anthropic_api_key=e.get("ANTHROPIC_API_KEY", ""),
             llm_model=e.get("LLM_MODEL", "claude-haiku-5-5"),
             llm_effort=e.get("LLM_EFFORT", "low"),
+            llm_paste_effort=e.get("LLM_PASTE_EFFORT", "medium"),
             llm_body_chars=int(e.get("LLM_BODY_CHARS", "4000")),
             timezone=e.get("TIMEZONE", "America/Buenos_Aires"),
             ghost_days=int(e.get("GHOST_DAYS", "14")),

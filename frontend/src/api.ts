@@ -17,6 +17,10 @@ export interface Application {
   seniority: string | null;
   stack: string[];
   location: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_currency: string | null;
+  benefits: string | null;
   applied_at: string | null;
   current_stage: Stage;
   status: Status;
@@ -81,6 +85,32 @@ export interface Dashboard {
   unassigned: number;
 }
 
+export type ChangeKind = "fill" | "change" | "append";
+
+export interface FieldChange {
+  field: string;
+  label: string;
+  current: unknown;
+  proposed: unknown;
+  kind: ChangeKind;
+}
+
+export interface PasteOption {
+  application_id: string | null; // null = create new
+  label: string;
+  score: number;
+  changes: FieldChange[];
+  stage_change: { current: Stage | null; proposed: Stage; at: string | null; kind: "fill" | "change" } | null;
+}
+
+export interface PasteRecord {
+  company: string;
+  evidence: string;
+  salary_note: string | null;
+  options: PasteOption[];
+  default_option: number;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -120,6 +150,7 @@ export type ApplicationInput = Partial<Omit<Application, "id" | "status">> & {
   role_title: string;
   company_domain?: string;
   stage?: Stage | null;
+  stage_at?: string | null;
 };
 
 export const api = {
@@ -128,7 +159,12 @@ export const api = {
     request<Application[]>("GET", `/applications?${new URLSearchParams(params)}`),
   application: (id: string) => request<ApplicationDetail>("GET", `/applications/${id}`),
   createApplication: (data: ApplicationInput) => request<Application>("POST", "/applications", data),
-  updateApplication: (id: string, data: Partial<Application>) =>
+  paste: (text: string, applicationId?: string) =>
+    request<{ records: PasteRecord[]; llm_input_tokens: number; llm_output_tokens: number }>("POST", "/paste", {
+      text,
+      application_id: applicationId ?? null,
+    }),
+  updateApplication: (id: string, data: Partial<Application> & { company_domain?: string }) =>
     request<Application>("PATCH", `/applications/${id}`, data),
   deleteApplication: (id: string) => request<void>("DELETE", `/applications/${id}`),
   changeStage: (id: string, data: { stage: Stage; at?: string; round?: number | null; note?: string }) =>
@@ -166,3 +202,12 @@ export function daysAgo(iso: string | null): string {
 }
 
 export const label = (s: string) => s.replace(/_/g, " ");
+
+export function fmtSalary(a: Pick<Application, "salary_min" | "salary_max" | "salary_currency">): string | null {
+  if (!a.salary_min && !a.salary_max) return null;
+  const n = (v: number) => new Intl.NumberFormat("en-US").format(v);
+  const range = a.salary_min && a.salary_max && a.salary_min !== a.salary_max
+    ? `${n(a.salary_min)}–${n(a.salary_max)}`
+    : n((a.salary_min || a.salary_max)!);
+  return `${a.salary_currency ?? ""} ${range} / year`.trim();
+}

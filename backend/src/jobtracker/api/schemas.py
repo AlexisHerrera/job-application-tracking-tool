@@ -27,6 +27,10 @@ def application_json(a: Application, status: str) -> dict:
         "seniority": a.seniority,
         "stack": a.stack,
         "location": a.location,
+        "salary_min": a.salary_min,
+        "salary_max": a.salary_max,
+        "salary_currency": a.salary_currency,
+        "benefits": a.benefits,
         "applied_at": _iso(a.applied_at),
         "current_stage": a.current_stage.value,
         "status": status,
@@ -100,8 +104,13 @@ class ApplicationIn(BaseModel):
     seniority: str | None = None
     stack: list[str] = []
     location: str | None = None
+    salary_min: int | None = Field(default=None, ge=0, le=100_000_000)
+    salary_max: int | None = Field(default=None, ge=0, le=100_000_000)
+    salary_currency: str | None = Field(default=None, max_length=8)
+    benefits: str | None = Field(default=None, max_length=5000)
     applied_at: datetime | None = None
     stage: Stage | None = None
+    stage_at: datetime | None = None
     notes: str | None = None
 
     def to_input(self) -> ApplicationInput:
@@ -116,8 +125,13 @@ class ApplicationIn(BaseModel):
             seniority=self.seniority or None,
             stack=self.stack,
             location=self.location or None,
+            salary_min=self.salary_min,
+            salary_max=self.salary_max,
+            salary_currency=self.salary_currency or None,
+            benefits=self.benefits or None,
             applied_at=self.applied_at,
             stage=self.stage,
+            stage_at=self.stage_at,
             notes=self.notes or None,
         )
 
@@ -131,9 +145,50 @@ class ApplicationPatch(BaseModel):
     seniority: str | None = None
     stack: list[str] | None = None
     location: str | None = None
+    salary_min: int | None = Field(default=None, ge=0, le=100_000_000)
+    salary_max: int | None = Field(default=None, ge=0, le=100_000_000)
+    salary_currency: str | None = Field(default=None, max_length=8)
+    benefits: str | None = Field(default=None, max_length=5000)
     applied_at: datetime | None = None
     notes: str | None = None
     needs_review: bool | None = None
+    company_domain: str | None = Field(default=None, max_length=200)  # adds an alias, never removes
+
+
+class PasteIn(BaseModel):
+    text: str = Field(min_length=1)
+    application_id: str | None = None  # scope the proposal to one application
+
+
+def _val(v):
+    return v.isoformat() if isinstance(v, datetime) else v
+
+
+def option_json(o) -> dict:
+    sc = o.stage_change
+    return {
+        "application_id": str(o.application_id) if o.application_id else None,
+        "label": o.label,
+        "score": o.score,
+        "changes": [
+            {
+                "field": c.field,
+                "label": c.label,
+                "current": _val(c.current),
+                "proposed": _val(c.proposed),
+                "kind": c.kind,
+            }
+            for c in o.changes
+        ],
+        "stage_change": {
+            "current": sc.current.value if sc.current else None,
+            "proposed": sc.proposed.value,
+            "at": _iso(sc.at),
+            "kind": sc.kind,
+        }
+        if sc
+        else None,
+    }
 
 
 class StageChangeIn(BaseModel):

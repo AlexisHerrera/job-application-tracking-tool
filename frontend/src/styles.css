@@ -137,3 +137,27 @@ button.danger, .danger { color: var(--danger); }
   .facts { grid-template-columns: 1fr; gap: 2px; }
   .facts dd { margin-bottom: 8px; }
 }
+
+.three { display: grid; grid-template-columns: 1fr 1fr 110px; gap: 10px; }
+.proposal { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+.proposal.skipped { opacity: 0.55; }
+.proposal-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.proposal-head select { width: auto; flex: 1 1 220px; }
+.changes { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.changes td { border-top: 1px solid var(--border); padding: 6px 6px; vertical-align: top; overflow-wrap: anywhere; }
+.changes td:first-child { width: 28px; }
+.changes td:nth-child(2) { width: 34%; }
+.changes input[type="checkbox"] { width: auto; }
+.changes .current { color: var(--muted); text-decoration: line-through; }
+.changes tr.kind-change { background: color-mix(in srgb, var(--warn-bg) 60%, transparent); }
+.kind { font-size: 0.75rem; font-weight: 600; }
+.kind.kind-fill { color: var(--ok); }
+.kind.kind-append { color: var(--accent); }
+.kind.kind-change { color: var(--warn-text); }
+.apply-summary { display: grid; gap: 8px; }
+.apply-summary ul { margin: 4px 0 0; padding-left: 18px; }
+
+@media (max-width: 600px) {
+  .three { grid-template-columns: 1fr 1fr; }
+  .changes td:nth-child(2) { width: auto; }
+}

@@ -12,9 +12,10 @@ from fastapi.responses import JSONResponse
 from jobtracker.adapters.db.repo import PostgresRepo
 from jobtracker.api import schemas as s
 from jobtracker.api.auth import AccessVerifier, User
-from jobtracker.core import services, stats
+from jobtracker.core import paste, services, stats
 from jobtracker.core.clock import SystemClock
 from jobtracker.core.models import InterviewNote, Origin
+from jobtracker.core.ports import LLMClient, LLMError
 from jobtracker.core.stages import display_status
 from jobtracker.settings import Settings
 
@@ -31,12 +32,24 @@ def _uuid(value: str) -> uuid.UUID:
 def create_app(
     settings: Settings | None = None,
     repo_factory: Callable[[], PostgresRepo] | None = None,
+    llm_factory: Callable[[], LLMClient] | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     verifier = AccessVerifier(settings)
     clock = SystemClock()
     tz = settings.tz
     make_repo = repo_factory or (lambda: PostgresRepo.connect(settings.database_url))
+
+    def default_llm() -> LLMClient:
+        from jobtracker.adapters.anthropic_llm import AnthropicLLM
+
+        if not settings.anthropic_api_key:
+            raise HTTPException(503, "ANTHROPIC_API_KEY is not configured")
+        return AnthropicLLM(
+            settings.anthropic_api_key, settings.llm_model, settings.llm_paste_effort
+        )
+
+    make_llm = llm_factory or default_llm
 
     def get_repo() -> Iterator[PostgresRepo]:
         repo = make_repo()
@@ -94,6 +107,55 @@ def create_app(
             a = repo.get_application(a.id)
         return app_json(a)
 
+    @api.post("/paste")
+    def paste_proposal(body: s.PasteIn, repo: PostgresRepo = Depends(get_repo)):
+        """AI reads pasted text and PROPOSES changes. Nothing is written here."""
+        if len(body.text) > paste.MAX_PASTE_CHARS:
+            raise services.InvalidInput(
+                f"text is {len(body.text):,} characters; the limit is {paste.MAX_PASTE_CHARS:,}. "
+                "Split it into smaller pastes."
+            )
+        forced = None
+        if body.application_id:
+            forced = repo.get_application(_uuid(body.application_id))
+            if forced is None:
+                raise services.NotFound(body.application_id)
+        llm = make_llm()
+        system, user = paste.paste_prompt(body.text, clock.now(), tz)
+        try:
+            raw = llm.complete_json(
+                system=system, user=user, schema=paste.PASTE_SCHEMA, max_tokens=16000
+            )
+        except LLMError as err:
+            raise HTTPException(502, f"AI extraction failed ({err}); try again") from err
+        records = paste.parse_records(raw, tz)
+        if forced is not None:
+            records = records[:1]
+        apps = repo.list_applications()
+        domains = {
+            a.company_id: {
+                al.value for al in repo.list_aliases(a.company_id) if al.kind.value == "domain"
+            }
+            for a in ([forced] if forced else apps)
+        }
+        out = []
+        for rec in records:
+            options, default = paste.propose(rec, apps, domains, forced)
+            out.append(
+                {
+                    "company": rec.company,
+                    "evidence": rec.evidence,
+                    "salary_note": rec.salary_note,
+                    "options": [s.option_json(o) for o in options],
+                    "default_option": default,
+                }
+            )
+        return {
+            "records": out,
+            "llm_input_tokens": llm.usage.input_tokens,
+            "llm_output_tokens": llm.usage.output_tokens,
+        }
+
     @api.post("/applications/import")
     def import_csv(body: s.CsvImportIn, repo: PostgresRepo = Depends(get_repo)):
         rows = services.parse_csv(body.csv, tz)
@@ -125,8 +187,17 @@ def create_app(
             a = repo.get_application(_uuid(app_id))
             if a is None:
                 raise services.NotFound(app_id)
-            for field, value in body.model_dump(exclude_unset=True).items():
+            changes = body.model_dump(exclude_unset=True)
+            domain = changes.pop("company_domain", None)
+            for field, value in changes.items():
                 setattr(a, field, value)
+            if a.salary_min and a.salary_max and a.salary_min > a.salary_max:
+                raise services.InvalidInput("salary min is greater than salary max")
+            if a.salary_currency:
+                a.salary_currency = a.salary_currency.upper()
+            if domain:
+                company = repo.get_company(a.company_id)
+                services.add_company_domain(repo, company, domain, "manual")
             a.updated_at = clock.now()
             repo.update_application(a)
             a = services.recompute(repo, clock, a.id)

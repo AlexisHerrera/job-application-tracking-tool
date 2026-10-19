@@ -42,7 +42,7 @@ def test_migrations_are_dsql_compatible():
                 assert not re.search(pattern, stmt, re.IGNORECASE), (
                     f"{name}: {what} not supported on DSQL"
                 )
-            if stmt.upper().startswith("CREATE"):
+            if stmt.upper().startswith(("CREATE", "ALTER TABLE")):
                 assert "IF NOT EXISTS" in stmt.upper(), (
                     f"{name}: DDL must be idempotent: {stmt[:60]}"
                 )

@@ -206,3 +206,8 @@ The CLI (`uv run jobtracker …`) talks to the same DB. Tests: core unit tests u
 - **Job boards** (LinkedIn, Indeed, Glassdoor, …) and ATS domains never become a company's domain alias.
 - **Failure policy**: a transient LLM error stops the run without advancing the checkpoint, so the next run retries. A refusal or malformed output is recorded and skipped, so one bad email can't block the queue.
 - **Not done yet**: the DSQL connection factory (IAM token auth) and Lambda packaging are Phase 3. The stats page and the "what should I study" report are Phase 5. The API already serves `/api/stats`.
+
+## 11. Post-review additions (2026-10-19)
+
+- **Salary**: `applications.salary_min` / `salary_max` (yearly), `salary_currency`, and `benefits` (free text). Migration `0003`.
+- **Paste assistant** replaces the CSV card in the UI. `POST /api/paste` sends the text to the LLM (structured output, `LLM_PASTE_EFFORT`, default medium) and returns, per extracted record, options (update candidate(s) / create new) with per-field diffs labelled `fill | append | change`. It writes nothing. The UI applies only the ticked changes through the regular create/PATCH/stage endpoints. Overwrites (`change`) start unticked and are listed explicitly before apply.

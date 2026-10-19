@@ -84,6 +84,16 @@ Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside
 
 The first `ingest` run only records the mailbox's current position. Use `backfill` for history; Message-ID dedupe makes overlaps harmless.
 
+## Adding applications by hand
+
+- **Paste anything** (Add page, or "Paste more info" on an application): paste emails, Slack or LinkedIn messages, a job post or your notes. The AI (`LLM_MODEL` at `LLM_PASTE_EFFORT`) proposes one record per application and matches each one to an existing application or offers to create it. **Nothing is saved until you review it:**
+  - **fills empty** fields are preselected
+  - **adds to** (stack, notes, a new email domain) is preselected and never removes anything
+  - **⚠ will modify** (overwrites a value you already have, or changes the stage) starts **unchecked**. Anything you tick is listed under "You will modify existing data" before you apply.
+  The pasted text is sent to Anthropic for extraction and is not stored. Each "Read with AI" is one paid call (fractions of a cent with Haiku).
+- **Form**: the classic fields, plus a yearly salary range (a single figure is stored as min = max), currency and other benefits. Monthly or hourly salaries found in pasted text are converted to yearly (×12 / ×2080), and the review screen says so.
+- **CSV**: still available from the CLI (`app import`) for bulk loads.
+
 ## How email processing works (short version)
 
 1. **Gmail search** pre-excludes Promotions/Social (`IMAP_QUERY`).

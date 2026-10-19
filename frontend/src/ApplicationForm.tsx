@@ -24,6 +24,10 @@ export function ApplicationForm({
     seniority: initial?.seniority ?? "",
     stack: (initial?.stack ?? []).join(", "),
     location: initial?.location ?? "",
+    salary_min: initial?.salary_min?.toString() ?? "",
+    salary_max: initial?.salary_max?.toString() ?? "",
+    salary_currency: initial?.salary_currency ?? "USD",
+    benefits: initial?.benefits ?? "",
     applied_at: initial?.applied_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
     stage: "",
     notes: initial?.notes ?? "",
@@ -50,6 +54,11 @@ export function ApplicationForm({
         seniority: form.seniority || null,
         stack: form.stack.split(",").map((s) => s.trim()).filter(Boolean),
         location: form.location || null,
+        salary_min: form.salary_min ? Number(form.salary_min) : null,
+        // A single figure is stored as min = max.
+        salary_max: form.salary_max ? Number(form.salary_max) : form.salary_min ? Number(form.salary_min) : null,
+        salary_currency: form.salary_min || form.salary_max ? form.salary_currency.toUpperCase() || null : null,
+        benefits: form.benefits || null,
         // Noon local time keeps the date stable across timezones.
         applied_at: form.applied_at ? `${form.applied_at}T12:00:00-03:00` : null,
         stage: (form.stage || null) as ApplicationInput["stage"],
@@ -96,6 +105,12 @@ export function ApplicationForm({
       </div>
       <label>Stack (comma separated)<input placeholder="python, aws, react" {...field("stack")} /></label>
       <label>Location<input placeholder="Remote (LATAM)" {...field("location")} /></label>
+      <div className="three">
+        <label>Yearly salary min<input type="number" min={0} step={1000} placeholder="90000" {...field("salary_min")} /></label>
+        <label>Yearly salary max<input type="number" min={0} step={1000} placeholder="110000" {...field("salary_max")} /></label>
+        <label>Currency<input maxLength={8} {...field("salary_currency")} /></label>
+      </div>
+      <label>Other benefits<textarea rows={2} placeholder="Equity, bonus, PTO, health, remote stipend…" {...field("benefits")} /></label>
       <label>Job description<textarea rows={4} placeholder="Paste it: the study report uses it later" {...field("job_description")} /></label>
       <label>Notes<textarea rows={2} {...field("notes")} /></label>
       {error && <p className="error">{error}</p>}

@@ -82,8 +82,13 @@ class ApplicationInput:
     seniority: str | None = None
     stack: list[str] = field(default_factory=list)
     location: str | None = None
+    salary_min: int | None = None
+    salary_max: int | None = None
+    salary_currency: str | None = None
+    benefits: str | None = None
     applied_at: datetime | None = None
     stage: Stage | None = None  # historical imports: where the process ended up
+    stage_at: datetime | None = None
     notes: str | None = None
 
 
@@ -117,6 +122,10 @@ def create_application(
         seniority=data.seniority,
         stack=[s.strip() for s in data.stack if s.strip()],
         location=data.location,
+        salary_min=data.salary_min,
+        salary_max=data.salary_max,
+        salary_currency=(data.salary_currency or "").upper() or None,
+        benefits=data.benefits,
         applied_at=data.applied_at or now,
         origin=origin,
         notes=data.notes,
@@ -124,8 +133,12 @@ def create_application(
         updated_at=now,
     )
     repo.add_application(app)
+    if data.salary_min and data.salary_max and data.salary_min > data.salary_max:
+        raise InvalidInput("salary min is greater than salary max")
     if data.stage and data.stage != Stage.APPLIED:
-        change_stage(repo, clock, app.id, data.stage, at=app.applied_at, note="imported")
+        change_stage(
+            repo, clock, app.id, data.stage, at=data.stage_at or app.applied_at, note="imported"
+        )
     return app
 
 

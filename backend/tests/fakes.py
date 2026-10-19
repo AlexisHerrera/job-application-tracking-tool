@@ -209,10 +209,15 @@ class FakeLLM:
         self.calls: list[str] = []
         self.usage = LLMUsage()
         self.fail_with: Exception | None = None
+        self.paste_response: dict = {"applications": []}
 
     def complete_json(self, *, system, user, schema, max_tokens):
         if self.fail_with:
             raise self.fail_with
+        if "applications" in schema["properties"]:
+            self.calls.append("paste")
+            self.usage.add(LLMUsage(1, len(user) // 4, 200))
+            return self.paste_response
         kind = "gate" if "is_job_process" in schema["properties"] else "extract"
         self.calls.append(kind)
         self.usage.add(LLMUsage(1, len(user) // 4, 50))
@@ -238,4 +243,12 @@ def extraction(**overrides) -> dict:
         "summary": "scripted",
         "confidence": 0.9,
     }
+    return {**base, **overrides}
+
+
+def paste_record(**overrides) -> dict:
+    from jobtracker.core.paste import RECORD_PROPERTIES
+
+    base = {k: None for k in RECORD_PROPERTIES}
+    base.update({"stack": [], "evidence": "scripted"})
     return {**base, **overrides}
