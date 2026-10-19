@@ -27,10 +27,13 @@ ATS = {
     "calendly.com": "calendly",
 }
 
+AGENCIES = {"talentbridge.test": "talentbridge"}
+
 
 class MemoryRepo:
-    def __init__(self, ats: dict[str, str] | None = None):
+    def __init__(self, ats: dict[str, str] | None = None, agencies: dict[str, str] | None = None):
         self.ats = dict(ATS if ats is None else ats)
+        self.agencies = dict(AGENCIES if agencies is None else agencies)
         self.processed: dict[str, tuple] = {}
         self.sync: dict[str, SyncState] = {}
         self.companies: dict[uuid.UUID, Company] = {}
@@ -52,8 +55,11 @@ class MemoryRepo:
     def is_processed(self, message_id):
         return message_id in self.processed
 
+    def processed_verdict(self, message_id):
+        return self.processed[message_id][1] if message_id in self.processed else None
+
     def record_processed(self, message_id, uid, verdict, stage, reason):
-        self.processed.setdefault(message_id, (uid, verdict, stage, reason))
+        self.processed[message_id] = (uid, verdict, stage, reason)
 
     def get_sync_state(self, mailbox):
         s = self.sync.get(mailbox)
@@ -64,6 +70,9 @@ class MemoryRepo:
 
     def ats_domains(self):
         return self.ats
+
+    def agency_domains(self):
+        return self.agencies
 
     def company_domains(self):
         return {a.value for a in self.aliases if a.kind == AliasKind.DOMAIN}

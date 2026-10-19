@@ -8,7 +8,7 @@ import os
 import psycopg
 import pytest
 
-from jobtracker.adapters.db.migrate import migrate
+from jobtracker.adapters.db.migrate import migrate, migration_files
 from jobtracker.adapters.db.repo import PostgresRepo
 from jobtracker.core import services, stats
 from jobtracker.core.models import AliasKind, MatchMethod, Stage
@@ -32,12 +32,7 @@ def test_url():
         admin.execute(f"DROP DATABASE IF EXISTS {TEST_DB}")
         admin.execute(f"CREATE DATABASE {TEST_DB}")
     url = ADMIN_URL.rsplit("/", 1)[0] + f"/{TEST_DB}"
-    assert migrate(url) == [
-        "0001_init.sql",
-        "0002_seed_ats.sql",
-        "0003_salary_benefits.sql",
-        "0004_campaigns.sql",
-    ]
+    assert migrate(url) == [name for name, _ in migration_files()]
     assert migrate(url) == []  # idempotent
     yield url
     with psycopg.connect(ADMIN_URL, autocommit=True) as admin:

@@ -98,6 +98,22 @@ def _print_report(report: RunReport, pipeline: Pipeline) -> None:
     )
 
 
+def _show_outcome(email, out) -> None:
+    ev = out.event
+    detail = ""
+    if ev is not None:
+        x = ev.extraction or {}
+        detail = (
+            f" -> {ev.event_type} | {x.get('company') or '?'} / {x.get('role') or '?'}"
+            f" | conf {ev.confidence:.2f} | match {ev.match_method}"
+            + (f" | interview {ev.interview_at:%Y-%m-%d %H:%M}Z" if ev.interview_at else "")
+        )
+    typer.echo(
+        f"{email.received_at:%m-%d} {email.from_address[:34]:<34} {email.subject[:60]:<60} "
+        f"{out.verdict}:{out.stage or ''}:{out.reason}{detail}"
+    )
+
+
 @db_app.command("migrate")
 def db_migrate() -> None:
     """Apply pending migrations."""
@@ -135,6 +151,8 @@ def backfill(
     until: datetime | None = typer.Option(None, formats=["%Y-%m-%d"]),
     dry_run: bool = typer.Option(False),
     limit: int | None = typer.Option(None),
+    show: bool = typer.Option(False, help="Print one line per email (sender, subject, verdict)."),
+    reprocess_dropped: bool = typer.Option(False, help="Re-run mail dropped by an earlier run."),
 ) -> None:
     """Run the pipeline over a date range of your REAL inbox (paid LLM calls). Idempotent."""
     settings = _settings()
@@ -149,7 +167,11 @@ def backfill(
     source = _imap(settings)
     try:
         pipeline = _pipeline(settings, repo, dry_run)
-        report = run_backfill(pipeline, source, start, until.date() if until else None, limit)
+        pipeline.reprocess_dropped = reprocess_dropped
+        report = run_backfill(
+            pipeline, source, start, until.date() if until else None, limit,
+            on_outcome=_show_outcome if show else None,
+        )  # fmt: skip
         _print_report(report, pipeline)
     finally:
         source.close()

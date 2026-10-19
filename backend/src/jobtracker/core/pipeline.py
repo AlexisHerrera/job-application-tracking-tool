@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from zoneinfo import ZoneInfo
@@ -13,7 +14,7 @@ from jobtracker.core import services
 from jobtracker.core.calendar import first_interview
 from jobtracker.core.email_parse import snippet
 from jobtracker.core.filtering import FunnelConfig, FunnelStage, Verdict, classify
-from jobtracker.core.matching import MatchConfig, match
+from jobtracker.core.matching import MatchConfig, company_similarity, match, normalize_company
 from jobtracker.core.models import (
     EmailMessage,
     Event,
@@ -60,10 +61,12 @@ class Pipeline:
     clock: Clock
     cfg: PipelineConfig
     dry_run: bool = False
+    reprocess_dropped: bool = False  # re-run mail the funnel dropped earlier (after prompt tuning)
 
     def process(self, email: EmailMessage) -> Outcome:
         repo = self.repo
-        if repo.is_processed(email.message_id):
+        verdict = repo.processed_verdict(email.message_id)
+        if verdict and not (self.reprocess_dropped and verdict == "dropped"):
             return Outcome("duplicate")
 
         thread = repo.thread_lookup(
@@ -78,7 +81,9 @@ class Pipeline:
             )
 
         funnel = FunnelConfig(
-            set(repo.ats_domains()), repo.company_domains(), self.cfg.my_addresses
+            set(repo.ats_domains()),
+            repo.company_domains(),
+            agency_domains=set(repo.agency_domains()),
         )
         decision = classify(email, funnel, known_thread=thread.known)
         if decision.verdict == Verdict.DROP:
@@ -110,6 +115,7 @@ class Pipeline:
             return Outcome("error", "llm", type(err).__name__)
 
         extraction = ex.parse_extraction(raw, self.cfg.tz)
+        self._drop_agency_company(extraction)
         if (
             not extraction.is_job_related
             and extraction.confidence >= self.cfg.min_job_confidence
@@ -120,6 +126,21 @@ class Pipeline:
         self._apply_calendar(email, extraction)
         event = self._store(email, extraction, decision.stage, raw, thread.application_id)
         return self._record(email, Outcome("job", decision.stage, decision.reason, event))
+
+    def _drop_agency_company(self, extraction: Extraction) -> None:
+        """The model sometimes names the recruiting agency ("Silver.dev") as the hiring company."""
+        if not extraction.company:
+            return
+        targets = {
+            normalize_company(extraction.company),
+            normalize_company(extraction.company.replace(".", " ")),
+        }
+        for domain, name in self.repo.agency_domains().items():
+            labels = {normalize_company(name), normalize_company(domain.split(".")[0])}
+            # Containment too: the model says "mindIT HR Agency" for the agency "mindit hr".
+            if any(company_similarity(t, label) >= 90 for t in targets for label in labels):
+                extraction.company = None
+                return
 
     def _apply_calendar(self, email: EmailMessage, extraction: Extraction) -> None:
         cal = first_interview(email.calendar_parts, self.cfg.tz)
@@ -186,7 +207,11 @@ class Pipeline:
             event.application_id = result.application_id
         repo.add_event(event)
         if event.application_id:
+            services.fill_unknown_role(repo, event.application_id, extraction.role)
             services.recompute(repo, self.clock, event.application_id)
+        if result.create_application:
+            # Earlier mail (e.g. recruiter outreach) may belong to the application just created.
+            services.rematch_unassigned(repo, self.clock, self.cfg.tz)
         elif result.method == MatchMethod.NONE:
             log.info("unassigned event %s (%s)", event.id, extraction.event_type)
         return event
@@ -253,17 +278,24 @@ def run_incremental(pipeline: Pipeline, source: MailSource, limit: int | None = 
     return report
 
 
+OutcomeHook = Callable[[EmailMessage, Outcome], None]
+
+
 def run_backfill(
     pipeline: Pipeline,
     source: MailSource,
     since: date,
     until: date | None,
     limit: int | None = None,
+    on_outcome: OutcomeHook | None = None,
 ) -> RunReport:
     report = RunReport()
     for email in source.fetch_range(since, until):
         with pipeline.repo.transaction():
-            report.add(pipeline.process(email))
+            outcome = pipeline.process(email)
+            report.add(outcome)
+        if on_outcome:
+            on_outcome(email, outcome)
         if limit and report.seen >= limit:
             break
     return report

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from jobtracker.core.email_parse import clean_body
 from jobtracker.core.models import EmailMessage, EventType, Extraction, Stage
 
-PROMPT_VERSION = "2026-10-19.1"
+PROMPT_VERSION = "2026-10-19.2"
 
 
 def _nullable(schema: dict) -> dict:
@@ -62,6 +62,10 @@ Decide whether it is part of the job seeker's own application or hiring processe
 confirmation, a recruiter or company reaching out to them personally about a role, interview \
 scheduling, an assessment, an offer, a rejection, or a follow-up in such a conversation.
 
+Recruiting agencies count: a recruiter writing about a specific company's process is part of \
+that process. That includes practice or mock interviews the recruiter schedules as a step of a \
+specific company's process (e.g. "Acme - Backend Engineer - System Design Practice Session").
+
 NOT a job process: job alerts, job recommendations, newsletters, marketing from job boards or \
 ATS vendors, course or bootcamp ads, generic "we're hiring" posts, social notifications.
 
@@ -72,7 +76,7 @@ hiring process. Emails may be in English or Spanish; write the summary in Englis
 
 Field rules:
 - company: the hiring company (not the ATS vendor such as Greenhouse, Lever, Ashby, Workable, \
-LinkedIn). null if unknown.
+LinkedIn, and not a recruiting agency writing on its behalf). null if unknown.
 - role: the job title as written. null if not mentioned.
 - event_type: what this email is.
   application_received = automatic confirmation that an application was submitted.
@@ -81,6 +85,9 @@ LinkedIn). null if unknown.
   interview_invite = invite to an interview without a fixed time yet (e.g. "pick a slot").
   interview_scheduled = an interview with a confirmed date and time.
   interview_rescheduled = an interview time changed or was cancelled.
+  A practice or mock interview the recruiter or agency runs as a step of a specific company's \
+process counts as an interview of that process (interview_invite or interview_scheduled); \
+start the summary with "Practice session:".
   assessment = take-home, coding challenge, or online test.
   offer, rejection, withdrawal (the candidate or the company withdrew/closed the role), \
 info_request (they ask for documents/info), other.

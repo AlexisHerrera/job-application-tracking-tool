@@ -108,3 +108,23 @@ def test_alias_learning_never_poisons_shared_ats_senders():
         (AliasKind.ADDRESS, "maria.lopez.rec@gmail.com")
     ]
     assert aliases_to_learn("jobs-noreply@linkedin.com", "LinkedIn", ats) == []
+
+
+def test_company_similarity_handles_suffix_words():
+    from jobtracker.core.matching import company_similarity
+
+    assert company_similarity("pearl", "pearl talent") >= 85
+    assert company_similarity("mercado libre", "mercado libre argentina") >= 85
+    assert company_similarity("pearl", "pearson") < 85
+    assert company_similarity("ai", "ai labs") < 85  # too short to trust containment
+
+
+def test_receipt_repeating_one_word_is_not_a_candidate():
+    from jobtracker.core.filtering import FunnelConfig, Verdict, classify
+    from jobtracker.core.models import EmailMessage
+
+    m = load("personal.eml")
+    receipt = EmailMessage(message_id="<r@x>", from_address="noreply@rides.test", from_name="Rides",
+                           subject="Tu viaje del domingo", received_at=m.received_at,
+                           text="posición " * 6 + "gracias")  # fmt: skip
+    assert classify(receipt, FunnelConfig(set(), set()), known_thread=False).verdict == Verdict.DROP

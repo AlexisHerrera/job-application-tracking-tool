@@ -168,7 +168,7 @@ _APP_SELECT = (
 class PostgresRepo:
     def __init__(self, conn: psycopg.Connection):
         self.conn = conn
-        self._ats_cache: dict[str, str] | None = None
+        self._providers: dict[str, tuple[str, str]] | None = None
 
     @classmethod
     def connect(cls, conninfo: str) -> PostgresRepo:
@@ -195,10 +195,16 @@ class PostgresRepo:
             is not None
         )
 
+    def processed_verdict(self, message_id: str) -> str | None:
+        r = self._one("SELECT verdict FROM processed_messages WHERE message_id = %s", (message_id,))
+        return r["verdict"] if r else None
+
     def record_processed(self, message_id, uid, verdict, stage, reason) -> None:
         self.conn.execute(
             "INSERT INTO processed_messages (message_id, uid, verdict, stage, reason, processed_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING",
+            " VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO UPDATE SET"
+            " verdict = EXCLUDED.verdict, stage = EXCLUDED.stage, reason = EXCLUDED.reason,"
+            " processed_at = EXCLUDED.processed_at",
             (message_id, uid, verdict, stage, reason, _now()),
         )
 
@@ -216,11 +222,17 @@ class PostgresRepo:
         )
 
     # companies
+    def _provider_rows(self) -> dict[str, tuple[str, str]]:
+        if self._providers is None:
+            rows = self._all("SELECT domain, provider, kind FROM ats_providers")
+            self._providers = {r["domain"]: (r["provider"], r["kind"]) for r in rows}
+        return self._providers
+
     def ats_domains(self) -> dict[str, str]:
-        if self._ats_cache is None:
-            rows = self._all("SELECT domain, provider FROM ats_providers")
-            self._ats_cache = {r["domain"]: r["provider"] for r in rows}
-        return self._ats_cache
+        return {d: p for d, (p, k) in self._provider_rows().items() if k != "agency"}
+
+    def agency_domains(self) -> dict[str, str]:
+        return {d: p for d, (p, k) in self._provider_rows().items() if k == "agency"}
 
     def company_domains(self) -> set[str]:
         rows = self._all(

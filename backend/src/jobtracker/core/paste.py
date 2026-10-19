@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from rapidfuzz import fuzz
 
-from jobtracker.core.matching import normalize_company
+from jobtracker.core.matching import company_similarity, normalize_company
 from jobtracker.core.models import Application, Stage
 
 MAX_PASTE_CHARS = 40_000
@@ -319,7 +319,7 @@ def candidates(rec: ProposedRecord, apps: list[Application]) -> list[tuple[float
     role = (rec.values.get("role_title") or "").lower()
     scored = []
     for a in apps:
-        c = fuzz.ratio(target, normalize_company(a.company_name))
+        c = company_similarity(target, normalize_company(a.company_name))
         if c < 85:
             continue
         r = fuzz.token_set_ratio(role, a.role_title.lower()) if role else 50.0

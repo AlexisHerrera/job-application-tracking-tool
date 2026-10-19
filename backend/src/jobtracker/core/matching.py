@@ -9,7 +9,12 @@ from dataclasses import dataclass
 
 from rapidfuzz import fuzz
 
-from jobtracker.core.filtering import FREEMAIL_DOMAINS, JOB_BOARD_DOMAINS, domain_matches
+from jobtracker.core.filtering import (
+    FREEMAIL_DOMAINS,
+    GENERIC_LOCALPARTS,
+    JOB_BOARD_DOMAINS,
+    domain_matches,
+)
 from jobtracker.core.models import (
     AliasKind,
     Application,
@@ -28,11 +33,6 @@ _SUFFIXES = {
     "software", "group", "the",
 }  # fmt: skip
 
-GENERIC_LOCALPARTS = re.compile(
-    r"^(no-?reply|do-?not-?reply|notifications?|jobs|careers|talent|recruiting|recruitment|"
-    r"hiring|hello|hi|support|team|mail|info|candidates?|applications?|messages?|"
-    r"inmail-hit-reply|invitations?)([+.-].*)?$"
-)
 GENERIC_DISPLAY_NAMES = re.compile(
     r"^(greenhouse|lever|ashby|workable|linkedin|indeed|smartrecruiters|workday|bamboohr|"
     r"jobvite|icims|teamtailor|recruitee|breezy|rippling|gem|goodtime|calendly|no-?reply|"
@@ -51,6 +51,18 @@ def normalize_company(name: str) -> str:
     text = re.sub(r"[^a-z0-9 ]+", " ", text)
     words = [w for w in text.split() if w not in _SUFFIXES]
     return " ".join(words) or text.strip()
+
+
+def company_similarity(a: str, b: str) -> float:
+    """'pearl' vs 'pearl talent' should match; 'pearl' vs 'pearson' should not."""
+    if not a or not b:
+        return 0.0
+    plain = fuzz.ratio(a, b)
+    # Whole-word containment ("pearl" in "pearl talent"), only for names of 4+ letters.
+    short, long_ = sorted((a, b), key=len)
+    if len(short) >= 4 and f" {short} " in f" {long_} ":
+        return max(plain, 92.0)
+    return plain
 
 
 def display_name_key(display_name: str) -> str | None:
@@ -84,6 +96,10 @@ def _company_from_sender(
     email: EmailMessage, repo: Repository, ats: dict[str, str]
 ) -> Company | None:
     domain = email.from_domain
+    agencies = set(repo.agency_domains())
+    if domain_matches(domain, agencies):
+        # One agency recruiter handles many companies: the sender says nothing about which.
+        return None
     shared = set(ats) | JOB_BOARD_DOMAINS
     if not domain_matches(domain, shared) and domain not in FREEMAIL_DOMAINS:
         company_domains = repo.company_domains()
@@ -153,7 +169,7 @@ def match(
         target = normalize_company(extraction.company)
         scored: list[tuple[float, float, Application]] = []
         for a in apps:
-            c_score = fuzz.ratio(target, normalize_company(a.company_name))
+            c_score = company_similarity(target, normalize_company(a.company_name))
             if c_score < cfg.company_threshold:
                 continue
             r_score = (
@@ -193,9 +209,21 @@ def match(
     return MatchResult(None, None, MatchMethod.NONE)
 
 
+# Emails that prove a process exists. Agency-run processes never send "thanks for applying".
+CREATE_EVENTS = {
+    EventType.APPLICATION_RECEIVED,
+    EventType.SCREENING_INVITE,
+    EventType.INTERVIEW_INVITE,
+    EventType.INTERVIEW_SCHEDULED,
+    EventType.INTERVIEW_RESCHEDULED,
+    EventType.ASSESSMENT,
+    EventType.OFFER,
+}
+
+
 def _should_create(extraction: Extraction, cfg: MatchConfig) -> bool:
     return (
-        extraction.event_type == EventType.APPLICATION_RECEIVED
+        extraction.event_type in CREATE_EVENTS
         and extraction.confidence >= cfg.create_min_confidence
         and bool(extraction.company)
     )
@@ -208,17 +236,24 @@ def _role_exists(apps: list[Application], role: str | None) -> bool:
 
 
 def aliases_to_learn(
-    email_from: str, from_name: str, ats_domains: set[str]
+    email_from: str,
+    from_name: str,
+    ats_domains: set[str],
+    agency_domains: set[str] | frozenset[str] = frozenset(),
 ) -> list[tuple[AliasKind, str]]:
-    """What a manual assignment should teach, without poisoning shared ATS senders."""
+    """What a manual assignment should teach, without poisoning shared ATS or agency senders."""
     address = email_from.lower()
     local, _, domain = address.partition("@")
+    if domain_matches(domain, set(agency_domains)):
+        return []
     out: list[tuple[AliasKind, str]] = []
     is_ats = domain_matches(domain, ats_domains | JOB_BOARD_DOMAINS) is not None
     if not is_ats and domain and domain not in FREEMAIL_DOMAINS:
         out.append((AliasKind.DOMAIN, domain))
     elif domain in FREEMAIL_DOMAINS or not GENERIC_LOCALPARTS.match(local):
         out.append((AliasKind.ADDRESS, address))
-    if is_ats and (key := display_name_key(from_name)):
+    # "HiringRoom" as a display name is the ATS itself, not the company.
+    ats_names = {normalize_company(d.split(".")[0]) for d in ats_domains | JOB_BOARD_DOMAINS}
+    if is_ats and (key := display_name_key(from_name)) and key not in ats_names:
         out.append((AliasKind.DISPLAY_NAME, key))
     return out

@@ -48,7 +48,7 @@ EXCLUDED_DOMAINS = {"e.linkedin.com", "glassdoor.com", "match.indeed.com"}
 
 EXCLUDED_SUBJECTS = re.compile(
     r"jobs? you may (be interested in|like)|recommended jobs?|new jobs? (for you|match)|"
-    r"job alert|is hiring|are hiring|jobs? similar to|top job picks|"
+    r"job alert|is hiring|are hiring|jobs? similar to|top job picks|^new jobs?:|"
     r"empleos? que (te )?pueden interesar|alerta de empleo|nuevos empleos|empleos recomendados|"
     r"está contratando|vacantes (para ti|recomendadas)",
     re.IGNORECASE,
@@ -60,6 +60,13 @@ LINKEDIN_APPLIED = re.compile(
     r"tu solicitud (se ha enviado|fue enviada|se envió) a|tu solicitud .+ (fue vista|se ha visto)",
     re.IGNORECASE,
 )
+
+GENERIC_LOCALPARTS = re.compile(
+    r"^(no-?reply|do-?not-?reply|notifications?|jobs|careers|talent|recruiting|recruitment|"
+    r"hiring|hello|hi|support|team|mail|info|candidates?|applications?|messages?|"
+    r"inmail-hit-reply|invitations?)([+.-].*)?$"
+)
+
 
 # Shared senders/hosts that must never become a company's domain alias.
 JOB_BOARD_DOMAINS = {
@@ -103,7 +110,7 @@ STRONG = re.compile(
 )
 WEAK = re.compile(
     r"\b(position|role|posici[oó]n|puesto|vacante|opportunity|oportunidad|candidate|candidato|"
-    r"hiring|contrataci[oó]n|resume|cv|curr[ií]culum|salary|salario|team|equipo)\b",
+    r"hiring|contrataci[oó]n|resume|cv|curr[ií]culum|salary|salario)\b",
     re.IGNORECASE,
 )
 SCHEDULING_LINK = re.compile(
@@ -128,6 +135,7 @@ def domain_matches(domain: str, known: set[str]) -> str | None:
 class FunnelConfig:
     ats_domains: set[str]
     company_domains: set[str]
+    agency_domains: set[str] = field(default_factory=set)
     my_addresses: set[str] = field(default_factory=set)
 
 
@@ -146,13 +154,19 @@ def classify(email: EmailMessage, cfg: FunnelConfig, *, known_thread: bool) -> D
 
     if known_thread:
         return Decision(Verdict.PASS, FunnelStage.THREAD, "known_thread")
+    if (hit := domain_matches(domain, cfg.agency_domains)) and not GENERIC_LOCALPARTS.match(
+        sender.partition("@")[0]
+    ):
+        # A person at a recruiting agency writes about processes; their notifications@ don't.
+        return Decision(Verdict.PASS, FunnelStage.ALLOWLIST, f"agency:{hit}")
     if hit := domain_matches(domain, cfg.ats_domains):
         return Decision(Verdict.PASS, FunnelStage.ALLOWLIST, f"ats:{hit}")
     if hit := domain_matches(domain, cfg.company_domains):
         return Decision(Verdict.PASS, FunnelStage.ALLOWLIST, f"company:{hit}")
 
-    strong = len(STRONG.findall(head))
-    weak = len(WEAK.findall(head))
+    # Distinct keywords: a receipt repeating one word four times is not a signal.
+    strong = len({m.group(0).lower() for m in STRONG.finditer(head)})
+    weak = len({m.group(0).lower() for m in WEAK.finditer(head)})
     has_ics = bool(email.calendar_parts)
     has_link = bool(SCHEDULING_LINK.search(email.text))
     if has_ics or strong >= 1 or (has_link and weak >= 1) or weak >= 4:

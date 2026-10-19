@@ -57,7 +57,7 @@ def get_or_create_company(
 
 def add_company_domain(repo: Repository, company: Company, domain: str, learned_from: str) -> bool:
     domain = domain.strip().lower().removeprefix("www.")
-    shared = set(repo.ats_domains()) | JOB_BOARD_DOMAINS
+    shared = set(repo.ats_domains()) | set(repo.agency_domains()) | JOB_BOARD_DOMAINS
     if not domain or domain in FREEMAIL_DOMAINS or domain_matches(domain, shared):
         return False
     return repo.add_alias(CompanyAlias(company.id, AliasKind.DOMAIN, domain, learned_from))
@@ -156,16 +156,25 @@ def create_application_from_email(
             raise NotFound(str(company_id))
     else:
         company = get_or_create_company(repo, clock, extraction.company or "Unknown")
-    for kind, value in aliases_to_learn(email.from_address, email.from_name, set(ats)):
+    agencies = repo.agency_domains()
+    for kind, value in aliases_to_learn(
+        email.from_address, email.from_name, set(ats), set(agencies)
+    ):
         repo.add_alias(CompanyAlias(company.id, kind, value, "auto_create"))
     hit = domain_matches(email.from_domain, set(ats))
+    agency = domain_matches(email.from_domain, set(agencies))
+    linkedin = "linkedin" in email.from_domain
     now = clock.now()
     app = Application(
         company_id=company.id,
         company_name=company.name,
-        role_title=extraction.role or "(unknown role)",
-        source_ats=ats[hit] if hit else ("linkedin" if "linkedin" in email.from_domain else None),
-        source_channel="linkedin" if "linkedin" in email.from_domain else None,
+        role_title=extraction.role or UNKNOWN_ROLE,
+        source_ats=ats[hit]
+        if hit
+        else agencies[agency]
+        if agency
+        else ("linkedin" if linkedin else None),
+        source_channel="recruiter" if agency else ("linkedin" if linkedin else None),
         applied_at=email.received_at,
         origin=Origin.EMAIL,
         needs_review=True,
@@ -174,6 +183,17 @@ def create_application_from_email(
     )
     repo.add_application(app)
     return app
+
+
+UNKNOWN_ROLE = "(unknown role)"
+
+
+def fill_unknown_role(repo: Repository, app_id: uuid.UUID, role: str | None) -> None:
+    """Fill-only: a later email may name the role the first one didn't. Never overwrites."""
+    app = repo.get_application(app_id)
+    if app and role and app.role_title == UNKNOWN_ROLE:
+        app.role_title = role
+        repo.update_application(app)
 
 
 def recompute(repo: Repository, clock: Clock, app_id: uuid.UUID) -> Application:
@@ -230,7 +250,10 @@ def assign_event(
     repo.update_event(event)
     if event.from_address:
         for kind, value in aliases_to_learn(
-            event.from_address, event.from_name or "", set(repo.ats_domains())
+            event.from_address,
+            event.from_name or "",
+            set(repo.ats_domains()),
+            set(repo.agency_domains()),
         ):
             repo.add_alias(CompanyAlias(app.company_id, kind, value, "manual_assignment"))
     recompute(repo, clock, app_id)
