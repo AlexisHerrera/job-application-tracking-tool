@@ -161,3 +161,9 @@ button.danger, .danger { color: var(--danger); }
   .three { grid-template-columns: 1fr 1fr; }
   .changes td:nth-child(2) { width: auto; }
 }
+
+.campaign-picker { width: auto; margin-left: auto; padding: 6px 8px; font-size: 0.9rem; }
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.stats-row > div { display: grid; }
+.stats-row strong { font-size: 1.5rem; line-height: 1.2; }
+.stats-row span { color: var(--muted); font-size: 0.8rem; }

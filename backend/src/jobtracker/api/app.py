@@ -12,9 +12,9 @@ from fastapi.responses import JSONResponse
 from jobtracker.adapters.db.repo import PostgresRepo
 from jobtracker.api import schemas as s
 from jobtracker.api.auth import AccessVerifier, User
-from jobtracker.core import paste, services, stats
+from jobtracker.core import campaigns, paste, services, stats
 from jobtracker.core.clock import SystemClock
-from jobtracker.core.models import InterviewNote, Origin
+from jobtracker.core.models import Campaign, InterviewNote, Origin
 from jobtracker.core.ports import LLMClient, LLMError
 from jobtracker.core.stages import display_status
 from jobtracker.settings import Settings
@@ -65,6 +65,10 @@ def create_app(
     def _not_found(_req, _exc):
         return JSONResponse({"detail": "not found"}, status_code=404)
 
+    @app.exception_handler(campaigns.CampaignError)
+    def _campaign_invalid(_req, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=422)
+
     @app.exception_handler(services.InvalidInput)
     def _invalid(_req, exc):
         return JSONResponse({"detail": str(exc)}, status_code=422)
@@ -74,6 +78,19 @@ def create_app(
         return {"ok": True}
 
     api = APIRouter(prefix="/api", dependencies=[Depends(verifier)])
+
+    def scoped(repo, campaign: str | None):
+        """Applications of one campaign (`campaign` = id), or all when empty/'all'."""
+        apps = repo.list_applications()
+        if not campaign or campaign == "all":
+            return apps
+        c = repo.get_campaign(_uuid(campaign))
+        if c is None:
+            raise services.NotFound(campaign)
+        return campaigns.apps_in(c, apps, tz)
+
+    def today():
+        return clock.now().astimezone(tz).date()
 
     def app_json(a):
         return s.application_json(a, display_status(a, clock.now(), settings.ghost_days))
@@ -87,9 +104,10 @@ def create_app(
         status: str | None = Query(None),
         q: str | None = Query(None),
         needs_review: bool | None = Query(None),
+        campaign: str | None = Query(None),
         repo: PostgresRepo = Depends(get_repo),
     ):
-        rows = [app_json(a) for a in repo.list_applications()]
+        rows = [app_json(a) for a in scoped(repo, campaign)]
         if status:
             wanted = set(status.split(","))
             rows = [r for r in rows if r["status"] in wanted]
@@ -289,9 +307,9 @@ def create_app(
             repo.delete_note(_uuid(note_id))
 
     @api.get("/stats")
-    def get_stats(repo: PostgresRepo = Depends(get_repo)):
+    def get_stats(campaign: str | None = Query(None), repo: PostgresRepo = Depends(get_repo)):
         return stats.summary(
-            repo.list_applications(),
+            scoped(repo, campaign),
             repo.list_all_events(),
             clock.now(),
             settings.ghost_days,
@@ -309,7 +327,54 @@ def create_app(
             ),
             "needs_review": sum(1 for a in apps if a.needs_review),
             "unassigned": len(repo.list_unassigned()),
+            "campaign": (
+                campaigns.summary(c, apps, repo.list_all_events(), today(), tz)
+                if (c := campaigns.current(repo.list_campaigns(), today()))
+                else None
+            ),
         }
+
+    @api.get("/campaigns")
+    def list_campaigns(repo: PostgresRepo = Depends(get_repo)):
+        apps, events, cs = repo.list_applications(), repo.list_all_events(), repo.list_campaigns()
+        cur = campaigns.current(cs, today())
+        return {
+            "current_id": str(cur.id) if cur else None,
+            "campaigns": [campaigns.summary(c, apps, events, today(), tz) for c in reversed(cs)],
+        }
+
+    @api.post("/campaigns", status_code=201)
+    def create_campaign(body: s.CampaignIn, repo: PostgresRepo = Depends(get_repo)):
+        c = Campaign(
+            name=body.name.strip(),
+            started_on=body.started_on,
+            ended_on=body.ended_on,
+            notes=body.notes,
+        )
+        with repo.transaction():
+            campaigns.save(repo, clock, c, close_previous=body.close_previous)
+        return campaigns.summary(c, repo.list_applications(), repo.list_all_events(), today(), tz)
+
+    @api.patch("/campaigns/{campaign_id}")
+    def patch_campaign(
+        campaign_id: str, body: s.CampaignPatch, repo: PostgresRepo = Depends(get_repo)
+    ):
+        with repo.transaction():
+            c = repo.get_campaign(_uuid(campaign_id))
+            if c is None:
+                raise services.NotFound(campaign_id)
+            for field, value in body.model_dump(exclude_unset=True).items():
+                setattr(
+                    c, field, value.strip() if isinstance(value, str) and field == "name" else value
+                )
+            campaigns.save(repo, clock, c)
+        return campaigns.summary(c, repo.list_applications(), repo.list_all_events(), today(), tz)
+
+    @api.delete("/campaigns/{campaign_id}", status_code=204)
+    def delete_campaign(campaign_id: str, repo: PostgresRepo = Depends(get_repo)):
+        # Only the date range goes away; applications are untouched.
+        with repo.transaction():
+            repo.delete_campaign(_uuid(campaign_id))
 
     app.include_router(api)
     return app

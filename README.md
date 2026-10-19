@@ -78,8 +78,9 @@ Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside
 | `app import file.csv` | Bulk import (`company,role,applied_at,stage,job_url,company_domain,source_channel,seniority,stack,location,notes`) |
 | `app list`, `stats` | Quick look from the terminal |
 | `process-eml FILE…` | Run the pipeline on local `.eml` files (dry run by default) ⚠️ paid LLM calls for job-like mail |
-| `backfill --since 2026-01-01 [--until …] [--dry-run]` | ⚠️ Reads your **real inbox** over a date range, with paid LLM calls. Idempotent |
+| `backfill [--since 2026-09-15] [--until …] [--dry-run] [--limit N]` (defaults to the current campaign's start) | ⚠️ Reads your **real inbox** over a date range, with paid LLM calls. Idempotent |
 | `ingest [--dry-run] [--loop 900]` | ⚠️ Incremental run from the last processed UID (what the Lambda does every 15 min) |
+| `campaign create --name "Sep 2026" --start 2026-09-15`, `campaign list` | Job-search campaigns (an ongoing earlier one ends the day before) |
 | `dev seed` | Fake sample data (local only) |
 
 The first `ingest` run only records the mailbox's current position. Use `backfill` for history; Message-ID dedupe makes overlaps harmless.
@@ -93,6 +94,10 @@ The first `ingest` run only records the mailbox's current position. Use `backfil
   The pasted text is sent to Anthropic for extraction and is not stored. Each "Read with AI" is one paid call (fractions of a cent with Haiku).
 - **Form**: the classic fields, plus a yearly salary range (a single figure is stored as min = max), currency and other benefits. Monthly or hourly salaries found in pasted text are converted to yearly (×12 / ×2080), and the review screen says so.
 - **CSV**: still available from the CLI (`app import`) for bulk loads.
+
+## Campaigns
+
+A campaign is a job-search period (start date, optional end). Applications belong to the campaign whose range contains their applied date. That's computed, not stored, so editing a campaign's dates re-sorts its applications. The header picker scopes the applications list and stats. Each campaign shows its days running, applications per week, and days to the first interview.
 
 ## How email processing works (short version)
 

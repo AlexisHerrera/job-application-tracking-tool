@@ -15,6 +15,7 @@ from psycopg.types.json import Jsonb
 from jobtracker.core.models import (
     AliasKind,
     Application,
+    Campaign,
     Company,
     CompanyAlias,
     Event,
@@ -372,6 +373,34 @@ class PostgresRepo:
             (at, gm_thread_id, at),
         )
         return cur.rowcount
+
+    # campaigns
+    @staticmethod
+    def _campaign_from(r: dict) -> Campaign:
+        return Campaign(
+            id=r["id"], name=r["name"], started_on=r["started_on"], ended_on=r["ended_on"],
+            notes=r["notes"], created_at=r["created_at"],
+        )  # fmt: skip
+
+    def list_campaigns(self) -> list[Campaign]:
+        return [
+            self._campaign_from(r) for r in self._all("SELECT * FROM campaigns ORDER BY started_on")
+        ]
+
+    def get_campaign(self, campaign_id: uuid.UUID) -> Campaign | None:
+        r = self._one("SELECT * FROM campaigns WHERE id = %s", (campaign_id,))
+        return self._campaign_from(r) if r else None
+
+    def save_campaign(self, c: Campaign) -> None:
+        self.conn.execute(
+            "INSERT INTO campaigns (id, name, started_on, ended_on, notes, created_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name,"
+            " started_on = EXCLUDED.started_on, ended_on = EXCLUDED.ended_on, notes = EXCLUDED.notes",
+            (c.id, c.name, c.started_on, c.ended_on, c.notes, c.created_at or _now()),
+        )
+
+    def delete_campaign(self, campaign_id: uuid.UUID) -> None:
+        self.conn.execute("DELETE FROM campaigns WHERE id = %s", (campaign_id,))
 
     # interview notes
     def list_notes(self, application_id: uuid.UUID | None = None) -> list[InterviewNote]:

@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-from jobtracker.core import services
+from jobtracker.core import campaigns, services
 from jobtracker.core.models import (
+    Campaign,
     Event,
     EventKind,
     EventType,
@@ -40,6 +41,9 @@ def seed(repo: Repository, clock: Clock, tz: ZoneInfo) -> int:
     if repo.get_event_by_message_id("<seed-acme-0@example.com>"):
         raise RuntimeError("sample data already loaded")
     now = clock.now()
+    if not repo.list_campaigns():
+        start = (now - timedelta(days=60)).astimezone(tz).date()
+        campaigns.save(repo, clock, Campaign(name="Sample campaign", started_on=start))
     for company, role, days, channel, seniority, stack, emails in SAMPLES:
         slug = company.split()[0].lower()
         app = services.create_application(

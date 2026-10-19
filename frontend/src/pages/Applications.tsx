@@ -1,5 +1,6 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { api, fmtDate, label } from "../api";
+import { useCampaign } from "../campaign";
 import { Loading, StatusBadge } from "../components";
 import { useAsync } from "../useAsync";
 
@@ -12,11 +13,12 @@ export default function Applications() {
   const q = params.get("q") ?? "";
   const review = params.get("needs_review") === "true";
 
-  const query: Record<string, string> = {};
+  const { selected: campaign } = useCampaign();
+  const query: Record<string, string> = { campaign };
   if (status !== "all") query.status = status === "active" ? ACTIVE : status;
   if (q) query.q = q;
   if (review) query.needs_review = "true";
-  const { data, error, loading } = useAsync(() => api.applications(query), [status, q, review]);
+  const { data, error, loading } = useAsync(() => api.applications(query), [status, q, review, campaign]);
 
   const set = (key: string, value: string | null) => {
     const next = new URLSearchParams(params);

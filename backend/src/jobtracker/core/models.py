@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 
@@ -195,6 +195,18 @@ class Event:
     match_method: MatchMethod = MatchMethod.NONE
     assigned_by: str | None = None  # auto | manual
     dismissed: bool = False
+    created_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class Campaign:
+    """A job-search period. Applications belong to it by their applied date (computed, not stored)."""
+
+    name: str
+    started_on: date
+    id: uuid.UUID = field(default_factory=new_id)
+    ended_on: date | None = None
+    notes: str | None = None
     created_at: datetime | None = None
 
 

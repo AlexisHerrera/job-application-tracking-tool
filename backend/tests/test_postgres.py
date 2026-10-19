@@ -32,7 +32,12 @@ def test_url():
         admin.execute(f"DROP DATABASE IF EXISTS {TEST_DB}")
         admin.execute(f"CREATE DATABASE {TEST_DB}")
     url = ADMIN_URL.rsplit("/", 1)[0] + f"/{TEST_DB}"
-    assert migrate(url) == ["0001_init.sql", "0002_seed_ats.sql", "0003_salary_benefits.sql"]
+    assert migrate(url) == [
+        "0001_init.sql",
+        "0002_seed_ats.sql",
+        "0003_salary_benefits.sql",
+        "0004_campaigns.sql",
+    ]
     assert migrate(url) == []  # idempotent
     yield url
     with psycopg.connect(ADMIN_URL, autocommit=True) as admin:

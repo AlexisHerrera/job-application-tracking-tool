@@ -8,8 +8,19 @@ export default function DashboardPage() {
   if (!data) return <Loading error={error} loading={loading} />;
   const { upcoming_interviews: upcoming, follow_ups: fu } = data;
 
+  const c = data.campaign;
   return (
     <div className="grid">
+      {c && (
+        <Card title={<>{c.name} <span className="muted small">· day {c.day}</span></>} actions={<Link to="/campaigns" className="small">campaigns</Link>}>
+          <div className="stats-row">
+            <div><strong>{c.applications}</strong><span>applications</span></div>
+            <div><strong>{c.per_week}</strong><span>per week</span></div>
+            <div><strong>{c.days_to_first_interview ?? "—"}</strong><span>days to 1st interview</span></div>
+          </div>
+        </Card>
+      )}
+      {!c && <p className="muted small">No ongoing campaign. <Link to="/campaigns">Start one</Link> to group this search.</p>}
       {(data.unassigned > 0 || data.needs_review > 0) && (
         <Card title="Needs your attention">
           <ul className="plain">

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -189,6 +189,21 @@ def option_json(o) -> dict:
         if sc
         else None,
     }
+
+
+class CampaignIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    started_on: date
+    ended_on: date | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    close_previous: bool = True  # an ongoing earlier campaign ends the day before this one starts
+
+
+class CampaignPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    started_on: date | None = None
+    ended_on: date | None = None
+    notes: str | None = Field(default=None, max_length=2000)
 
 
 class StageChangeIn(BaseModel):

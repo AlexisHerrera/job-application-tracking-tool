@@ -38,6 +38,7 @@ class MemoryRepo:
         self.apps: dict[uuid.UUID, Application] = {}
         self.events: dict[uuid.UUID, Event] = {}
         self.notes: dict[uuid.UUID, InterviewNote] = {}
+        self.campaigns: dict[uuid.UUID, object] = {}
 
     @contextmanager
     def transaction(self):
@@ -180,6 +181,19 @@ class MemoryRepo:
                 e.replied_at = at
                 n += 1
         return n
+
+    def list_campaigns(self):
+        return sorted((copy.copy(c) for c in self.campaigns.values()), key=lambda c: c.started_on)
+
+    def get_campaign(self, campaign_id):
+        c = self.campaigns.get(campaign_id)
+        return copy.copy(c) if c else None
+
+    def save_campaign(self, c):
+        self.campaigns[c.id] = copy.copy(c)
+
+    def delete_campaign(self, campaign_id):
+        self.campaigns.pop(campaign_id, None)
 
     def list_notes(self, application_id=None):
         return [

@@ -12,7 +12,7 @@ import typer
 
 from jobtracker.adapters.db.migrate import migrate
 from jobtracker.adapters.db.repo import PostgresRepo
-from jobtracker.core import services, stats
+from jobtracker.core import campaigns, services, stats
 from jobtracker.core.clock import SystemClock
 from jobtracker.core.email_parse import parse_email
 from jobtracker.core.models import Origin, Stage
@@ -33,6 +33,8 @@ dev_app = typer.Typer(no_args_is_help=True, help="Local development helpers.")
 app.add_typer(db_app, name="db")
 app.add_typer(apps_app, name="app")
 app.add_typer(dev_app, name="dev")
+campaign_app = typer.Typer(no_args_is_help=True, help="Job-search campaigns.")
+app.add_typer(campaign_app, name="campaign")
 
 
 @app.callback()
@@ -127,7 +129,9 @@ def ingest(
 
 @app.command()
 def backfill(
-    since: datetime = typer.Option(..., formats=["%Y-%m-%d"]),
+    since: datetime | None = typer.Option(
+        None, formats=["%Y-%m-%d"], help="Default: the current campaign's start."
+    ),
     until: datetime | None = typer.Option(None, formats=["%Y-%m-%d"]),
     dry_run: bool = typer.Option(False),
     limit: int | None = typer.Option(None),
@@ -135,12 +139,17 @@ def backfill(
     """Run the pipeline over a date range of your REAL inbox (paid LLM calls). Idempotent."""
     settings = _settings()
     repo = _repo(settings)
+    start = since.date() if since else None
+    if start is None:
+        cur = campaigns.current(repo.list_campaigns(), datetime.now(settings.tz).date())
+        if cur is None:
+            raise typer.BadParameter("pass --since or create a campaign first")
+        start = cur.started_on
+        typer.echo(f"backfilling from campaign '{cur.name}' start: {start}")
     source = _imap(settings)
     try:
         pipeline = _pipeline(settings, repo, dry_run)
-        report = run_backfill(
-            pipeline, source, since.date(), until.date() if until else None, limit
-        )
+        report = run_backfill(pipeline, source, start, until.date() if until else None, limit)
         _print_report(report, pipeline)
     finally:
         source.close()
@@ -225,6 +234,37 @@ def stats_cmd() -> None:
         settings.ghost_days, settings.followup_days,
     )  # fmt: skip
     typer.echo(json.dumps(data, indent=2, default=str))
+
+
+@campaign_app.command("create")
+def campaign_create(
+    name: str = typer.Option(...),
+    start: datetime = typer.Option(..., formats=["%Y-%m-%d"]),
+    notes: str | None = typer.Option(None),
+) -> None:
+    """Start a campaign. An ongoing earlier one ends the day before."""
+    from jobtracker.core.models import Campaign
+
+    settings = _settings()
+    repo = _repo(settings)
+    c = Campaign(name=name, started_on=start.date(), notes=notes)
+    with repo.transaction():
+        campaigns.save(repo, SystemClock(), c, close_previous=True)
+    typer.echo(f"campaign '{c.name}' starts {c.started_on} ({c.id})")
+
+
+@campaign_app.command("list")
+def campaign_list() -> None:
+    settings = _settings()
+    repo = _repo(settings)
+    today = datetime.now(settings.tz).date()
+    apps, events = repo.list_applications(), repo.list_all_events()
+    for c in repo.list_campaigns():
+        s = campaigns.summary(c, apps, events, today, settings.tz)
+        typer.echo(
+            f"{s['started_on']} → {s['ended_on'] or 'ongoing'}  {s['name']}: day {s['day']}, "
+            f"{s['applications']} applications, first interview: {s['first_interview_on'] or '—'}"
+        )
 
 
 @dev_app.command("seed")

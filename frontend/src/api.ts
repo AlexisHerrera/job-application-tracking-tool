@@ -75,6 +75,21 @@ export interface ApplicationDetail extends Application {
   aliases: { kind: string; value: string; learned_from: string }[];
 }
 
+export interface CampaignSummary {
+  id: string;
+  name: string;
+  started_on: string;
+  ended_on: string | null;
+  ongoing: boolean;
+  notes: string | null;
+  day: number;
+  applications: number;
+  per_week: number;
+  first_response_on: string | null;
+  first_interview_on: string | null;
+  days_to_first_interview: number | null;
+}
+
 export interface Dashboard {
   upcoming_interviews: { application_id: string; company: string; role: string; round: number | null; at: string }[];
   follow_ups: {
@@ -83,6 +98,7 @@ export interface Dashboard {
   };
   needs_review: number;
   unassigned: number;
+  campaign: CampaignSummary | null;
 }
 
 export type ChangeKind = "fill" | "change" | "append";
@@ -172,6 +188,12 @@ export const api = {
   markReviewed: (id: string) => request<Application>("POST", `/applications/${id}/reviewed`, {}),
   importCsv: (csv: string) =>
     request<{ created: number; matched_from_inbox: number }>("POST", "/applications/import", { csv }),
+  campaigns: () => request<{ current_id: string | null; campaigns: CampaignSummary[] }>("GET", "/campaigns"),
+  createCampaign: (data: { name: string; started_on: string; ended_on?: string | null; notes?: string | null }) =>
+    request<CampaignSummary>("POST", "/campaigns", data),
+  updateCampaign: (id: string, data: Partial<Pick<CampaignSummary, "name" | "started_on" | "ended_on" | "notes">>) =>
+    request<CampaignSummary>("PATCH", `/campaigns/${id}`, data),
+  deleteCampaign: (id: string) => request<void>("DELETE", `/campaigns/${id}`),
   inbox: () => request<TimelineEvent[]>("GET", "/inbox"),
   assign: (eventId: string, applicationId: string) =>
     request<TimelineEvent>("POST", `/events/${eventId}/assign`, { application_id: applicationId }),
@@ -186,6 +208,8 @@ const TZ = "America/Buenos_Aires";
 
 export function fmtDate(iso: string | null, withTime = false): string {
   if (!iso) return "—";
+  // Plain dates (campaign days) are calendar days, not instants: don't shift them by timezone.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) iso = `${iso}T12:00:00-03:00`;
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: TZ,
     day: "2-digit",
