@@ -272,6 +272,7 @@ def extraction(**overrides) -> dict:
 def paste_record(**overrides) -> dict:
     from jobtracker.core.paste import RECORD_PROPERTIES
 
-    base = {k: None for k in RECORD_PROPERTIES}
+    # Mirrors the real schema: "" / 0 mean unknown (no nullable fields).
+    base = {k: 0 if k.startswith("salary_m") else "" for k in RECORD_PROPERTIES}
     base.update({"stack": [], "evidence": "scripted"})
     return {**base, **overrides}

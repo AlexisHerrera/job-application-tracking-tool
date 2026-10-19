@@ -58,3 +58,33 @@ def test_dsql_index_rewrite():
         == "CREATE INDEX ASYNC IF NOT EXISTS x ON t (a)"
     )
     assert adapt_for_dsql("CREATE TABLE t (a int)") == "CREATE TABLE t (a int)"
+
+
+def _union_params(schema: dict) -> int:
+    """Properties whose schema is a union (anyOf / type list), counted recursively."""
+    count = 0
+    for prop in (schema.get("properties") or {}).values():
+        if "anyOf" in prop or isinstance(prop.get("type"), list):
+            count += 1
+        count += _union_params(prop)
+        if isinstance(prop.get("items"), dict):
+            count += _union_params(prop["items"])
+    return count
+
+
+def test_llm_schemas_respect_structured_output_limits():
+    # The API rejects schemas with more than 16 union-typed parameters (found in production).
+    from jobtracker.core.extraction import EXTRACTION_SCHEMA, GATE_SCHEMA
+    from jobtracker.core.paste import PASTE_SCHEMA
+
+    for name, schema in {
+        "gate": GATE_SCHEMA,
+        "extraction": EXTRACTION_SCHEMA,
+        "paste": PASTE_SCHEMA,
+    }.items():
+        assert _union_params(schema) <= 16, name
+        assert (
+            _union_params(schema["properties"]["applications"]["items"]) <= 16
+            if name == "paste"
+            else True
+        )

@@ -34,7 +34,9 @@ class AnthropicLLM:
                 },
             )
         except anthropic.BadRequestError as err:
-            # A request we built is malformed: retrying the same email won't help.
+            # A request we built is malformed: retrying the same email won't help. The API's
+            # message describes our request (schema, params), never the email content.
+            log.error("anthropic rejected the request: %s", err.message)
             raise LLMRefusal(f"bad request: {err.type}") from err
         except (
             anthropic.RateLimitError,

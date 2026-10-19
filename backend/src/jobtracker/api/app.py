@@ -139,14 +139,14 @@ def create_app(
             if forced is None:
                 raise services.NotFound(body.application_id)
         llm = make_llm()
-        system, user = paste.paste_prompt(body.text, clock.now(), tz)
+        system, user = paste.paste_prompt(body.text, clock.now(), tz, forced)
         try:
             raw = llm.complete_json(
                 system=system, user=user, schema=paste.PASTE_SCHEMA, max_tokens=16000
             )
         except LLMError as err:
             raise HTTPException(502, f"AI extraction failed ({err}); try again") from err
-        records = paste.parse_records(raw, tz)
+        records = paste.parse_records(raw, tz, forced.company_name if forced else None)
         if forced is not None:
             records = records[:1]
         apps = repo.list_applications()

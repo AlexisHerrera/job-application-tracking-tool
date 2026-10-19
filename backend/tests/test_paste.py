@@ -176,3 +176,28 @@ def test_create_with_stage_at(setup):
                                                "stage_at": "2026-09-20T12:00:00-03:00"})  # fmt: skip
     [ev] = repo.list_events(services.uuid.UUID(r.json()["id"]))
     assert ev.occurred_at == datetime(2026, 9, 20, 15, 0, tzinfo=UTC)
+
+
+def test_empty_strings_and_zero_mean_unknown():
+    [r] = _records(paste_record(company="Northwind", role_title="", salary_min=0, salary_max=0,
+                                stage="", seniority="", salary_period="", applied_at=""))  # fmt: skip
+    assert r.values["role_title"] is None and r.values["salary_min"] is None
+    assert r.stage is None and r.values["seniority"] is None and r.values["applied_at"] is None
+
+
+def test_scoped_paste_without_company_uses_target(setup):
+    client, _repo, llm = setup
+    app = client.post(
+        "/api/applications", json={"company": "Pasito", "role_title": "Fullstack engineer UI"}
+    ).json()
+    llm.paste_response = {"applications": [paste_record(company="", stage="rejected",
+                                                        notes="Feedback: couldn't go deep on implementation")]}  # fmt: skip
+    body = client.post(
+        "/api/paste",
+        json={"text": "Sorry for late feedback. It's a no.", "application_id": app["id"]},
+    ).json()
+    [rec] = body["records"]
+    assert rec["company"] == "Pasito"
+    opt = rec["options"][0]
+    assert opt["stage_change"]["proposed"] == "rejected" and opt["stage_change"]["kind"] == "change"
+    assert opt["changes"][0]["field"] == "notes"
