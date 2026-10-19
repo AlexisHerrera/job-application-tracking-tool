@@ -60,7 +60,8 @@ def project(app: Application, events: Iterable[Event], now: datetime) -> Project
     """Replay events in time order.
 
     Rules: automatic events only move forward; a terminal stage sticks unless a later terminal
-    event or a manual change overrides it. Manual changes can set any stage.
+    event or a manual change overrides it. Manual changes can set any stage. On hold remembers
+    where the process was and resumes when an email moves it to that stage or beyond.
     """
     ordered = sorted((e for e in events if not e.dismissed), key=lambda e: e.occurred_at)
     stage = Stage.APPLIED
@@ -68,6 +69,7 @@ def project(app: Application, events: Iterable[Event], now: datetime) -> Project
     rounds: set[datetime] = set()
     explicit_round: int | None = None
     last_at = app.applied_at
+    resume = Stage.APPLIED  # where an on-hold process stands
 
     for ev in ordered:
         last_at = ev.occurred_at if last_at is None else max(last_at, ev.occurred_at)
@@ -80,10 +82,22 @@ def project(app: Application, events: Iterable[Event], now: datetime) -> Project
         if new is None:
             continue
         manual = ev.kind == EventKind.MANUAL
-        if manual or new in TERMINAL:
+        if new == Stage.ON_HOLD:
+            if stage not in TERMINAL and stage != Stage.ON_HOLD:
+                resume = stage
+            if manual or stage not in TERMINAL:
+                stage = Stage.ON_HOLD
+        elif manual or new in TERMINAL:
             stage = new
             if ev.round and manual:
                 explicit_round = ev.round
+        elif stage == Stage.ON_HOLD:
+            # News that moves the process along means it's no longer paused.
+            if (
+                ev.event_type != EventType.APPLICATION_RECEIVED
+                and PROGRESS_ORDER[new] >= PROGRESS_ORDER[resume]
+            ):
+                stage = new
         elif stage not in TERMINAL and PROGRESS_ORDER[new] > PROGRESS_ORDER[stage]:
             stage = new
         if stage in PROGRESS_ORDER and PROGRESS_ORDER[stage] > PROGRESS_ORDER[max_stage]:
@@ -120,7 +134,7 @@ def is_active(app: Application) -> bool:
 
 
 def is_ghosted(app: Application, now: datetime, ghost_days: int) -> bool:
-    if not is_active(app):
+    if not is_active(app) or app.current_stage == Stage.ON_HOLD:
         return False
     if app.next_interview_at and app.next_interview_at >= now:
         return False
@@ -134,7 +148,7 @@ def display_status(app: Application, now: datetime, ghost_days: int) -> str:
 
 def is_stale(app: Application, now: datetime, followup_days: int, ghost_days: int) -> bool:
     """Active, quiet for FOLLOWUP_DAYS, not yet ghosted: worth a nudge."""
-    if not is_active(app) or is_ghosted(app, now, ghost_days):
+    if not is_active(app) or app.current_stage == Stage.ON_HOLD or is_ghosted(app, now, ghost_days):
         return False
     if app.next_interview_at and app.next_interview_at >= now:
         return False

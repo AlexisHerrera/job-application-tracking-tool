@@ -4,8 +4,8 @@ import { useCampaign } from "../campaign";
 import { Loading, StatusBadge } from "../components";
 import { useAsync } from "../useAsync";
 
-const FILTERS = ["all", "active", "applied", "screening", "interviewing", "offer", "rejected", "withdrawn", "ghosted"];
-const ACTIVE = "applied,screening,interviewing";
+const FILTERS = ["all", "active", "applied", "screening", "interviewing", "on_hold", "offer", "rejected", "withdrawn", "ghosted"];
+const ACTIVE = "applied,screening,interviewing,on_hold";
 
 export default function Applications() {
   const [params, setParams] = useSearchParams();

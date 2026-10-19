@@ -1,8 +1,8 @@
 // Typed client for the FastAPI backend. Same origin, so Cloudflare Access cookies ride along.
 
 export type Status =
-  | "applied" | "screening" | "interviewing" | "offer" | "rejected" | "withdrawn" | "ghosted";
-export const STAGES = ["applied", "screening", "interviewing", "offer", "rejected", "withdrawn"] as const;
+  | "applied" | "screening" | "interviewing" | "on_hold" | "offer" | "rejected" | "withdrawn" | "ghosted";
+export const STAGES = ["applied", "screening", "interviewing", "on_hold", "offer", "rejected", "withdrawn"] as const;
 export type Stage = (typeof STAGES)[number];
 
 export interface Application {

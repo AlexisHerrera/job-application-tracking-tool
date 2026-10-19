@@ -63,3 +63,42 @@ def test_ghosted_and_stale_are_computed():
     app.current_stage = Stage.REJECTED
     assert display_status(app, NOW, 14) == "rejected"
     assert not is_stale(app, NOW, 7, 14)
+
+
+def _manual(days_ago, stage):
+    return _ev(days_ago, EventType.MANUAL_STAGE_CHANGE, kind=EventKind.MANUAL, stage_implied=stage)
+
+
+def test_on_hold_pauses_timers_and_keeps_max_stage():
+    events = [_ev(40, EventType.INTERVIEW_INVITE), _manual(35, Stage.ON_HOLD)]
+    p = project(_app(), events, NOW)
+    assert p.current_stage == Stage.ON_HOLD and p.max_stage_reached == Stage.INTERVIEWING
+    app = _app(current_stage=Stage.ON_HOLD, last_event_at=NOW - timedelta(days=35))
+    assert display_status(app, NOW, 14) == "on_hold"  # not ghosted
+    assert not is_stale(app, NOW, 7, 14)
+
+
+def test_on_hold_resumes_on_progress_but_not_on_noise():
+    base = [_ev(40, EventType.INTERVIEW_INVITE), _manual(35, Stage.ON_HOLD)]
+    assert (
+        project(_app(), [*base, _ev(30, EventType.INFO_REQUEST)], NOW).current_stage
+        == Stage.ON_HOLD
+    )
+    assert (
+        project(_app(), [*base, _ev(30, EventType.APPLICATION_RECEIVED)], NOW).current_stage
+        == Stage.ON_HOLD
+    )
+    assert (
+        project(_app(), [*base, _ev(30, EventType.SCREENING_INVITE)], NOW).current_stage
+        == Stage.ON_HOLD
+    )
+    assert (
+        project(_app(), [*base, _ev(30, EventType.INTERVIEW_SCHEDULED)], NOW).current_stage
+        == Stage.INTERVIEWING
+    )
+    assert (
+        project(_app(), [*base, _ev(30, EventType.REJECTION)], NOW).current_stage == Stage.REJECTED
+    )
+    assert (
+        project(_app(), [*base, _manual(30, Stage.SCREENING)], NOW).current_stage == Stage.SCREENING
+    )

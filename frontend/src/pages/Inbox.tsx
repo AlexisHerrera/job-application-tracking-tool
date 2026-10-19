@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, fmtDate, label, type Application, type TimelineEvent } from "../api";
 import { ApplicationForm } from "../ApplicationForm";
+import { ApplicationPicker } from "../ApplicationPicker";
 import { Card, Loading } from "../components";
 import { useAsync } from "../useAsync";
 
@@ -21,8 +22,9 @@ export default function Inbox() {
 }
 
 function InboxItem({ e, apps, onDone }: { e: TimelineEvent; apps: Application[]; onDone: () => void }) {
-  const suggested = apps.filter((a) => a.company === (e.company_hint ?? e.extracted_company));
-  const [target, setTarget] = useState(suggested[0]?.id ?? "");
+  const hint = (e.company_hint ?? e.extracted_company ?? "").toLowerCase();
+  const suggested = hint ? apps.filter((a) => a.company.toLowerCase() === hint).map((a) => a.id) : [];
+  const [target, setTarget] = useState(suggested.length === 1 ? suggested[0] : "");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async (fn: () => Promise<unknown>) => {
@@ -46,10 +48,7 @@ function InboxItem({ e, apps, onDone }: { e: TimelineEvent; apps: Application[];
       </div>
       {e.summary && <div className="muted small">{e.summary}</div>}
       <div className="inline">
-        <select value={target} onChange={(ev) => setTarget(ev.target.value)}>
-          <option value="">Assign to…</option>
-          {apps.map((a) => <option key={a.id} value={a.id}>{a.company} · {a.role_title}</option>)}
-        </select>
+        <ApplicationPicker apps={apps} value={target} onChange={setTarget} suggested={suggested} placeholder="Assign to… (type company, role, status)" />
         <button disabled={!target} onClick={() => run(() => api.assign(e.id, target))}>Assign</button>
         <button className="secondary" onClick={() => setCreating(!creating)}>New application</button>
         <button className="secondary" onClick={() => run(() => api.dismiss(e.id))}>Not a job email</button>

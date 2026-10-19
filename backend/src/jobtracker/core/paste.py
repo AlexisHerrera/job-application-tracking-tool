@@ -88,7 +88,8 @@ candidate got in (direct application, linkedin, referral, recruiter).
 A single figure goes in both salary_min and salary_max. salary_currency as ISO code (USD, EUR, ARS).
 - benefits: other compensation and perks (equity, bonus, PTO, health, remote stipend), short.
 - stage: the latest status the text shows (applied, screening, interviewing, offer, rejected, \
-withdrawn), with stage_date when that happened. null if the text says nothing about progress.
+withdrawn, on_hold = paused by the company or recruiter), with stage_date when that happened. \
+null if the text says nothing about progress.
 - job_description: only if a job description is actually pasted; keep it verbatim, max 4000 chars.
 - notes: other useful facts (names of interviewers, next steps), max 300 chars. Not a summary of \
 the fields above.

@@ -19,6 +19,7 @@ class Stage(StrEnum):
     OFFER = "offer"
     REJECTED = "rejected"
     WITHDRAWN = "withdrawn"
+    ON_HOLD = "on_hold"  # paused by the company/recruiter; set by hand, pauses the ghosted timer
 
 
 # Never stored: derived at read time from inactivity (see stages.display_status).
