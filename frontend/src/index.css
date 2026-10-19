@@ -131,24 +131,33 @@
     @apply font-sans;
     }
 }
-/* Sankey colors (validated with the dataviz palette checker): progress stages are one ordinal
-   blue ramp; outcomes use the reserved status steps and always sit next to a text label. */
+/* Sankey colors, checked with the dataviz palette validator. Progress is one ordinal indigo ramp
+   (applied → screening → interviews; "in progress" takes its strongest step: still in the funnel).
+   "No answer" outcomes are deliberately neutral grays; only offer, on hold and rejected carry hue.
+   Every node is labelled, so no color carries meaning alone. */
 :root {
-  --flow-applied: #6da7ec;
-  --flow-screening: #2a78d6;
-  --flow-interviewing: #1c5cab;
-  --flow-offer: #0ca30c;
-  --flow-rejected: #d03b3b;
-  --flow-ghosted: #ec835a;
-  --flow-on-hold: #fab219;
-  --flow-in-progress: #6250d6;
-  --flow-neutral: #898781;
+  --flow-applied: #818cf8;
+  --flow-screening: #6366f1;
+  --flow-interviewing: #4f46e5;
+  --flow-in-progress: #4f46e5;
+  --flow-offer: #059669;
+  --flow-waiting: #94a3b8;
+  --flow-ghosted: #475569;
+  --flow-withdrawn: #a8a29e;
+  --flow-on-hold: #f59e0b;
+  --flow-rejected: #e11d48;
 }
 .dark {
-  --flow-applied: #6da7ec;
-  --flow-screening: #3987e5;
-  --flow-interviewing: #256abf;
-  --flow-in-progress: #9085e9;
+  --flow-applied: #a5b4fc;
+  --flow-screening: #818cf8;
+  --flow-interviewing: #6366f1;
+  --flow-in-progress: #6366f1;
+  --flow-offer: #10b981;
+  --flow-waiting: #94a3b8;
+  --flow-ghosted: #64748b;
+  --flow-withdrawn: #a8a29e;
+  --flow-on-hold: #f59e0b;
+  --flow-rejected: #f43f5e;
 }
 
 @layer base {

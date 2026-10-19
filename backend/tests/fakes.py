@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import uuid
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 
 from jobtracker.core.models import (
     AliasKind,
@@ -67,6 +67,17 @@ class MemoryRepo:
 
     def set_sync_state(self, state):
         self.sync[state.mailbox] = copy.copy(state)
+        self.synced_at = datetime.now(UTC)
+
+    def max_processed_uid(self):
+        uids = [p[0] for p in self.processed.values() if p[0] is not None]
+        return max(uids) if uids else None
+
+    def last_sync_at(self):
+        return getattr(self, "synced_at", None)
+
+    def try_ingest_lock(self):
+        return True
 
     def ats_domains(self):
         return self.ats

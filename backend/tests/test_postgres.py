@@ -141,3 +141,22 @@ def test_notes_roundtrip(pg, clock):
         pg.save_note(note)
     [saved] = pg.list_notes(app.id)
     assert saved.self_rating == 2 and saved.questions == ["q1"] and saved.topics_to_study == ["sql"]
+
+
+def test_scan_bookkeeping(pg, test_url):
+    from jobtracker.core.ports import SyncState
+
+    assert pg.max_processed_uid() is None and pg.last_sync_at() is None
+    pg.record_processed("<a@x>", 41, "dropped", "heuristic", "")
+    pg.record_processed("<b@x>", 7, "job", "llm", "")
+    assert pg.max_processed_uid() == 41
+    pg.set_sync_state(SyncState("[Gmail]/All Mail", 1, 41))
+    assert pg.last_sync_at() is not None
+    # One scan at a time: a second connection can't take the lock until the first closes.
+    other = PostgresRepo.connect(test_url)
+    try:
+        assert pg.try_ingest_lock() and not other.try_ingest_lock()
+        pg.conn.execute("SELECT pg_advisory_unlock_all()")
+        assert other.try_ingest_lock()
+    finally:
+        other.close()

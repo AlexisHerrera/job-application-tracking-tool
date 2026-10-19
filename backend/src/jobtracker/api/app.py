@@ -15,7 +15,8 @@ from jobtracker.api.auth import AccessVerifier, User
 from jobtracker.core import campaigns, paste, services, stats
 from jobtracker.core.clock import SystemClock
 from jobtracker.core.models import Campaign, InterviewNote, Origin
-from jobtracker.core.ports import LLMClient, LLMError
+from jobtracker.core.pipeline import Pipeline, PipelineConfig, run_incremental
+from jobtracker.core.ports import LLMClient, LLMError, MailSource
 from jobtracker.core.stages import display_status
 from jobtracker.settings import Settings
 
@@ -33,6 +34,7 @@ def create_app(
     settings: Settings | None = None,
     repo_factory: Callable[[], PostgresRepo] | None = None,
     llm_factory: Callable[[], LLMClient] | None = None,
+    scan_factory: Callable[[PostgresRepo], tuple[Pipeline, MailSource]] | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     verifier = AccessVerifier(settings)
@@ -50,6 +52,30 @@ def create_app(
         )
 
     make_llm = llm_factory or default_llm
+
+    def default_scan(repo: PostgresRepo) -> tuple[Pipeline, MailSource]:
+        """The same incremental run the ingest Lambda / `jobtracker ingest` does, in-process."""
+        from jobtracker.adapters.anthropic_llm import AnthropicLLM
+        from jobtracker.adapters.imap_gmail import GmailImapSource
+
+        if not (settings.gmail_address and settings.gmail_app_password):
+            raise HTTPException(503, "GMAIL_ADDRESS / GMAIL_APP_PASSWORD are not configured")
+        if not settings.anthropic_api_key:
+            raise HTTPException(503, "ANTHROPIC_API_KEY is not configured")
+        llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
+        cfg = PipelineConfig(
+            tz=settings.tz, my_addresses=settings.my_addresses, body_limit=settings.llm_body_chars
+        )
+        source = GmailImapSource(
+            settings.imap_host,
+            settings.gmail_address,
+            settings.gmail_app_password,
+            settings.imap_extra_query,
+        )
+        return Pipeline(repo, llm, clock, cfg), source
+
+    # Local only for now: in AWS this will invoke the ingest Lambda instead (Phase 3).
+    make_scan = scan_factory or (default_scan if settings.app_env == "local" else None)
 
     def get_repo() -> Iterator[PostgresRepo]:
         repo = make_repo()
@@ -321,6 +347,37 @@ def create_app(
             settings.ghost_days,
             settings.followup_days,
         )
+
+    @api.get("/scan")
+    def scan_status(repo: PostgresRepo = Depends(get_repo)):
+        last = repo.last_sync_at()
+        return {
+            "available": make_scan is not None,
+            "last_scan_at": last.isoformat() if last else None,
+        }
+
+    @api.post("/scan")
+    def scan(repo: PostgresRepo = Depends(get_repo)):
+        """Check the inbox now: new mail since the last run (reads Gmail, paid LLM calls)."""
+        if make_scan is None:
+            raise HTTPException(501, "Scanning from the dashboard isn't available here yet")
+        if not repo.try_ingest_lock():
+            raise HTTPException(409, "A scan is already running")
+        pipeline, source = make_scan(repo)
+        try:
+            report = run_incremental(pipeline, source)
+        finally:
+            source.close()
+        log.info("scan: seen=%s counts=%s", report.seen, dict(report.counts))
+        return {
+            "seen": report.seen,
+            "job": report.counts.get("job", 0),
+            "created": report.created,
+            "unassigned": report.unassigned,
+            "errors": report.errors,
+            "started_fresh": report.started_fresh,
+            "llm_calls": pipeline.llm.usage.calls if pipeline.llm else 0,
+        }
 
     @api.get("/dashboard")
     def dashboard(repo: PostgresRepo = Depends(get_repo)):

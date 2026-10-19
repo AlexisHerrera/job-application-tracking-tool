@@ -154,6 +154,9 @@ class FakeSource:
     def fetch_range(self, since, until):
         return iter(self.emails)
 
+    def close(self):
+        pass
+
 
 def test_incremental_first_run_starts_at_now_then_advances(pipeline, llm, repo):
     llm.extract["Northwind Labs"] = RECEIVED
@@ -165,6 +168,18 @@ def test_incremental_first_run_starts_at_now_then_advances(pipeline, llm, repo):
     report = run_incremental(pipeline, FakeSource([old, *new]))
     assert report.seen == 2 and report.created == 1
     assert repo.get_sync_state("[Gmail]/All Mail").last_uid == 12
+
+
+def test_first_incremental_run_resumes_after_backfill(pipeline, llm, repo):
+    # Mail that arrived between the backfill and the first incremental run must not be skipped.
+    llm.extract["Northwind Labs"] = RECEIVED
+    backfilled = load("personal.eml", uid=10)
+    run_backfill(pipeline, FakeSource([backfilled]), None, None)
+    arrived = load("ashby_received.eml", uid=11)
+    report = run_incremental(pipeline, FakeSource([backfilled, arrived]))
+    assert report.seen == 1 and report.created == 1 and not report.started_fresh
+    assert repo.get_sync_state("[Gmail]/All Mail").last_uid == 11
+    assert repo.last_sync_at() is not None
 
 
 def test_incremental_stops_at_error_without_advancing(pipeline, llm, repo):

@@ -97,6 +97,13 @@ class Repository(Protocol):
 
     def get_sync_state(self, mailbox: str) -> SyncState | None: ...
     def set_sync_state(self, state: SyncState) -> None: ...
+    def max_processed_uid(self) -> int | None:
+        """Highest IMAP UID any run (backfill included) has processed."""
+        ...
+
+    def last_sync_at(self) -> datetime | None:
+        """When an incremental run last looked at the mailbox."""
+        ...
 
     # companies
     def ats_domains(self) -> dict[str, str]:

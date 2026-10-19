@@ -165,6 +165,9 @@ _APP_SELECT = (
 )
 
 
+INGEST_LOCK_KEY = 0x6A6F6273  # arbitrary, constant across processes
+
+
 class PostgresRepo:
     def __init__(self, conn: psycopg.Connection):
         self.conn = conn
@@ -220,6 +223,21 @@ class PostgresRepo:
             " updated_at = EXCLUDED.updated_at",
             (state.mailbox, state.uidvalidity, state.last_uid, _now()),
         )
+
+    def max_processed_uid(self) -> int | None:
+        r = self._one("SELECT max(uid) AS uid FROM processed_messages")
+        return r["uid"] if r else None
+
+    def last_sync_at(self) -> datetime | None:
+        r = self._one("SELECT max(updated_at) AS at FROM mail_sync_state")
+        return r["at"] if r else None
+
+    def try_ingest_lock(self) -> bool:
+        """Session advisory lock so two local scans can't process the same mail at once; released
+        when the connection closes. Local Postgres only: Aurora DSQL has no advisory locks, so in
+        AWS the ingest Lambda's reserved concurrency serializes runs instead (Phase 3)."""
+        r = self._one("SELECT pg_try_advisory_lock(%s) AS ok", (INGEST_LOCK_KEY,))
+        return bool(r and r["ok"])
 
     # companies
     def _provider_rows(self) -> dict[str, tuple[str, str]]:

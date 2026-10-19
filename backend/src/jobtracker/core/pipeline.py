@@ -232,6 +232,7 @@ class RunReport:
     created: int = 0
     errors: int = 0
     last_uid: int | None = None
+    started_fresh: bool = False  # first run with nothing to resume from: only recorded "now"
 
     def add(self, outcome: Outcome) -> None:
         self.seen += 1
@@ -254,14 +255,21 @@ def run_incremental(pipeline: Pipeline, source: MailSource, limit: int | None = 
     uidvalidity = source.uidvalidity()
     state = repo.get_sync_state(source.mailbox)
     if state is None or state.uidvalidity != uidvalidity:
-        # First run (or Gmail reset UIDs): start from "now" instead of the whole mailbox.
-        # Historical mail is the backfill command's job; Message-ID dedupe makes overlap safe.
-        state = SyncState(source.mailbox, uidvalidity, source.last_uid())
-        if not pipeline.dry_run:
-            with repo.transaction():
-                repo.set_sync_state(state)
-        report.last_uid = state.last_uid
-        return report
+        # First run: continue after the newest mail a backfill already processed, so mail that
+        # arrived in between isn't skipped. With no backfill (or after Gmail reset UIDs, which
+        # makes stored UIDs meaningless) start from "now": history is the backfill command's job.
+        # Message-ID dedupe makes any overlap safe.
+        resume = repo.max_processed_uid() if state is None else None
+        state = SyncState(
+            source.mailbox, uidvalidity, resume if resume is not None else source.last_uid()
+        )
+        if resume is None:
+            if not pipeline.dry_run:
+                with repo.transaction():
+                    repo.set_sync_state(state)
+            report.last_uid = state.last_uid
+            report.started_fresh = True
+            return report
 
     for email in source.fetch_new(state.last_uid):
         with repo.transaction():
@@ -274,6 +282,9 @@ def run_incremental(pipeline: Pipeline, source: MailSource, limit: int | None = 
                 repo.set_sync_state(state)
         if limit and report.seen >= limit:
             break
+    if not pipeline.dry_run:
+        with repo.transaction():
+            repo.set_sync_state(state)  # also records when we last looked, even with no new mail
     report.last_uid = state.last_uid
     return report
 

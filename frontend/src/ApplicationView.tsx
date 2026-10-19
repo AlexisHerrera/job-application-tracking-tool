@@ -25,6 +25,7 @@ import { Loading, StatusBadge, StatusDot } from "./components/common";
 import { CLOSED_STATUSES, STATUS_META } from "./lib/status";
 import { useRefresh } from "./lib/refresh";
 import { PasteAssistant } from "./PasteAssistant";
+import { SalaryInputs, draftFrom, readSalary } from "./SalaryInput";
 import { useAsync } from "./useAsync";
 
 type Patch = Parameters<typeof api.updateApplication>[1];
@@ -337,8 +338,9 @@ function SelectField({ value, options, onSave }: { value: string; options: strin
 
 function SalaryField({ app, save }: { app: Application; save: (p: Patch) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
-  const [f, setF] = useState({ min: "", max: "", currency: "" });
+  const [draft, setDraft] = useState(() => draftFrom(app));
   const text = fmtSalary(app);
+  const read = readSalary(draft);
 
   if (!editing) {
     return (
@@ -346,7 +348,7 @@ function SalaryField({ app, save }: { app: Application; save: (p: Patch) => Prom
         type="button"
         className={ghostField}
         onClick={() => {
-          setF({ min: app.salary_min?.toString() ?? "", max: app.salary_max?.toString() ?? "", currency: app.salary_currency ?? "USD" });
+          setDraft(draftFrom(app));
           setEditing(true);
         }}
       >
@@ -356,21 +358,15 @@ function SalaryField({ app, save }: { app: Application; save: (p: Patch) => Prom
   }
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const min = f.min ? Number(f.min) : null;
-    // A single figure is stored as min = max.
-    const max = f.max ? Number(f.max) : min;
-    await save({ salary_min: min ?? max, salary_max: max, salary_currency: min || max ? f.currency.toUpperCase() || null : null });
+    if (!read.patch) return;
+    await save(read.patch);
     setEditing(false);
   }
   return (
     <form onSubmit={submit} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setEditing(false); } }} className="space-y-2 rounded-lg border p-3">
-      <div className="grid grid-cols-[1fr_1fr_5rem] gap-2">
-        <div className="space-y-1"><Label htmlFor="sal-min" className="text-xs">Min / year</Label><Input id="sal-min" autoFocus type="number" min={0} step={1000} placeholder="90000" value={f.min} onChange={(e) => setF({ ...f, min: e.target.value })} /></div>
-        <div className="space-y-1"><Label htmlFor="sal-max" className="text-xs">Max / year</Label><Input id="sal-max" type="number" min={0} step={1000} placeholder="110000" value={f.max} onChange={(e) => setF({ ...f, max: e.target.value })} /></div>
-        <div className="space-y-1"><Label htmlFor="sal-cur" className="text-xs">Currency</Label><Input id="sal-cur" maxLength={8} value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })} /></div>
-      </div>
+      <SalaryInputs value={draft} onChange={setDraft} autoFocus />
       <div className="flex gap-2">
-        <Button type="submit" size="sm">Save</Button>
+        <Button type="submit" size="sm" disabled={!read.patch}>Save</Button>
         <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
       </div>
     </form>

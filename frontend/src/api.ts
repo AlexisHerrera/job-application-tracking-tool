@@ -114,6 +114,16 @@ export interface Stats {
   flow: FlowData;
 }
 
+export interface ScanResult {
+  seen: number;
+  job: number;
+  created: number;
+  unassigned: number;
+  errors: number;
+  started_fresh: boolean;
+  llm_calls: number;
+}
+
 export type ChangeKind = "fill" | "change" | "append";
 
 export interface FieldChange {
@@ -212,6 +222,8 @@ export const api = {
   assign: (eventId: string, applicationId: string) =>
     request<TimelineEvent>("POST", `/events/${eventId}/assign`, { application_id: applicationId }),
   dismiss: (eventId: string) => request<TimelineEvent>("POST", `/events/${eventId}/dismiss`, {}),
+  scanStatus: () => request<{ available: boolean; last_scan_at: string | null }>("GET", "/scan"),
+  scan: () => request<ScanResult>("POST", "/scan", {}),
   markReplied: (eventId: string) => request<TimelineEvent>("POST", `/events/${eventId}/replied`, {}),
   createFromEvent: (eventId: string, data: ApplicationInput) =>
     request<Application>("POST", `/events/${eventId}/create-application`, data),
@@ -238,6 +250,15 @@ export function daysAgo(iso: string | null): string {
   if (!iso) return "";
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
   return days <= 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
+export function timeAgo(iso: string | null): string {
+  if (!iso) return "never";
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  if (min < 24 * 60) return `${Math.floor(min / 60)} h ago`;
+  return daysAgo(iso);
 }
 
 export const label = (s: string) => s.replace(/_/g, " ");

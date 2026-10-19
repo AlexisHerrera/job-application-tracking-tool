@@ -83,7 +83,7 @@ Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside
 | `campaign create --name "Sep 2026" --start 2026-09-15`, `campaign list` | Job-search campaigns (an ongoing earlier one ends the day before) |
 | `dev seed` | Fake sample data (local only) |
 
-The first `ingest` run only records the mailbox's current position. Use `backfill` for history; Message-ID dedupe makes overlaps harmless.
+The first `ingest` run (or **Scan inbox now**) continues right after the newest email a `backfill` already processed, so nothing in between is skipped. With no backfill it only records the mailbox's current position. Use `backfill` for history; Message-ID dedupe makes overlaps harmless.
 
 ## Adding applications by hand
 
@@ -101,6 +101,8 @@ The first `ingest` run only records the mailbox's current position. Use `backfil
 - **Review** (dashboard or Applications header) walks through the applications created automatically from emails, one at a time: <kbd>Enter</kbd> looks right, <kbd>S</kbd> skip, <kbd>D</kbd> twice deletes (its emails go back to the inbox), <kbd>E</kbd> edits the role. Cards that need review also have a ✓ button on the board.
 - **Waiting on your reply** lists only open requests on active processes: closed or on-hold applications and requests the conversation already moved past are left out. **Done** clears one by hand.
 - **Where applications went** is a sankey of the campaign: each application through the stages it reached, ending where it stands today (also available as a table).
+- **Scan inbox now** (sidebar, local only for now) runs the same incremental ingest as `jobtracker ingest` and shows what it found. ⚠️ It reads your real inbox and makes paid LLM calls for job-like mail. In AWS the scheduled Lambda does this every 15 minutes; the button will be rewired then (Phase 3).
+- **Salary** is typed as a range that formats while you type (`90k`, `90000` → `90,000`), with a currency and *per year / per month* switch. A preview shows exactly what is saved (always yearly; monthly × 12), and it warns when a figure looks like the wrong period.
 - Light, dark or system theme from the sidebar.
 
 ## Campaigns

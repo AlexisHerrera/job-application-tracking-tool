@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Flag, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, Menu, Monitor, Moon, Plus, Sun } from "lucide-react";
+import { Flag, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, Menu, Monitor, Moon, Plus, RefreshCw, Sun } from "lucide-react";
+import { toast } from "sonner";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { api } from "./api";
+import { api, errorText, timeAgo, type ScanResult } from "./api";
 import { CampaignPicker } from "./campaign";
 import AddApplication from "./pages/AddApplication";
 import ApplicationPage from "./pages/ApplicationPage";
@@ -13,6 +14,7 @@ import Applications from "./pages/Applications";
 import Campaigns from "./pages/Campaigns";
 import DashboardPage from "./pages/Dashboard";
 import Inbox from "./pages/Inbox";
+import { useRefresh } from "./lib/refresh";
 import { useTheme, type Theme } from "./lib/theme";
 import { useAsync } from "./useAsync";
 
@@ -94,9 +96,51 @@ function Sidebar({ inbox, onNavigate }: { inbox: number; onNavigate?: () => void
           </NavLink>
         ))}
       </nav>
-      <div className="mt-auto px-1">
+      <div className="mt-auto space-y-3 px-1">
+        <ScanButton />
         <ThemeSwitch />
       </div>
+    </div>
+  );
+}
+
+function scanSummary(r: ScanResult): string {
+  if (r.started_fresh) return "Now watching your inbox. New mail from here on will be picked up.";
+  if (r.seen === 0) return "No new mail.";
+  const parts = [`${r.seen} new email${r.seen === 1 ? "" : "s"}`, `${r.job} job-related`];
+  if (r.created) parts.push(`${r.created} new application${r.created === 1 ? "" : "s"}`);
+  if (r.unassigned) parts.push(`${r.unassigned} to the inbox`);
+  return parts.join(" · ");
+}
+
+// Runs the incremental ingest now (reads Gmail, paid LLM calls for job-like mail). Local only
+// for now; in AWS the scheduled Lambda does this every 15 minutes.
+function ScanButton() {
+  const { bump } = useRefresh();
+  const status = useAsync(api.scanStatus).data;
+  const [busy, setBusy] = useState(false);
+  if (!status?.available) return null;
+
+  async function scan() {
+    setBusy(true);
+    const id = toast.loading("Checking your inbox…");
+    try {
+      const r = await api.scan();
+      if (r.errors) toast.warning(`${scanSummary(r)}. Stopped at an email that failed; the next scan retries it.`, { id });
+      else toast.success(scanSummary(r), { id });
+      bump();
+    } catch (e) {
+      toast.error(errorText(e), { id });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-1">
+      <Button variant="outline" size="sm" className="w-full justify-start" disabled={busy} onClick={scan}>
+        <RefreshCw className={cn(busy && "animate-spin")} /> {busy ? "Scanning…" : "Scan inbox now"}
+      </Button>
+      <p className="px-1 text-xs text-muted-foreground">Last scan: {timeAgo(status.last_scan_at)}</p>
     </div>
   );
 }

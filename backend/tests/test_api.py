@@ -92,3 +92,28 @@ def test_mark_reply_done(client, repo):
     after = client.get("/api/dashboard").json()["follow_ups"]["needs_reply"]
     assert pending[0]["event_id"] not in {p["event_id"] for p in after}
     assert client.get("/api/stats").json()["flow"]["links"]
+
+
+def test_scan_runs_the_incremental_pipeline(repo):
+    from jobtracker.core.clock import SystemClock
+    from jobtracker.core.pipeline import Pipeline, PipelineConfig
+    from jobtracker.core.ports import SyncState
+    from tests.conftest import ME, TZ, load
+    from tests.fakes import FakeLLM
+    from tests.test_pipeline import RECEIVED, FakeSource
+
+    llm = FakeLLM(extract={"Northwind Labs": RECEIVED})
+    source = FakeSource([load("ashby_received.eml", uid=11)])
+    pipeline = Pipeline(repo, llm, SystemClock(), PipelineConfig(tz=TZ, my_addresses={ME}))
+    settings = Settings.from_env(
+        {"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com"}
+    )
+    client = TestClient(
+        create_app(settings, repo_factory=lambda: repo, scan_factory=lambda _r: (pipeline, source))
+    )
+    repo.set_sync_state(SyncState("[Gmail]/All Mail", 1, 10))
+    r = client.post("/api/scan")
+    assert r.status_code == 200, r.text
+    assert r.json()["seen"] == 1 and r.json()["created"] == 1
+    status = client.get("/api/scan").json()
+    assert status["available"] and status["last_scan_at"]

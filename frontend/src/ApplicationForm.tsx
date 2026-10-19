@@ -5,6 +5,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Textarea } from "@/components/ui/textarea";
 import { STAGES, dayToIso, label, type ApplicationInput } from "./api";
 import { Field } from "./ApplicationView";
+import { SalaryInputs, draftFrom, readSalary } from "./SalaryInput";
 
 export const CHANNELS = ["", "direct", "linkedin", "referral", "recruiter", "other"];
 export const SENIORITY = ["", "junior", "mid", "senior", "staff", "principal", "lead"];
@@ -29,15 +30,13 @@ export function ApplicationForm({
     seniority: initial?.seniority ?? "",
     stack: (initial?.stack ?? []).join(", "),
     location: initial?.location ?? "",
-    salary_min: initial?.salary_min?.toString() ?? "",
-    salary_max: initial?.salary_max?.toString() ?? "",
-    salary_currency: initial?.salary_currency ?? "USD",
     benefits: initial?.benefits ?? "",
     applied_at: initial?.applied_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
     stage: "",
     notes: initial?.notes ?? "",
     job_description: initial?.job_description ?? "",
   });
+  const [salary, setSalary] = useState(() => draftFrom(initial));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const field = (key: keyof typeof form) => ({
@@ -48,6 +47,8 @@ export function ApplicationForm({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    const pay = readSalary(salary);
+    if (!pay.patch) return setError(`Salary: ${pay.error}`);
     setBusy(true);
     setError(null);
     try {
@@ -60,10 +61,7 @@ export function ApplicationForm({
         seniority: form.seniority || null,
         stack: form.stack.split(",").map((s) => s.trim()).filter(Boolean),
         location: form.location || null,
-        salary_min: form.salary_min ? Number(form.salary_min) : null,
-        // A single figure is stored as min = max.
-        salary_max: form.salary_max ? Number(form.salary_max) : form.salary_min ? Number(form.salary_min) : null,
-        salary_currency: form.salary_min || form.salary_max ? form.salary_currency.toUpperCase() || null : null,
+        ...pay.patch,
         benefits: form.benefits || null,
         applied_at: form.applied_at ? dayToIso(form.applied_at) : null,
         stage: (form.stage || null) as ApplicationInput["stage"],
@@ -104,11 +102,10 @@ export function ApplicationForm({
         <Field label="Stack (comma separated)" id="app-stack"><Input placeholder="python, aws, react" {...field("stack")} /></Field>
         <Field label="Location" id="app-location"><Input placeholder="Remote (LATAM)" {...field("location")} /></Field>
       </div>
-      <div className="grid grid-cols-[1fr_1fr_6rem] gap-4">
-        <Field label="Yearly salary min" id="app-salary_min"><Input type="number" min={0} step={1000} placeholder="90000" {...field("salary_min")} /></Field>
-        <Field label="Yearly salary max" id="app-salary_max"><Input type="number" min={0} step={1000} placeholder="110000" {...field("salary_max")} /></Field>
-        <Field label="Currency" id="app-salary_currency"><Input maxLength={8} {...field("salary_currency")} /></Field>
-      </div>
+      <fieldset className="space-y-2 rounded-lg border p-3">
+        <legend className="px-1 text-sm font-medium">Salary</legend>
+        <SalaryInputs value={salary} onChange={setSalary} />
+      </fieldset>
       <Field label="Other benefits" id="app-benefits"><Textarea rows={2} placeholder="Equity, bonus, PTO, health, remote stipend…" {...field("benefits")} /></Field>
       <Field label="Job description" id="app-job_description"><Textarea rows={4} placeholder="Paste it: the study report uses it later" {...field("job_description")} /></Field>
       <Field label="Notes" id="app-notes"><Textarea rows={2} {...field("notes")} /></Field>
