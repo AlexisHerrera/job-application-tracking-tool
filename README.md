@@ -1,0 +1,95 @@
+# Job Tracker
+
+A personal, near-zero-cost tracker for job applications. It reads Gmail over IMAP, picks out job-process emails (confirmations, interviews, rejections…), attaches them to the right application, and shows stats so you know what to practice.
+
+Design and decisions: [`docs/plan.md`](docs/plan.md).
+
+```
+backend/    Python 3.12 package `jobtracker` (core domain + adapters + API + CLI), uv / ruff / pytest
+frontend/   React + TypeScript + Vite dashboard
+infra/      Terraform (Phase 3)
+```
+
+## Local development
+
+Requirements: Docker, [uv](https://docs.astral.sh/uv/), Node 22+.
+
+```bash
+cp .env.example .env           # fill in later; the UI works without Gmail/Anthropic keys
+docker compose up --build      # db + migrations + API (hot reload) + Vite (HMR)
+docker compose exec api jobtracker dev seed   # optional: FAKE sample data for the UI
+```
+
+- Web UI: http://localhost:5173 (Vite proxies `/api` to the API, same origin like prod)
+- API: http://localhost:8000/api/health
+- Postgres: `localhost:5433`, database/user/password `jobtracker` (5433 so it doesn't clash with other local Postgres containers; override with `DB_PORT`)
+
+Locally, `AUTH_DEV_BYPASS=true` skips Cloudflare Access. The app **refuses to start** with that flag when `APP_ENV` isn't `local` or when running inside Lambda.
+
+Editing anything under `backend/src` reloads the API; editing `frontend/src` hot-reloads the page.
+
+### Looking at the data with a SQL client
+
+**Locally (DBeaver / DataGrip):** a new PostgreSQL connection with host `localhost`, port `5433`, database `jobtracker`, user `jobtracker`, password `jobtracker`.
+
+**In prod (Aurora DSQL, from Phase 3):** there are no passwords; you sign in with your AWS SSO profile.
+- DBeaver Community: *Help → Install New Software → Add* `https://awslabs.github.io/aurora-dsql-dbeaver-plugin/update-site/`, install "Aurora DSQL Connector for JDBC", restart. Then *New connection → Aurora DSQL*, endpoint = cluster endpoint, user `admin`, AWS profile `jobtracker`. Tokens are generated for you.
+- DataGrip: PostgreSQL driver, SSL required, and an auth token (`aws dsql generate-db-connect-admin-auth-token --hostname <endpoint> --profile jobtracker`) as the password. Tokens expire, so regenerate when needed.
+
+### Tests and lint
+
+```bash
+cd backend
+uv run pytest          # Postgres integration tests run when `docker compose up db` is running, else skip
+uv run ruff check . && uv run ruff format --check .
+cd ../frontend && npm run typecheck
+```
+
+All tests use **fake fixture emails** (`backend/tests/fixtures/emails`). They never touch Gmail or the Anthropic API.
+
+## Getting the credentials
+
+### Gmail app password (IMAP)
+
+App passwords require 2-Step Verification.
+
+1. Go to https://myaccount.google.com/security and turn on **2-Step Verification** if it's off.
+2. Go to https://myaccount.google.com/apppasswords, create an app password named `jobtracker`, and copy the 16-character password.
+3. In Gmail, open *Settings → See all settings → Forwarding and POP/IMAP* and make sure **IMAP is enabled**. Under *Labels*, keep **All Mail** visible in IMAP ("Show in IMAP").
+4. Put the address and password in `.env` as `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD`.
+
+The ingester opens All Mail **read-only** (`EXAMINE` + `BODY.PEEK`), so it never marks anything as read. Revoking the app password at the same page cuts access immediately.
+
+### Anthropic API key
+
+1. Sign in at https://console.anthropic.com, open *Settings → Billing*, and add credit (a few dollars lasts a long time with Haiku).
+2. *Settings → API keys → Create key*, named `jobtracker`.
+3. Put it in `.env` as `ANTHROPIC_API_KEY`. The model is set by `LLM_MODEL` (default `claude-haiku-5-5`).
+4. Optional: set a monthly spend limit under *Settings → Limits*.
+
+## CLI
+
+Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside the container with `docker compose exec api jobtracker …`.
+
+| Command | What it does |
+|---|---|
+| `db migrate` | Apply migrations (compose runs this automatically) |
+| `app add --company X --role Y [--applied-at 2026-08-01 --stage rejected]` | Add an application |
+| `app import file.csv` | Bulk import (`company,role,applied_at,stage,job_url,company_domain,source_channel,seniority,stack,location,notes`) |
+| `app list`, `stats` | Quick look from the terminal |
+| `process-eml FILE…` | Run the pipeline on local `.eml` files (dry run by default) ⚠️ paid LLM calls for job-like mail |
+| `backfill --since 2026-01-01 [--until …] [--dry-run]` | ⚠️ Reads your **real inbox** over a date range, with paid LLM calls. Idempotent |
+| `ingest [--dry-run] [--loop 900]` | ⚠️ Incremental run from the last processed UID (what the Lambda does every 15 min) |
+| `dev seed` | Fake sample data (local only) |
+
+The first `ingest` run only records the mailbox's current position. Use `backfill` for history; Message-ID dedupe makes overlaps harmless.
+
+## How email processing works (short version)
+
+1. **Gmail search** pre-excludes Promotions/Social (`IMAP_QUERY`).
+2. **Funnel**: hard excludes (job alerts, "jobs you may like") → allowlist (ATS domains plus your companies' domains, which grows as you add applications) → bilingual EN/ES keyword heuristics. Only heuristic candidates hit a tiny LLM yes/no gate.
+3. **Extraction** with structured output (company, role, event type, interview time, needs-reply…). `.ics` invites override the LLM's interview time.
+4. **Matching**: same Gmail thread → sender alias → fuzzy company + role → otherwise the **Inbox** page for one-click assignment. Assigning teaches the sender alias so the next email resolves automatically. "Thanks for applying" emails from unknown companies create an application flagged **to review**.
+5. Stages are recomputed from the event history. `ghosted` (no news for `GHOST_DAYS`) is computed, never stored.
+
+Privacy: non-job emails store only their Message-ID and a verdict. Job emails store the extracted fields plus a ≤280-character snippet, never full bodies. Logs never include email content.

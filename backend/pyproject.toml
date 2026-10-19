@@ -1,0 +1,48 @@
+[project]
+name = "jobtracker"
+version = "0.1.0"
+description = "Personal job application tracker: Gmail ingestion, classification, matching and stats"
+authors = [
+    { name = "Alexis Herrera", email = "alexysaguilar@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "anthropic>=1.15.0",
+    "fastapi>=0.149.0",
+    "icalendar>=7.3.0",
+    "mangum>=0.22.0",
+    "psycopg[binary]>=3.3.6",
+    "pyjwt[crypto]>=2.15.1",
+    "rapidfuzz>=3.14.6",
+    "typer>=0.27.3",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+jobtracker = "jobtracker.cli.main:app"
+
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]  # formatter owns line length; Spanish text in prompts
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Option", "typer.Argument", "fastapi.Depends", "fastapi.Query"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

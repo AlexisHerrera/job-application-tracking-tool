@@ -197,3 +197,12 @@ The CLI (`uv run jobtracker …`) talks to the same DB. Tests: core unit tests u
 5. **Dashboard**: the full UI, mobile-friendly. Stats page and "what should I study" report.
 6. **Deploy + verify**: an end-to-end check, including 401 without a valid JWT on the `cloudfront.net` hostname and on the Function URL. With OAC, the Function URL returns 403.
 7. *(Optional)* Chrome extension.
+
+## 10. Phase 1 notes (as built)
+
+- **Schema additions** vs §4: `events.company_hint_id` (an unassigned email whose company is known but whose application is ambiguous), `events.dismissed` ("not a job email" in the inbox), `applications.notes`, and `events.refs` (References, space-separated). See `backend/src/jobtracker/adapters/db/migrations/`.
+- **Local Postgres runs on port 5433**, because another project's container already uses 5432.
+- **First incremental run** stores the mailbox's current UID and processes nothing. History is the `backfill` command's job.
+- **Job boards** (LinkedIn, Indeed, Glassdoor, …) and ATS domains never become a company's domain alias.
+- **Failure policy**: a transient LLM error stops the run without advancing the checkpoint, so the next run retries. A refusal or malformed output is recorded and skipped, so one bad email can't block the queue.
+- **Not done yet**: the DSQL connection factory (IAM token auth) and Lambda packaging are Phase 3. The stats page and the "what should I study" report are Phase 5. The API already serves `/api/stats`.

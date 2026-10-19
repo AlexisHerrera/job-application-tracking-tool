@@ -1,0 +1,33 @@
+From: Contoso Recruiting <no-reply@us.greenhouse-mail.io>
+To: alex.candidate@gmail.com
+Subject: Interview confirmed: Contoso - Platform Engineer
+Date: Tue, 06 Oct 2026 18:30:00 +0000
+Message-ID: <gh-interview-1@us.greenhouse-mail.io>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BOUNDARY"
+
+--BOUNDARY
+Content-Type: text/plain; charset=utf-8
+
+Hi Alex, your technical interview for Platform Engineer at Contoso is confirmed.
+Please find the calendar invitation attached.
+
+--BOUNDARY
+Content-Type: text/calendar; charset=utf-8; method=REQUEST
+Content-Disposition: attachment; filename="invite.ics"
+
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//EN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:interview-1@contoso.test
+DTSTAMP:20261006T183000Z
+DTSTART:20261105T150000Z
+DTEND:20261105T160000Z
+SUMMARY:Contoso - Technical Interview
+ORGANIZER:mailto:recruiting@contoso.test
+END:VEVENT
+END:VCALENDAR
+
+--BOUNDARY--
