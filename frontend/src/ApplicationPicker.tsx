@@ -1,11 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { daysAgo, fmtDate, label, type Application } from "./api";
-import { StatusBadge } from "./components";
+import { X } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { ReviewBadge, StatusBadge } from "./components/common";
 
 // Searchable application picker (ARIA combobox). Type any part of the company, role, status,
 // source or location; every word must match. Suggested applications are listed first.
 
-const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+export const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
 function haystack(a: Application) {
   return fold([a.company, a.role_title, label(a.status), a.source_ats, a.source_channel, a.location].filter(Boolean).join(" "));
@@ -85,18 +88,20 @@ export function ApplicationPicker({
 
   if (selected && !open) {
     return (
-      <div className="picker picker-selected">
-        <button type="button" className="picker-chosen" onClick={() => setOpen(true)} title="Change">
-          <strong>{selected.company}</strong> · {selected.role_title} <StatusBadge status={selected.status} />
+      <div className="flex h-8 min-w-0 flex-1 items-center gap-1 rounded-lg border bg-muted/40 pr-1 pl-2.5 text-sm">
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setOpen(true)} title="Change">
+          <strong className="truncate">{selected.company}</strong>
+          <span className="truncate text-muted-foreground">{selected.role_title}</span>
+          <StatusBadge status={selected.status} />
         </button>
-        <button type="button" className="link" aria-label="Clear selection" onClick={() => onChange("")}>✕</button>
+        <button type="button" className="rounded p-1 text-muted-foreground hover:bg-muted" aria-label="Clear selection" onClick={() => onChange("")}><X className="size-3.5" /></button>
       </div>
     );
   }
 
   return (
-    <div className="picker" ref={root}>
-      <input
+    <div className="relative min-w-0 flex-1" ref={root}>
+      <Input
         role="combobox"
         aria-expanded={open}
         aria-controls={listId}
@@ -113,27 +118,28 @@ export function ApplicationPicker({
         onKeyDown={onKey}
       />
       {open && (
-        <ul className="picker-list" role="listbox" id={listId}>
-          {results.length === 0 && <li className="picker-empty muted">No application matches “{query}”.</li>}
+        <ul className="absolute z-50 mt-1 max-h-80 w-full min-w-72 overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md" role="listbox" id={listId}>
+          {results.length === 0 && <li className="p-2 text-sm text-muted-foreground">No application matches “{query}”.</li>}
           {results.map((a, i) => (
             <li
               key={a.id}
               id={`${listId}-${i}`}
               role="option"
               aria-selected={i === active}
-              className={i === active ? "picker-option active" : "picker-option"}
+              className={cn("cursor-pointer rounded-md px-2 py-1.5 text-sm", i === active && "bg-accent text-accent-foreground")}
               onMouseEnter={() => setActive(i)}
               onMouseDown={(e) => {
                 e.preventDefault(); // keep focus; choose before the input blurs
                 choose(a);
               }}
             >
-              <div className="picker-line">
+              <div className="flex items-center gap-2">
                 <strong>{a.company}</strong>
-                {suggested.includes(a.id) && <span className="badge badge-review">suggested</span>}
+                {suggested.includes(a.id) && <ReviewBadge>suggested</ReviewBadge>}
+                {a.needs_review && <ReviewBadge />}
                 <StatusBadge status={a.status} />
               </div>
-              <div className="picker-line muted small">
+              <div className="flex justify-between gap-2 text-xs text-muted-foreground">
                 <span>{a.role_title}</span>
                 <span>{usefulDate(a)}</span>
               </div>

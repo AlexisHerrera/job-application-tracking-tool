@@ -7,14 +7,17 @@ import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from datetime import datetime
+from itertools import pairwise
 
-from jobtracker.core.models import Application, Event, EventKind, Stage
+from jobtracker.core.models import GHOSTED, Application, Event, EventKind, Stage
 from jobtracker.core.stages import (
     NON_RESPONSE_EVENTS,
     PROGRESS_ORDER,
     display_status,
+    is_active,
     is_ghosted,
     is_stale,
+    stage_of,
 )
 
 FUNNEL = [Stage.APPLIED, Stage.SCREENING, Stage.INTERVIEWING, Stage.OFFER]
@@ -110,6 +113,21 @@ def time_to_first_response(apps: list[Application], by_app: dict[uuid.UUID, list
     }
 
 
+def awaiting_reply(event: Event, app: Application | None, latest: datetime | None) -> bool:
+    """A reply request still open: not answered, and the process hasn't moved past it.
+
+    Closed or on-hold processes need nothing from you, and any later event on the same
+    application (a scheduled interview, a rejection, a manual change) means it was handled.
+    """
+    if not event.needs_reply or event.replied_at is not None or event.dismissed:
+        return False
+    if app is None:
+        return True  # unassigned: still worth a look
+    if not is_active(app) or app.current_stage == Stage.ON_HOLD:
+        return False
+    return latest is None or latest <= event.occurred_at
+
+
 def follow_ups(
     apps: list[Application],
     events: list[Event],
@@ -118,6 +136,12 @@ def follow_ups(
     ghost_days: int,
 ) -> dict:
     names = {a.id: a for a in apps}
+    latest: dict[uuid.UUID, datetime] = {}
+    for e in events:
+        if e.application_id and not e.dismissed:
+            latest[e.application_id] = max(
+                latest.get(e.application_id, e.occurred_at), e.occurred_at
+            )
     replies = [
         {
             "event_id": str(e.id),
@@ -127,7 +151,8 @@ def follow_ups(
             "received_at": e.occurred_at.isoformat(),
         }
         for e in events
-        if e.needs_reply and e.replied_at is None and not e.dismissed
+        if (e.application_id is None or e.application_id in names)
+        and awaiting_reply(e, names.get(e.application_id), latest.get(e.application_id))
     ]
     stale = [
         {
@@ -142,6 +167,46 @@ def follow_ups(
         if is_stale(a, now, followup_days, ghost_days)
     ]
     return {"needs_reply": sorted(replies, key=lambda r: r["received_at"]), "no_news": stale}
+
+
+FLOW_LABELS = {
+    "applied": "Applied",
+    "screening": "Screening",
+    "interviewing": "Interviews",
+    "offer": "Offer",
+    "rejected": "Rejected",
+    "withdrawn": "Withdrawn",
+    GHOSTED: "Ghosted",
+    "on_hold": "On hold",
+    "waiting": "No reply yet",
+    "in_progress": "In progress",
+}
+
+
+def flow(
+    apps: list[Application], by_app: dict[uuid.UUID, list[Event]], now: datetime, ghost_days: int
+) -> dict:
+    """Sankey of the search: each application walks the progress stages it actually reached
+    (from its events, so a skipped screening isn't invented), then ends where it stands now."""
+    links: Counter[tuple[str, str]] = Counter()
+    nodes: Counter[str] = Counter()
+    for a in apps:
+        reached = {Stage.APPLIED, a.max_stage_reached}
+        reached |= {s for e in by_app.get(a.id, []) if (s := stage_of(e)) in PROGRESS_ORDER}
+        path = [s.value for s in FUNNEL if s in reached]
+        status = display_status(a, now, ghost_days)
+        if status in PROGRESS_ORDER.keys() - {Stage.OFFER}:
+            status = "waiting" if path[-1] == Stage.APPLIED else "in_progress"
+        if status != path[-1]:
+            path.append(status)
+        for node in path:
+            nodes[node] += 1
+        for src, dst in pairwise(path):
+            links[(src, dst)] += 1
+    return {
+        "nodes": [{"id": n, "label": FLOW_LABELS.get(n, n), "count": c} for n, c in nodes.items()],
+        "links": [{"source": s, "target": t, "value": v} for (s, t), v in links.items()],
+    }
 
 
 def upcoming_interviews(apps: list[Application], now: datetime) -> list[dict]:
@@ -194,4 +259,5 @@ def summary(
         "time_to_first_response": time_to_first_response(apps, by_app),
         "upcoming_interviews": upcoming_interviews(apps, now),
         "follow_ups": follow_ups(apps, events, now, followup_days, ghost_days),
+        "flow": flow(apps, by_app, now, ghost_days),
     }

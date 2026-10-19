@@ -212,3 +212,14 @@ The CLI (`uv run jobtracker …`) talks to the same DB. Tests: core unit tests u
 - **Salary**: `applications.salary_min` / `salary_max` (yearly), `salary_currency`, and `benefits` (free text). Migration `0003`.
 - **Paste assistant** replaces the CSV card in the UI. `POST /api/paste` sends the text to the LLM (structured output, `LLM_PASTE_EFFORT`, default medium) and returns, per extracted record, options (update candidate(s) / create new) with per-field diffs labelled `fill | append | change`. It writes nothing. The UI applies only the ticked changes through the regular create/PATCH/stage endpoints. Overwrites (`change`) start unticked and are listed explicitly before apply.
 - **Campaigns** (`campaigns`: name, started_on, ended_on, notes; migration `0004`): membership by applied date (local tz), computed at read time. They can't overlap, and creating one ends an ongoing earlier one the day before. `?campaign=<id|all>` scopes `/api/applications` and `/api/stats`; `/api/dashboard` includes the current campaign's summary. The first real campaign is "Sep 2026" starting 2026-09-15 (the user's first interview was ~2026-09-21, which is a check for the backfill).
+
+## 12. Frontend redesign (2026-10-19, before the eval)
+
+The user asked to improve the UI before the Phase 2 eval, which moves to the end of Phase 2.
+
+- **Stack**: Tailwind v4 + shadcn/ui (Radix, "nova" preset, components copied into `frontend/src/components/ui/`), lucide icons, sonner toasts, `@dnd-kit/core` for the board, `d3-sankey` for the flow chart. The theme is a small local provider (`src/lib/theme.tsx`, class on `<html>`, applied in `index.html` before first paint).
+- **Data refresh**: every mutation calls `useRefresh().bump()` and every `useAsync` reloads. No client cache; data is hundreds of rows.
+- **Applications**: Board (columns = statuses with counts; ghosted is computed, so it isn't a drop target; columns collapse) and All (sortable table + status chips with counts). Drag = `POST /stage`, optimistic, with undo. Cards and rows open a side sheet (`?open=<id>`), and `/applications/:id` renders the same `ApplicationView`, where every property edits inline (salary included).
+- **Review queue** (`ReviewDialog`): keyboard-first walk through `needs_review` applications.
+- **Follow-ups**: `stats.awaiting_reply` hides reply requests on closed or on-hold applications and requests followed by any later event on the same application. `POST /api/events/{id}/replied` clears one by hand.
+- **Flow**: `stats.flow` (in `/api/stats`) builds the sankey from the progress stages each application actually reached (from its events, so a skipped screening isn't invented) plus where it stands now: in progress / no reply yet / on hold / ghosted / rejected / withdrawn / offer. Colors were checked with the dataviz palette validator (ordinal blue for stages, reserved status colors for outcomes, always labelled).

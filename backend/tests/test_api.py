@@ -77,3 +77,18 @@ def test_inbox_assign_and_dismiss(client, repo):
     assert r.status_code == 200 and r.json()["application_id"] == target["id"]
     assert client.get("/api/inbox").json() == []
     assert client.get(f"/api/applications/{target['id']}").json()["current_stage"] == "interviewing"
+
+
+def test_mark_reply_done(client, repo):
+    from jobtracker.cli.seed import seed
+    from jobtracker.core.clock import SystemClock
+    from tests.conftest import TZ
+
+    seed(repo, SystemClock(), TZ)
+    pending = client.get("/api/dashboard").json()["follow_ups"]["needs_reply"]
+    assert pending
+    r = client.post(f"/api/events/{pending[0]['event_id']}/replied")
+    assert r.status_code == 200 and r.json()["replied_at"]
+    after = client.get("/api/dashboard").json()["follow_ups"]["needs_reply"]
+    assert pending[0]["event_id"] not in {p["event_id"] for p in after}
+    assert client.get("/api/stats").json()["flow"]["links"]

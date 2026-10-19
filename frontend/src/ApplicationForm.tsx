@@ -1,8 +1,13 @@
 import { useState, type FormEvent } from "react";
-import { STAGES, label, type ApplicationInput } from "./api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
+import { STAGES, dayToIso, label, type ApplicationInput } from "./api";
+import { Field } from "./ApplicationView";
 
-const CHANNELS = ["", "direct", "linkedin", "referral", "recruiter", "other"];
-const SENIORITY = ["", "junior", "mid", "senior", "staff", "principal", "lead"];
+export const CHANNELS = ["", "direct", "linkedin", "referral", "recruiter", "other"];
+export const SENIORITY = ["", "junior", "mid", "senior", "staff", "principal", "lead"];
 
 export function ApplicationForm({
   initial,
@@ -36,6 +41,7 @@ export function ApplicationForm({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const field = (key: keyof typeof form) => ({
+    id: `app-${key}`,
     value: form[key],
     onChange: (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value }),
   });
@@ -59,8 +65,7 @@ export function ApplicationForm({
         salary_max: form.salary_max ? Number(form.salary_max) : form.salary_min ? Number(form.salary_min) : null,
         salary_currency: form.salary_min || form.salary_max ? form.salary_currency.toUpperCase() || null : null,
         benefits: form.benefits || null,
-        // Noon local time keeps the date stable across timezones.
-        applied_at: form.applied_at ? `${form.applied_at}T12:00:00-03:00` : null,
+        applied_at: form.applied_at ? dayToIso(form.applied_at) : null,
         stage: (form.stage || null) as ApplicationInput["stage"],
         notes: form.notes || null,
         job_description: form.job_description || null,
@@ -73,48 +78,42 @@ export function ApplicationForm({
   }
 
   return (
-    <form className="form" onSubmit={submit}>
-      <label>Company *<input required {...field("company")} /></label>
-      <label>Role *<input required {...field("role_title")} /></label>
-      <label>Job posting URL<input type="url" placeholder="https://…" {...field("job_url")} /></label>
-      <label>
-        Company email domain
-        <input placeholder="northwind.com (teaches the email matcher)" {...field("company_domain")} />
-      </label>
-      <div className="two">
-        <label>Applied on<input type="date" {...field("applied_at")} /></label>
+    <form className="space-y-4" onSubmit={submit}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Company *" id="app-company"><Input required {...field("company")} /></Field>
+        <Field label="Role *" id="app-role_title"><Input required {...field("role_title")} /></Field>
+        <Field label="Job posting URL" id="app-job_url"><Input type="url" placeholder="https://…" {...field("job_url")} /></Field>
+        <Field label="Company email domain" id="app-company_domain" hint="Teaches the email matcher">
+          <Input placeholder="northwind.com" {...field("company_domain")} />
+        </Field>
+        <Field label="Applied on" id="app-applied_at"><Input type="date" {...field("applied_at")} /></Field>
         {showStage && (
-          <label>
-            Current stage (for old applications)
-            <select {...field("stage")}>
-              <option value="">applied</option>
-              {STAGES.filter((s) => s !== "applied").map((s) => <option key={s} value={s}>{label(s)}</option>)}
-            </select>
-          </label>
+          <Field label="Current stage" id="app-stage" hint="For applications already in progress">
+            <NativeSelect className="w-full" {...field("stage")}>
+              <NativeSelectOption value="">applied</NativeSelectOption>
+              {STAGES.filter((s) => s !== "applied").map((s) => <NativeSelectOption key={s} value={s}>{label(s)}</NativeSelectOption>)}
+            </NativeSelect>
+          </Field>
         )}
+        <Field label="Channel" id="app-source_channel">
+          <NativeSelect className="w-full" {...field("source_channel")}>{CHANNELS.map((c) => <NativeSelectOption key={c} value={c}>{c || "—"}</NativeSelectOption>)}</NativeSelect>
+        </Field>
+        <Field label="Seniority" id="app-seniority">
+          <NativeSelect className="w-full" {...field("seniority")}>{SENIORITY.map((c) => <NativeSelectOption key={c} value={c}>{c || "—"}</NativeSelectOption>)}</NativeSelect>
+        </Field>
+        <Field label="Stack (comma separated)" id="app-stack"><Input placeholder="python, aws, react" {...field("stack")} /></Field>
+        <Field label="Location" id="app-location"><Input placeholder="Remote (LATAM)" {...field("location")} /></Field>
       </div>
-      <div className="two">
-        <label>
-          Channel
-          <select {...field("source_channel")}>{CHANNELS.map((c) => <option key={c} value={c}>{c || "—"}</option>)}</select>
-        </label>
-        <label>
-          Seniority
-          <select {...field("seniority")}>{SENIORITY.map((c) => <option key={c} value={c}>{c || "—"}</option>)}</select>
-        </label>
+      <div className="grid grid-cols-[1fr_1fr_6rem] gap-4">
+        <Field label="Yearly salary min" id="app-salary_min"><Input type="number" min={0} step={1000} placeholder="90000" {...field("salary_min")} /></Field>
+        <Field label="Yearly salary max" id="app-salary_max"><Input type="number" min={0} step={1000} placeholder="110000" {...field("salary_max")} /></Field>
+        <Field label="Currency" id="app-salary_currency"><Input maxLength={8} {...field("salary_currency")} /></Field>
       </div>
-      <label>Stack (comma separated)<input placeholder="python, aws, react" {...field("stack")} /></label>
-      <label>Location<input placeholder="Remote (LATAM)" {...field("location")} /></label>
-      <div className="three">
-        <label>Yearly salary min<input type="number" min={0} step={1000} placeholder="90000" {...field("salary_min")} /></label>
-        <label>Yearly salary max<input type="number" min={0} step={1000} placeholder="110000" {...field("salary_max")} /></label>
-        <label>Currency<input maxLength={8} {...field("salary_currency")} /></label>
-      </div>
-      <label>Other benefits<textarea rows={2} placeholder="Equity, bonus, PTO, health, remote stipend…" {...field("benefits")} /></label>
-      <label>Job description<textarea rows={4} placeholder="Paste it: the study report uses it later" {...field("job_description")} /></label>
-      <label>Notes<textarea rows={2} {...field("notes")} /></label>
-      {error && <p className="error">{error}</p>}
-      <button type="submit" disabled={busy}>{busy ? "Saving…" : submitLabel}</button>
+      <Field label="Other benefits" id="app-benefits"><Textarea rows={2} placeholder="Equity, bonus, PTO, health, remote stipend…" {...field("benefits")} /></Field>
+      <Field label="Job description" id="app-job_description"><Textarea rows={4} placeholder="Paste it: the study report uses it later" {...field("job_description")} /></Field>
+      <Field label="Notes" id="app-notes"><Textarea rows={2} {...field("notes")} /></Field>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <Button type="submit" disabled={busy}>{busy ? "Saving…" : submitLabel}</Button>
     </form>
   );
 }

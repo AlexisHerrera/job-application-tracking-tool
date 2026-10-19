@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { useRefresh } from "./lib/refresh";
 
 export function useAsync<T>(load: () => Promise<T>, deps: unknown[] = []) {
+  const { version } = useRefresh();
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -16,11 +18,11 @@ export function useAsync<T>(load: () => Promise<T>, deps: unknown[] = []) {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [...deps, version]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  return { data, error, loading, reload };
+  return { data, error, loading, reload, setData };
 }

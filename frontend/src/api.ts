@@ -101,6 +101,19 @@ export interface Dashboard {
   campaign: CampaignSummary | null;
 }
 
+export interface FlowData {
+  nodes: { id: string; label: string; count: number }[];
+  links: { source: string; target: string; value: number }[];
+}
+
+export interface Stats {
+  total: number;
+  by_status: Record<string, number>;
+  funnel: { stage: Stage; count: number; pct: number }[];
+  time_to_first_response: { count: number; median_days: number | null; mean_days: number | null };
+  flow: FlowData;
+}
+
 export type ChangeKind = "fill" | "change" | "append";
 
 export interface FieldChange {
@@ -171,6 +184,7 @@ export type ApplicationInput = Partial<Omit<Application, "id" | "status">> & {
 
 export const api = {
   dashboard: () => request<Dashboard>("GET", "/dashboard"),
+  stats: (campaign: string) => request<Stats>("GET", `/stats?${new URLSearchParams({ campaign })}`),
   applications: (params: Record<string, string> = {}) =>
     request<Application[]>("GET", `/applications?${new URLSearchParams(params)}`),
   application: (id: string) => request<ApplicationDetail>("GET", `/applications/${id}`),
@@ -198,6 +212,7 @@ export const api = {
   assign: (eventId: string, applicationId: string) =>
     request<TimelineEvent>("POST", `/events/${eventId}/assign`, { application_id: applicationId }),
   dismiss: (eventId: string) => request<TimelineEvent>("POST", `/events/${eventId}/dismiss`, {}),
+  markReplied: (eventId: string) => request<TimelineEvent>("POST", `/events/${eventId}/replied`, {}),
   createFromEvent: (eventId: string, data: ApplicationInput) =>
     request<Application>("POST", `/events/${eventId}/create-application`, data),
   addNote: (appId: string, data: Partial<Note>) => request<Note>("POST", `/applications/${appId}/notes`, data),
@@ -226,6 +241,13 @@ export function daysAgo(iso: string | null): string {
 }
 
 export const label = (s: string) => s.replace(/_/g, " ");
+
+export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** Noon local time keeps a picked calendar day stable across timezones. */
+export const dayToIso = (day: string) => `${day}T12:00:00-03:00`;
+export const isoToDay = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ }) : "";
 
 export function fmtSalary(a: Pick<Application, "salary_min" | "salary_max" | "salary_currency">): string | null {
   if (!a.salary_min && !a.salary_max) return null;

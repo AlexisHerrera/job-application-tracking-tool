@@ -261,6 +261,12 @@ def create_app(
             e = services.dismiss_event(repo, _uuid(event_id))
         return s.event_json(e)
 
+    @api.post("/events/{event_id}/replied")
+    def replied(event_id: str, repo: PostgresRepo = Depends(get_repo)):
+        with repo.transaction():
+            e = services.mark_replied(repo, clock, _uuid(event_id))
+        return s.event_json(e)
+
     @api.post("/events/{event_id}/create-application", status_code=201)
     def create_from_event(
         event_id: str, body: s.ApplicationIn, repo: PostgresRepo = Depends(get_repo)

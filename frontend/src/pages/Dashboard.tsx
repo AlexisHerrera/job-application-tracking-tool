@@ -1,78 +1,166 @@
+import { useState, type ReactNode } from "react";
+import { CalendarClock, Check, ChevronRight, Hourglass, Inbox, MessageSquareReply, Sparkles, Waypoints } from "lucide-react";
 import { Link } from "react-router-dom";
-import { api, daysAgo, fmtDate } from "../api";
-import { Card, Loading } from "../components";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { api, daysAgo, errorText, fmtDate, type Status } from "../api";
+import { useCampaign } from "../campaign";
+import { FlowChart } from "../components/FlowChart";
+import { Empty, Loading, PageHeader } from "../components/common";
+import { ACTIVE_STATUSES } from "../lib/status";
+import { useRefresh } from "../lib/refresh";
+import { ReviewDialog } from "../ReviewDialog";
 import { useAsync } from "../useAsync";
 
 export default function DashboardPage() {
+  const { selected: campaign } = useCampaign();
+  const { bump } = useRefresh();
   const { data, error, loading } = useAsync(api.dashboard);
-  if (!data) return <Loading error={error} loading={loading} />;
+  const stats = useAsync(() => api.stats(campaign), [campaign]).data;
+  const [reviewing, setReviewing] = useState(false);
+  if (!data) return <Loading error={error} loading={loading} rows={4} />;
   const { upcoming_interviews: upcoming, follow_ups: fu } = data;
-
   const c = data.campaign;
+
+  const active = stats ? Object.entries(stats.by_status).reduce((n, [s, k]) => n + (ACTIVE_STATUSES.has(s as Status) ? k : 0), 0) : null;
+  const interviews = stats?.funnel.find((f) => f.stage === "interviewing");
+
+  async function done(eventId: string) {
+    try {
+      await api.markReplied(eventId);
+      toast.success("Marked as handled");
+      bump();
+    } catch (e) {
+      toast.error(errorText(e));
+    }
+  }
+
   return (
-    <div className="grid">
-      {c && (
-        <Card title={<>{c.name} <span className="muted small">· day {c.day}</span></>} actions={<Link to="/campaigns" className="small">campaigns</Link>}>
-          <div className="stats-row">
-            <div><strong>{c.applications}</strong><span>applications</span></div>
-            <div><strong>{c.per_week}</strong><span>per week</span></div>
-            <div><strong>{c.days_to_first_interview ?? "—"}</strong><span>days to 1st interview</span></div>
-          </div>
-        </Card>
-      )}
-      {!c && <p className="muted small">No ongoing campaign. <Link to="/campaigns">Start one</Link> to group this search.</p>}
+    <>
+      <PageHeader
+        title="Dashboard"
+        description={c ? <>{c.name} · day {c.day} · started {fmtDate(c.started_on)}</> : <>No ongoing campaign. <Link to="/campaigns" className="text-primary hover:underline">Start one</Link> to group this search.</>}
+      />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Tile label="Applications" value={stats?.total ?? c?.applications ?? "—"} sub={c ? `${c.per_week} per week` : undefined} />
+        <Tile label="Active" value={active ?? "—"} sub="applied, screening, interviewing, on hold" />
+        <Tile label="Reached interviews" value={interviews?.count ?? "—"} sub={interviews ? `${interviews.pct}% of applications` : undefined} />
+        <Tile
+          label="Days to 1st interview"
+          value={c?.days_to_first_interview ?? "—"}
+          sub={stats?.time_to_first_response.median_days != null ? `first reply in ${stats.time_to_first_response.median_days} days (median)` : undefined}
+        />
+      </div>
+
       {(data.unassigned > 0 || data.needs_review > 0) && (
-        <Card title="Needs your attention">
-          <ul className="plain">
-            {data.unassigned > 0 && (
-              <li><Link to="/inbox">{data.unassigned} email(s) couldn't be matched to an application</Link></li>
-            )}
+        <Card className="mt-4 border-amber-500/30 bg-amber-500/5">
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
             {data.needs_review > 0 && (
-              <li>
-                <Link to="/applications?needs_review=true">
-                  {data.needs_review} application(s) were created from emails: check they're right
-                </Link>
-              </li>
+              <div className="flex flex-1 items-center gap-3">
+                <Sparkles className="size-5 shrink-0 text-amber-500" />
+                <div className="flex-1 text-sm">
+                  <div className="font-medium">{data.needs_review} application{data.needs_review === 1 ? "" : "s"} created from emails</div>
+                  <div className="text-muted-foreground">Confirm the company and role. Takes a few seconds each.</div>
+                </div>
+                <Button size="sm" onClick={() => setReviewing(true)}>Review now</Button>
+              </div>
             )}
-          </ul>
+            {data.unassigned > 0 && (
+              <div className="flex flex-1 items-center gap-3">
+                <Inbox className="size-5 shrink-0 text-muted-foreground" />
+                <div className="flex-1 text-sm">
+                  <div className="font-medium">{data.unassigned} unmatched email{data.unassigned === 1 ? "" : "s"}</div>
+                  <div className="text-muted-foreground">Couldn't tell which application they belong to.</div>
+                </div>
+                <Button asChild size="sm" variant="outline"><Link to="/inbox">Open inbox</Link></Button>
+              </div>
+            )}
+          </CardContent>
         </Card>
       )}
-      <Card title="Upcoming interviews">
-        {upcoming.length === 0 ? <p className="muted">None scheduled.</p> : (
-          <ul className="plain">
-            {upcoming.map((i) => (
-              <li key={i.application_id}>
-                <strong>{fmtDate(i.at, true)}</strong> · <Link to={`/applications/${i.application_id}`}>{i.company}</Link>{" "}
-                <span className="muted">{i.role}{i.round ? ` · round ${i.round}` : ""}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Waypoints className="size-4 text-muted-foreground" /> Where applications went</CardTitle>
+          <CardDescription>Each application through the stages it reached, ending where it stands today. Hover a flow for numbers.</CardDescription>
+        </CardHeader>
+        <CardContent>{stats ? <FlowChart data={stats.flow} /> : <Loading error={null} loading rows={1} />}</CardContent>
       </Card>
-      <Card title="Waiting on your reply">
-        {fu.needs_reply.length === 0 ? <p className="muted">Nothing pending.</p> : (
-          <ul className="plain">
-            {fu.needs_reply.map((r) => (
-              <li key={r.event_id}>
-                {r.application_id ? <Link to={`/applications/${r.application_id}`}>{r.company}</Link> : <Link to="/inbox">unassigned</Link>}{" "}
-                · {r.subject} <span className="muted">({daysAgo(r.received_at)})</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-      <Card title="No news for a while">
-        {fu.no_news.length === 0 ? <p className="muted">All quiet processes are already marked ghosted.</p> : (
-          <ul className="plain">
-            {fu.no_news.map((r) => (
-              <li key={r.application_id}>
-                <Link to={`/applications/${r.application_id}`}>{r.company}</Link> · {r.role}{" "}
-                <span className="muted">(last: {daysAgo(r.last_event_at)})</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-    </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <ListCard icon={<CalendarClock className="size-4 text-violet-500" />} title="Upcoming interviews" empty="None scheduled.">
+          {upcoming.map((i) => (
+            <Row key={i.application_id} to={`/applications?open=${i.application_id}`} title={i.company} sub={`${i.role}${i.round ? ` · round ${i.round}` : ""}`} right={<span className="font-medium">{fmtDate(i.at, true)}</span>} />
+          ))}
+        </ListCard>
+        <ListCard
+          icon={<MessageSquareReply className="size-4 text-amber-500" />}
+          title="Waiting on your reply"
+          description="Open requests on active processes"
+          empty="Nothing pending."
+        >
+          {fu.needs_reply.map((r) => (
+            <div key={r.event_id} className="flex items-center gap-2 py-2">
+              <Link to={r.application_id ? `/applications?open=${r.application_id}` : "/inbox"} className="min-w-0 flex-1 rounded-md hover:underline">
+                <div className="truncate text-sm font-medium">{r.company ?? "Unassigned"}</div>
+                <div className="truncate text-xs text-muted-foreground">{r.subject} · {daysAgo(r.received_at)}</div>
+              </Link>
+              <Button size="xs" variant="outline" onClick={() => done(r.event_id)} aria-label={`Mark ${r.company ?? "email"} as handled`}>
+                <Check /> Done
+              </Button>
+            </div>
+          ))}
+        </ListCard>
+        <ListCard icon={<Hourglass className="size-4 text-muted-foreground" />} title="No news for a while" description="Worth a nudge before they go quiet" empty="Nothing quiet yet.">
+          {fu.no_news.map((r) => (
+            <Row key={r.application_id} to={`/applications?open=${r.application_id}`} title={r.company} sub={r.role} right={<span className="text-muted-foreground">{daysAgo(r.last_event_at)}</span>} />
+          ))}
+        </ListCard>
+      </div>
+
+      <ReviewDialog open={reviewing} onOpenChange={setReviewing} />
+    </>
+  );
+}
+
+function Tile({ label, value, sub }: { label: string; value: ReactNode; sub?: string }) {
+  return (
+    <Card className="gap-1 py-4">
+      <CardContent className="px-4">
+        <div className="text-sm text-muted-foreground">{label}</div>
+        <div className="mt-1 text-3xl font-semibold tracking-tight">{value}</div>
+        {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ListCard({ icon, title, description, empty, children }: { icon: ReactNode; title: string; description?: string; empty: string; children: ReactNode[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">{icon}{title}</CardTitle>
+        {description && <CardDescription>{description}</CardDescription>}
+        {children.length > 0 && <CardAction><span className="text-sm text-muted-foreground tabular-nums">{children.length}</span></CardAction>}
+      </CardHeader>
+      <CardContent>
+        {children.length === 0 ? <Empty>{empty}</Empty> : <div className="divide-y">{children}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Row({ to, title, sub, right }: { to: string; title: string; sub: string; right: ReactNode }) {
+  return (
+    <Link to={to} className="group flex items-center gap-2 py-2 text-sm">
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium group-hover:underline">{title}</div>
+        <div className="truncate text-xs text-muted-foreground">{sub}</div>
+      </div>
+      <div className="shrink-0 text-xs">{right}</div>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+    </Link>
   );
 }

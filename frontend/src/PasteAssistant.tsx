@@ -1,4 +1,12 @@
 import { useMemo, useState } from "react";
+import { Sparkles, TriangleAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { api, fmtDate, label, type ApplicationInput, type FieldChange, type PasteOption, type PasteRecord } from "./api";
 
 // Review-before-write flow: the AI only proposes. Fills are preselected; anything that would
@@ -10,6 +18,12 @@ const KIND_TEXT: Record<FieldChange["kind"], string> = {
   fill: "fills empty",
   append: "adds to",
   change: "⚠ will modify",
+};
+
+const KIND_CLASS: Record<FieldChange["kind"], string> = {
+  fill: "text-emerald-700 dark:text-emerald-400",
+  append: "text-blue-700 dark:text-blue-400",
+  change: "text-amber-700 dark:text-amber-400",
 };
 
 function show(field: string, value: unknown): string {
@@ -118,91 +132,91 @@ export function PasteAssistant({ applicationId, onApplied }: { applicationId?: s
 
   if (!records) {
     return (
-      <div className="form">
-        <p className="muted small">
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
           Paste anything: emails, Slack or LinkedIn messages, a job post, your own notes. The AI proposes{" "}
           {applicationId ? "updates to this application" : "new applications or updates to existing ones"}; you review every
           change before anything is saved. The pasted text itself is not stored.
         </p>
-        <textarea rows={applicationId ? 5 : 10} value={text} onChange={(e) => setText(e.target.value)}
+        <Textarea rows={applicationId ? 5 : 10} value={text} onChange={(e) => setText(e.target.value)} aria-label="Text to read"
           placeholder={"e.g. \"Applied to Northwind (Senior Backend) on Sep 3 via referral. Recruiter said 90–110k USD + equity. Rejected after the system design round on Oct 2.\""} />
-        <div className="actions">
-          <button onClick={read} disabled={busy || !text.trim()}>{busy ? "Reading…" : "Read with AI"}</button>
-        </div>
-        {error && <p className="error">{error}</p>}
-        {done && <p className="ok">{done}</p>}
+        <Button onClick={read} disabled={busy || !text.trim()}><Sparkles /> {busy ? "Reading…" : "Read with AI"}</Button>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        {done && <p className="text-sm text-emerald-700 dark:text-emerald-400">{done}</p>}
       </div>
     );
   }
 
   return (
-    <div className="form">
-      {records.length === 0 && <p className="muted">The AI didn't find any application details in that text.</p>}
+    <div className="space-y-4">
+      {records.length === 0 && <p className="text-sm text-muted-foreground">The AI didn't find any application details in that text.</p>}
       {records.map((rec, i) => {
         const s = sel[i];
         const opt = rec.options[s.option];
         const isNew = opt.application_id === null;
         const hasRole = opt.changes.some((c) => c.field === "role_title" && s.fields.has(c.field));
+        const toggle = (field: string, on: boolean) => {
+          const fields = new Set(s.fields);
+          if (on) fields.add(field);
+          else fields.delete(field);
+          update(i, { fields });
+        };
         return (
-          <div key={i} className={`proposal${s.skip ? " skipped" : ""}`}>
-            <div className="proposal-head">
+          <div key={i} className={cn("space-y-3 rounded-lg border p-4", s.skip && "opacity-50")}>
+            <div className="flex flex-wrap items-center gap-3">
               <strong>{rec.company}</strong>
               {rec.options.length > 1 ? (
-                <select value={s.option} onChange={(e) => {
+                <NativeSelect size="sm" value={s.option} aria-label="Apply to" onChange={(e) => {
                   const option = Number(e.target.value);
                   update(i, { option, ...defaults(rec.options[option]) });
                 }}>
-                  {rec.options.map((o, j) => <option key={j} value={j}>{o.label}</option>)}
-                </select>
-              ) : <span className="muted small">{opt.label}</span>}
-              <label className="check small"><input type="checkbox" checked={s.skip} onChange={(e) => update(i, { skip: e.target.checked })} />skip</label>
+                  {rec.options.map((o, j) => <NativeSelectOption key={j} value={j}>{o.label}</NativeSelectOption>)}
+                </NativeSelect>
+              ) : <span className="text-sm text-muted-foreground">{opt.label}</span>}
+              <Label className="ml-auto text-sm font-normal">
+                <Checkbox checked={s.skip} onCheckedChange={(v) => update(i, { skip: v === true })} /> skip
+              </Label>
             </div>
-            {rec.evidence && <div className="muted small">“{rec.evidence}”</div>}
-            {rec.salary_note && <div className="muted small">Salary {rec.salary_note}.</div>}
+            {rec.evidence && <div className="text-sm text-muted-foreground italic">“{rec.evidence}”</div>}
+            {rec.salary_note && <div className="text-sm text-muted-foreground">Salary {rec.salary_note}.</div>}
             {!s.skip && (
               <>
-                {opt.changes.length === 0 && !opt.stage_change && <p className="muted small">Nothing new for this application.</p>}
+                {opt.changes.length === 0 && !opt.stage_change && <p className="text-sm text-muted-foreground">Nothing new for this application.</p>}
                 {isNew && !hasRole && (
-                  <label>Role (required)<input value={s.role} onChange={(e) => update(i, { role: e.target.value })} /></label>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`paste-role-${i}`}>Role (required)</Label>
+                    <Input id={`paste-role-${i}`} value={s.role} onChange={(e) => update(i, { role: e.target.value })} />
+                  </div>
                 )}
-                <table className="changes">
-                  <tbody>
-                    {opt.changes.map((c) => (
-                      <tr key={c.field} className={`kind-${c.kind}`}>
-                        <td>
-                          <input type="checkbox" checked={s.fields.has(c.field)} onChange={(e) => {
-                            const fields = new Set(s.fields);
-                            if (e.target.checked) fields.add(c.field);
-                            else fields.delete(c.field);
-                            update(i, { fields });
-                          }} />
-                        </td>
-                        <td>{c.label}<div className={`kind kind-${c.kind}`}>{KIND_TEXT[c.kind]}</div></td>
-                        <td>
-                          {c.kind !== "fill" && <div className="current">{show(c.field, c.current)}</div>}
-                          <div>{show(c.field, c.proposed)}</div>
-                        </td>
-                      </tr>
-                    ))}
-                    {opt.stage_change && (
-                      <tr className={`kind-${opt.stage_change.kind}`}>
-                        <td><input type="checkbox" checked={s.stage} onChange={(e) => update(i, { stage: e.target.checked })} /></td>
-                        <td>Stage<div className={`kind kind-${opt.stage_change.kind}`}>{KIND_TEXT[opt.stage_change.kind]}</div></td>
-                        <td>
-                          {opt.stage_change.current && <div className="current">{label(opt.stage_change.current)}</div>}
-                          <div>{label(opt.stage_change.proposed)}{opt.stage_change.at ? ` (on ${fmtDate(opt.stage_change.at)})` : ""}</div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                <div className="divide-y rounded-md border">
+                  {opt.changes.map((c) => (
+                    <label key={c.field} className={cn("grid cursor-pointer grid-cols-[auto_8rem_1fr] items-start gap-3 p-2.5 text-sm hover:bg-muted/50", c.kind === "change" && "bg-amber-500/5")}>
+                      <Checkbox checked={s.fields.has(c.field)} onCheckedChange={(v) => toggle(c.field, v === true)} className="mt-0.5" />
+                      <span>{c.label}<span className={cn("block text-xs", KIND_CLASS[c.kind])}>{KIND_TEXT[c.kind]}</span></span>
+                      <span className="min-w-0 break-words">
+                        {c.kind !== "fill" && <span className="block text-muted-foreground line-through">{show(c.field, c.current)}</span>}
+                        {show(c.field, c.proposed)}
+                      </span>
+                    </label>
+                  ))}
+                  {opt.stage_change && (
+                    <label className={cn("grid cursor-pointer grid-cols-[auto_8rem_1fr] items-start gap-3 p-2.5 text-sm hover:bg-muted/50", opt.stage_change.kind === "change" && "bg-amber-500/5")}>
+                      <Checkbox checked={s.stage} onCheckedChange={(v) => update(i, { stage: v === true })} className="mt-0.5" />
+                      <span>Stage<span className={cn("block text-xs", KIND_CLASS[opt.stage_change.kind])}>{KIND_TEXT[opt.stage_change.kind]}</span></span>
+                      <span>
+                        {opt.stage_change.current && <span className="block text-muted-foreground line-through">{label(opt.stage_change.current)}</span>}
+                        {label(opt.stage_change.proposed)}{opt.stage_change.at ? ` (on ${fmtDate(opt.stage_change.at)})` : ""}
+                      </span>
+                    </label>
+                  )}
+                </div>
               </>
             )}
           </div>
         );
       })}
       {summary && (
-        <div className="apply-summary">
+        <div className="space-y-2 text-sm">
           <div>
             Will {[
               summary.creates && `create ${summary.creates} application(s)`,
@@ -212,17 +226,17 @@ export function PasteAssistant({ applicationId, onApplied }: { applicationId?: s
             ].filter(Boolean).join(", ") || "change nothing"}.
           </div>
           {summary.overwrites.length > 0 && (
-            <div className="warn">
-              <strong>You will modify existing data:</strong>
-              <ul>{summary.overwrites.map((o) => <li key={o}>{o}</li>)}</ul>
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+              <div className="flex items-center gap-2 font-medium"><TriangleAlert className="size-4 text-amber-600" /> You will modify existing data:</div>
+              <ul className="mt-1 list-disc pl-6">{summary.overwrites.map((o) => <li key={o}>{o}</li>)}</ul>
             </div>
           )}
         </div>
       )}
-      {error && <p className="error">{error}</p>}
-      <div className="actions">
-        <button onClick={apply} disabled={busy}>{busy ? "Saving…" : summary?.overwrites.length ? "Apply, including overwrites" : "Apply"}</button>
-        <button className="secondary" onClick={() => setRecords(null)}>Back to text</button>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex gap-2">
+        <Button onClick={apply} disabled={busy}>{busy ? "Saving…" : summary?.overwrites.length ? "Apply, including overwrites" : "Apply"}</Button>
+        <Button variant="ghost" onClick={() => setRecords(null)}>Back to text</Button>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, type CampaignSummary } from "./api";
 
 const KEY = "jobtracker.campaign";
@@ -51,13 +52,20 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
 
 export const useCampaign = () => useContext(Ctx);
 
-export function CampaignPicker() {
+export function CampaignPicker({ className }: { className?: string }) {
   const { campaigns, selected, select } = useCampaign();
   if (campaigns.length === 0) return null;
   return (
-    <select className="campaign-picker" value={selected} onChange={(e) => select(e.target.value)} aria-label="Campaign">
-      {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}{c.ongoing ? "" : " (ended)"}</option>)}
-      <option value="all">All campaigns</option>
-    </select>
+    <Select value={selected} onValueChange={select}>
+      <SelectTrigger size="sm" className={className} aria-label="Campaign">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {campaigns.map((c) => (
+          <SelectItem key={c.id} value={c.id}>{c.name}{c.ongoing ? "" : " (ended)"}</SelectItem>
+        ))}
+        <SelectItem value="all">All campaigns</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }

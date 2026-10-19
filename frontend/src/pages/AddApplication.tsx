@@ -1,25 +1,42 @@
+import { ClipboardPaste, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "../api";
 import { ApplicationForm } from "../ApplicationForm";
-import { Card } from "../components";
+import { PageHeader } from "../components/common";
+import { useRefresh } from "../lib/refresh";
 import { PasteAssistant } from "../PasteAssistant";
 
 export default function AddApplication() {
   const navigate = useNavigate();
+  const { bump } = useRefresh();
   return (
-    <div className="grid">
-      <Card title="Paste anything">
-        <PasteAssistant onApplied={() => navigate("/applications")} />
-      </Card>
-      <Card title="Or fill the form">
-        <ApplicationForm
-          submitLabel="Add application"
-          onSubmit={async (data) => {
-            const created = await api.createApplication(data);
-            navigate(`/applications/${created.id}`);
-          }}
-        />
-      </Card>
+    <div className="mx-auto max-w-3xl">
+      <PageHeader title="New application" description="Paste whatever you have and let the AI fill it in, or use the form." />
+      <Tabs defaultValue="paste">
+        <TabsList>
+          <TabsTrigger value="paste"><ClipboardPaste /> Paste anything</TabsTrigger>
+          <TabsTrigger value="form"><FileText /> Form</TabsTrigger>
+        </TabsList>
+        <Card className="mt-3">
+          <CardContent>
+            <TabsContent value="paste">
+              <PasteAssistant onApplied={() => { bump(); navigate("/applications"); }} />
+            </TabsContent>
+            <TabsContent value="form">
+              <ApplicationForm
+                submitLabel="Add application"
+                onSubmit={async (data) => {
+                  const created = await api.createApplication(data);
+                  bump();
+                  navigate(`/applications?open=${created.id}`);
+                }}
+              />
+            </TabsContent>
+          </CardContent>
+        </Card>
+      </Tabs>
     </div>
   );
 }

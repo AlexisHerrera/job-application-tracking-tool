@@ -272,6 +272,17 @@ def dismiss_event(repo: Repository, event_id: uuid.UUID) -> Event:
     return event
 
 
+def mark_replied(repo: Repository, clock: Clock, event_id: uuid.UUID) -> Event:
+    """Clears a reply request by hand (answered outside the thread, or nothing to answer)."""
+    event = repo.get_event(event_id)
+    if event is None:
+        raise NotFound(str(event_id))
+    if event.replied_at is None:
+        event.replied_at = clock.now()
+        repo.update_event(event)
+    return event
+
+
 def _email_stub(event: Event) -> EmailMessage:
     return EmailMessage(
         message_id=event.message_id or "",

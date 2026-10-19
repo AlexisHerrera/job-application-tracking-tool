@@ -6,7 +6,7 @@ Design and decisions: [`docs/plan.md`](docs/plan.md).
 
 ```
 backend/    Python 3.12 package `jobtracker` (core domain + adapters + API + CLI), uv / ruff / pytest
-frontend/   React + TypeScript + Vite dashboard
+frontend/   React + TypeScript + Vite dashboard (Tailwind v4 + shadcn/ui)
 infra/      Terraform (Phase 3)
 ```
 
@@ -94,6 +94,14 @@ The first `ingest` run only records the mailbox's current position. Use `backfil
   The pasted text is sent to Anthropic for extraction and is not stored. Each "Read with AI" is one paid call (fractions of a cent with Haiku).
 - **Form**: the classic fields, plus a yearly salary range (a single figure is stored as min = max), currency and other benefits. Monthly or hourly salaries found in pasted text are converted to yearly (×12 / ×2080), and the review screen says so.
 - **CSV**: still available from the CLI (`app import`) for bulk loads.
+
+## Using the dashboard
+
+- **Applications** has two views (the choice is remembered): **Board**, where dragging a card to another column changes its stage (undo from the toast), and **All**, a sortable list with status chips and counts. Click any card or row to open it in a side panel; every field there edits in place (click, type, Enter). Esc closes the panel.
+- **Review** (dashboard or Applications header) walks through the applications created automatically from emails, one at a time: <kbd>Enter</kbd> looks right, <kbd>S</kbd> skip, <kbd>D</kbd> twice deletes (its emails go back to the inbox), <kbd>E</kbd> edits the role. Cards that need review also have a ✓ button on the board.
+- **Waiting on your reply** lists only open requests on active processes: closed or on-hold applications and requests the conversation already moved past are left out. **Done** clears one by hand.
+- **Where applications went** is a sankey of the campaign: each application through the stages it reached, ending where it stands today (also available as a table).
+- Light, dark or system theme from the sidebar.
 
 ## Campaigns
 
