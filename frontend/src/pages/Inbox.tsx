@@ -79,6 +79,7 @@ function InboxItem({ e, apps }: { e: TimelineEvent; apps: Application[] }) {
               initial={{ company: e.extracted_company ?? e.company_hint ?? "", role_title: e.extracted_role ?? "", applied_at: e.occurred_at }}
               submitLabel="Create and assign"
               showStage={false}
+              pasteFill={{ onUseExisting: (id) => { setTarget(id); setCreating(false); } }}
               onSubmit={async (data) => { await api.createFromEvent(e.id, data); toast.success("Created and assigned"); bump(); }}
             />
           </div>

@@ -489,10 +489,13 @@ function NoteForm({ appId, round, onDone, onCancel }: { appId: string; round: nu
   );
 }
 
-export function Field({ label: text, id, children, hint }: { label: string; id?: string; children: ReactNode; hint?: string }) {
+export function Field({ label: text, id, children, hint, tag }: { label: string; id?: string; children: ReactNode; hint?: string; tag?: string }) {
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>{text}</Label>
+      <div className="flex items-center gap-2">
+        <Label htmlFor={id}>{text}</Label>
+        {tag && <span className="rounded bg-indigo-500/10 px-1.5 text-xs leading-5 text-indigo-700 dark:text-indigo-300">{tag}</span>}
+      </div>
       {children}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>

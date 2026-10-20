@@ -92,6 +92,7 @@ The first `ingest` run (or **Scan inbox now**) continues right after the newest 
   - **adds to** (stack, notes, a new email domain) is preselected and never removes anything
   - **⚠ will modify** (overwrites a value you already have, or changes the stage) starts **unchecked**. Anything you tick is listed under "You will modify existing data" before you apply.
   The pasted text is sent to Anthropic for extraction and is not stored. Each "Read with AI" is one paid call (fractions of a cent with Haiku).
+- **Inbox → New application**: paste the recruiter's LinkedIn chat into *Fill from a recruiter chat* and the AI fills the form (fields it filled are tagged *from chat*, anything it replaced is called out, *Undo fill* restores). If the chat matches an application you already have, it offers to assign the email to that one instead. Nothing is saved until *Create and assign*; one paid AI call per read.
 - **Form**: the classic fields, plus a yearly salary range (a single figure is stored as min = max), currency and other benefits. Monthly or hourly salaries found in pasted text are converted to yearly (×12 / ×2080), and the review screen says so.
 - **CSV**: still available from the CLI (`app import`) for bulk loads.
 
