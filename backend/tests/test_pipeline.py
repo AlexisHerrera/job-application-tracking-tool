@@ -154,6 +154,9 @@ class FakeSource:
     def fetch_range(self, since, until):
         return iter(self.emails)
 
+    def fetch_by_message_ids(self, message_ids):
+        return iter([e for e in self.emails if e.message_id in message_ids])
+
     def close(self):
         pass
 

@@ -82,6 +82,10 @@ class MailSource(Protocol):
 
     def fetch_range(self, since: date, until: date | None) -> Iterator[EmailMessage]: ...
 
+    def fetch_by_message_ids(self, message_ids: list[str]) -> Iterator[EmailMessage]:
+        """Specific messages by Message-ID (missing ones are skipped), no X-GM-RAW filter."""
+        ...
+
 
 class Repository(Protocol):
     def transaction(self) -> AbstractContextManager[None]: ...

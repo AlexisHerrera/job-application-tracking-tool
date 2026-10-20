@@ -1,0 +1,22 @@
+SYNTHETIC test fixture (invented text, not a real post).
+
+¡Hola! Te comparto una búsqueda de un cliente nuestro:
+
+Buscamos un Senior Backend Engineer con experiencia en Go y Kubernetes para sumarse al
+equipo de plataforma de una fintech líder.
+
+Requisitos
+● +5 años con Go en producción.
+● Kubernetes, PostgreSQL y GCP.
+Plus
+● Experiencia con Rust.
+
+Beneficios:
+💵 Pago en USD.
+🏥 Swiss Medical SMG30.
+🌴 4 semanas de vacaciones.
+☕ Kit de bienvenida con productos de Acme Coffee.
+
+Es bajo relación de dependencia, sueldo en dólares, 2 veces por semana en la oficina de Palermo.
+
+Proceso: entrevista conmigo (30 min), entrevista técnica (1 h), entrevista con el CTO.

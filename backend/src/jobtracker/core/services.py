@@ -7,6 +7,7 @@ import io
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
+from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -194,6 +195,34 @@ def fill_unknown_role(repo: Repository, app_id: uuid.UUID, role: str | None) -> 
     if app and role and app.role_title == UNKNOWN_ROLE:
         app.role_title = role
         repo.update_application(app)
+
+
+def update_fields(
+    repo: Repository,
+    clock: Clock,
+    app_id: uuid.UUID,
+    changes: dict[str, Any],
+    learned_from: str = "manual",
+) -> Application:
+    """Set application fields (company_domain adds an alias, never removes one)."""
+    a = repo.get_application(app_id)
+    if a is None:
+        raise NotFound(str(app_id))
+    changes = dict(changes)
+    domain = changes.pop("company_domain", None)
+    for name, value in changes.items():
+        setattr(a, name, value)
+    if a.salary_min and a.salary_max and a.salary_min > a.salary_max:
+        raise InvalidInput("salary min is greater than salary max")
+    if a.salary_currency:
+        a.salary_currency = a.salary_currency.upper()
+    if domain:
+        company = repo.get_company(a.company_id)
+        if company is not None:
+            add_company_domain(repo, company, domain, learned_from)
+    a.updated_at = clock.now()
+    repo.update_application(a)
+    return recompute(repo, clock, a.id)
 
 
 def recompute(repo: Repository, clock: Clock, app_id: uuid.UUID) -> Application:

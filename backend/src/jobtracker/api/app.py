@@ -168,7 +168,10 @@ def create_app(
         system, user = paste.paste_prompt(body.text, clock.now(), tz, forced)
         try:
             raw = llm.complete_json(
-                system=system, user=user, schema=paste.PASTE_SCHEMA, max_tokens=16000
+                system=system,
+                user=user,
+                schema=paste.PASTE_SCHEMA,
+                max_tokens=paste.MAX_OUTPUT_TOKENS,
             )
         except LLMError as err:
             raise HTTPException(502, f"AI extraction failed ({err}); try again") from err
@@ -228,23 +231,9 @@ def create_app(
         app_id: str, body: s.ApplicationPatch, repo: PostgresRepo = Depends(get_repo)
     ):
         with repo.transaction():
-            a = repo.get_application(_uuid(app_id))
-            if a is None:
-                raise services.NotFound(app_id)
-            changes = body.model_dump(exclude_unset=True)
-            domain = changes.pop("company_domain", None)
-            for field, value in changes.items():
-                setattr(a, field, value)
-            if a.salary_min and a.salary_max and a.salary_min > a.salary_max:
-                raise services.InvalidInput("salary min is greater than salary max")
-            if a.salary_currency:
-                a.salary_currency = a.salary_currency.upper()
-            if domain:
-                company = repo.get_company(a.company_id)
-                services.add_company_domain(repo, company, domain, "manual")
-            a.updated_at = clock.now()
-            repo.update_application(a)
-            a = services.recompute(repo, clock, a.id)
+            a = services.update_fields(
+                repo, clock, _uuid(app_id), body.model_dump(exclude_unset=True)
+            )
         return app_json(a)
 
     @api.delete("/applications/{app_id}", status_code=204)

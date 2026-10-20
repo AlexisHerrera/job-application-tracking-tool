@@ -12,7 +12,9 @@ import { api, fmtDate, label, type ApplicationInput, type FieldChange, type Past
 // Review-before-write flow: the AI only proposes. Fills are preselected; anything that would
 // overwrite a value you already have starts unchecked and is called out before applying.
 
-type Selection = { option: number; fields: Set<string>; stage: boolean; skip: boolean; role: string };
+type Selection = { option: number; fields: Set<string>; stage: boolean; skip: boolean; role: string; company: string };
+
+const NO_COMPANY = "Company not named";
 
 const KIND_TEXT: Record<FieldChange["kind"], string> = {
   fill: "fills empty",
@@ -59,7 +61,7 @@ export function PasteAssistant({ applicationId, onApplied }: { applicationId?: s
       setRecords(r.records);
       setSel(r.records.map((rec) => {
         const opt = rec.options[rec.default_option];
-        return { option: rec.default_option, skip: false, role: "", ...defaults(opt) };
+        return { option: rec.default_option, skip: false, role: "", company: "", ...defaults(opt) };
       }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -84,10 +86,10 @@ export function PasteAssistant({ applicationId, onApplied }: { applicationId?: s
       for (const c of picked) {
         if (c.kind === "fill") fills++;
         else if (c.kind === "append") appends++;
-        else overwrites.push(`${rec.company}: ${c.label} "${show(c.field, c.current)}" → "${show(c.field, c.proposed)}"`);
+        else overwrites.push(`${rec.company ?? NO_COMPANY}: ${c.label} "${show(c.field, c.current)}" → "${show(c.field, c.proposed)}"`);
       }
       if (s.stage && opt.stage_change?.kind === "change") {
-        overwrites.push(`${rec.company}: stage ${opt.stage_change.current} → ${opt.stage_change.proposed}`);
+        overwrites.push(`${rec.company ?? NO_COMPANY}: stage ${opt.stage_change.current} → ${opt.stage_change.proposed}`);
       }
     });
     return { creates, updates, fills, appends, overwrites };
@@ -106,10 +108,12 @@ export function PasteAssistant({ applicationId, onApplied }: { applicationId?: s
         const stage = s.stage && opt.stage_change ? opt.stage_change : null;
         if (opt.application_id === null) {
           const role = (values.role_title as string) || s.role.trim();
-          if (!role) throw new Error(`${rec.company}: type a role before creating it`);
+          const company = rec.company ?? s.company.trim();
+          if (!company) throw new Error(`${role || "A position"}: type the hiring company before creating it`);
+          if (!role) throw new Error(`${company}: type a role before creating it`);
           await api.createApplication({
             ...(values as Partial<ApplicationInput>),
-            company: rec.company,
+            company,
             role_title: role,
             stage: stage?.proposed ?? null,
             stage_at: stage?.at ?? null,
@@ -149,7 +153,7 @@ export function PasteAssistant({ applicationId, onApplied }: { applicationId?: s
 
   return (
     <div className="space-y-4">
-      {records.length === 0 && <p className="text-sm text-muted-foreground">The AI didn't find any application details in that text.</p>}
+      {records.length === 0 && <p className="text-sm text-muted-foreground">No position found in that text: it names neither a company nor a role.</p>}
       {records.map((rec, i) => {
         const s = sel[i];
         const opt = rec.options[s.option];
@@ -164,7 +168,7 @@ export function PasteAssistant({ applicationId, onApplied }: { applicationId?: s
         return (
           <div key={i} className={cn("space-y-3 rounded-lg border p-4", s.skip && "opacity-50")}>
             <div className="flex flex-wrap items-center gap-3">
-              <strong>{rec.company}</strong>
+              {rec.company ? <strong>{rec.company}</strong> : <strong className="text-amber-700 dark:text-amber-400">{NO_COMPANY}</strong>}
               {rec.options.length > 1 ? (
                 <NativeSelect size="sm" value={s.option} aria-label="Apply to" onChange={(e) => {
                   const option = Number(e.target.value);
@@ -182,6 +186,15 @@ export function PasteAssistant({ applicationId, onApplied }: { applicationId?: s
             {!s.skip && (
               <>
                 {opt.changes.length === 0 && !opt.stage_change && <p className="text-sm text-muted-foreground">Nothing new for this application.</p>}
+                {isNew && !rec.company && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`paste-company-${i}`}>Company (required)</Label>
+                    <Input id={`paste-company-${i}`} value={s.company} onChange={(e) => update(i, { company: e.target.value })} />
+                    <p className="text-xs text-muted-foreground">
+                      The text doesn't name the hiring company (an agency post?). Type the employer, not the agency.
+                    </p>
+                  </div>
+                )}
                 {isNew && !hasRole && (
                   <div className="space-y-1.5">
                     <Label htmlFor={`paste-role-${i}`}>Role (required)</Label>

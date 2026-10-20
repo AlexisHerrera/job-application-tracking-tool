@@ -7,8 +7,13 @@ import { api, errorText, type PasteRecord } from "./api";
 // Fills a form from pasted text (a LinkedIn chat with a recruiter, a job post…) using the same
 // AI read as the paste assistant. The form itself is the review step: nothing is saved here.
 
-export type FillResult = { company: string; values: Record<string, unknown> };
-export type FillReport = { filled: string[]; replaced: { label: string; from: string; to: string }[] };
+export type FillResult = { company: string | null; values: Record<string, unknown> };
+export type FillReport = {
+  filled: string[];
+  replaced: { label: string; from: string; to: string }[];
+  /** Set when the text doesn't name the hiring company: the form's company (if any) was kept. */
+  noCompany?: { kept: string | null };
+};
 
 export function PasteFill({
   onFill, onUndo, onUseExisting,
@@ -29,7 +34,7 @@ export function PasteFill({
     setDone(null);
     try {
       const { records } = await api.paste(text);
-      if (records.length === 0) setError("Couldn't find details about a position in that text.");
+      if (records.length === 0) setError("Couldn't find a position in that text (no company or role).");
       else if (records.length === 1) apply(records[0]);
       else setChoices(records);
     } catch (e) {
@@ -88,7 +93,7 @@ export function PasteFill({
               const role = rec.options.find((o) => o.application_id === null)?.changes.find((c) => c.field === "role_title")?.proposed;
               return (
                 <Button key={i} type="button" size="sm" variant="outline" onClick={() => apply(rec)}>
-                  {rec.company}{role ? ` · ${String(role)}` : ""}
+                  {rec.company ?? "Company not named"}{role ? ` · ${String(role)}` : ""}
                 </Button>
               );
             })}
@@ -109,6 +114,12 @@ export function PasteFill({
                 </p>
               ))}
             </>
+          )}
+          {done.report.noCompany && (
+            <p className="text-amber-700 dark:text-amber-400">
+              The text doesn't name the hiring company (an agency post?).{" "}
+              {done.report.noCompany.kept ? `Kept “${done.report.noCompany.kept}” from the email; check it's the employer, not the agency.` : "Type it in Company."}
+            </p>
           )}
           {done.note && <p className="text-muted-foreground">Salary {done.note}.</p>}
           {done.existing && onUseExisting && (

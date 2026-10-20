@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,14 +28,40 @@ def test_normalizes_salary_dates_and_stack():
     assert r.stage == Stage.INTERVIEWING and r.stage_at.date().isoformat() == "2026-09-20"
 
 
-def test_drops_records_without_company_and_bad_values():
+def test_drops_records_without_company_or_role_and_bad_values():
     recs = _records(
-        paste_record(company=""),
+        paste_record(company="", role_title=""),
         paste_record(company="X", salary_min=-5, stage="hired", applied_at="soon"),
     )
     assert len(recs) == 1
     r = recs[0]
     assert r.values["salary_min"] is None and r.stage is None and r.values["applied_at"] is None
+
+
+def test_keeps_a_position_whose_company_is_not_named():
+    # An agency post names the role but not the employer: still a record, company unknown.
+    [r] = _records(paste_record(company=" ", role_title="Senior Fullstack Engineer",
+                                salary_currency="usd"))  # fmt: skip
+    assert r.company is None
+    assert r.values["role_title"] == "Senior Fullstack Engineer"
+    assert r.values["salary_currency"] == "USD" and r.values["salary_min"] is None
+    # ...unless the caller knows which application it is about.
+    [scoped] = paste.parse_records(
+        {"applications": [paste_record(company="", role_title="SWE")]}, TZ, "Northwind"
+    )
+    assert scoped.company == "Northwind"
+
+
+def test_agency_goes_to_notes_never_to_company():
+    [r] = _records(paste_record(company="", role_title="SRE", agency="Talentia",
+                                notes="Employee (relación de dependencia)."))  # fmt: skip
+    assert r.company is None
+    assert (
+        r.values["notes"] == "Via recruiting agency Talentia. Employee (relación de dependencia)."
+    )
+    [named] = _records(paste_record(company="", role_title="SRE", agency="Talentia",
+                                    notes="Talentia's director interviews first."))  # fmt: skip
+    assert named.values["notes"] == "Talentia's director interviews first."
 
 
 def _app(repo, clock, **kw):
@@ -86,6 +113,12 @@ def test_propose_prefers_strong_match_else_new(repo, clock):
     [unknown] = _records(paste_record(company="Contoso", role_title="SRE", stage="screening"))
     options, default = paste.propose(unknown, apps, {})
     assert len(options) == 1 and options[0].stage_change.proposed == Stage.SCREENING
+
+    # No company: never guess an existing application from the role alone.
+    [no_company] = _records(paste_record(company="", role_title="Backend Engineer"))
+    options, default = paste.propose(no_company, apps, {})
+    assert [o.application_id for o in options] == [None] and default == 0
+    assert options[0].label == "Create new: (company?) · Backend Engineer"
 
 
 # ---------------------------------------------------------------- API
@@ -201,3 +234,47 @@ def test_scoped_paste_without_company_uses_target(setup):
     opt = rec["options"][0]
     assert opt["stage_change"]["proposed"] == "rejected" and opt["stage_change"]["kind"] == "change"
     assert opt["changes"][0]["field"] == "notes"
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "paste"
+
+# What the prompt should make of the synthetic agency post (scripted: tests never call the LLM).
+AGENCY_POST_RECORD = paste_record(
+    company="",
+    role_title="Senior Backend Engineer",
+    source_channel="recruiter",
+    seniority="senior",
+    stack=["go", "kubernetes", "postgresql", "gcp"],
+    location="Hybrid, 2 days/week at the office in Palermo, Buenos Aires",
+    salary_currency="USD",
+    benefits="Paid in USD; Swiss Medical SMG30; 4 weeks vacation",
+    job_description="Buscamos un Senior Backend Engineer con experiencia en Go y Kubernetes…",
+    notes="Employee (relación de dependencia); paid in USD, amount not given. Process: 1) recruiter "
+    "call (30 min) 2) technical interview (1 h) 3) CTO interview. A benefit names Acme Coffee.",
+)
+
+
+def test_agency_post_without_company_is_offered_as_new(setup):
+    client, _repo, llm = setup
+    client.post("/api/applications", json={"company": "Northwind", "role_title": "Senior Backend Engineer"})  # fmt: skip
+    llm.paste_response = {"applications": [AGENCY_POST_RECORD]}
+    text = (FIXTURES / "agency_post_es.txt").read_text()
+    r = client.post("/api/paste", json={"text": text})
+    assert r.status_code == 200, r.text
+    [rec] = r.json()["records"]
+    assert rec["company"] is None
+    # Same role as an existing application, but no company: only "create new".
+    [option] = rec["options"]
+    assert option["application_id"] is None and rec["default_option"] == 0
+    proposed = {c["field"]: c["proposed"] for c in option["changes"]}
+    assert proposed["role_title"] == "Senior Backend Engineer"
+    assert proposed["salary_currency"] == "USD" and "salary_min" not in proposed
+    assert proposed["source_channel"] == "recruiter"
+
+
+def test_prompt_covers_agency_posts():
+    system, user = paste.paste_prompt("hola", datetime(2026, 10, 20, 15, tzinfo=UTC), TZ)
+    assert "2026-10-20" in system and user == "<pasted>\nhola\n</pasted>"
+    for rule in ("recruiting agency", "never infer the company", "relación de dependencia",
+                 "sueldo en dólares", "interview process", "verbatim"):  # fmt: skip
+        assert rule in system

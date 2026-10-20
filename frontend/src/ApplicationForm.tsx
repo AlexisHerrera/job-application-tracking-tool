@@ -65,7 +65,8 @@ export function ApplicationForm({
       }
       keys.add(key);
     };
-    put("company", company, "Company");
+    if (company) put("company", company, "Company");
+    else report.noCompany = { kept: next.company.trim() || null };
     put("role_title", values.role_title, "Role");
     put("job_url", values.job_url, "Posting URL");
     put("company_domain", values.company_domain, "Email domain");
@@ -86,6 +87,11 @@ export function ApplicationForm({
       }));
       keys.add("salary");
       report.filled.push("Salary");
+    } else if (values.salary_currency && values.salary_currency !== salary.currency) {
+      // Currency known, amount not ("sueldo en dólares"): preset it for when a figure is typed.
+      setSalary({ ...salary, currency: String(values.salary_currency) });
+      keys.add("salary");
+      report.filled.push("Currency");
     }
     if (values.source_ats) setSourceAts(String(values.source_ats));
     setForm(next);

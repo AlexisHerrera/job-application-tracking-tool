@@ -35,6 +35,13 @@ app.add_typer(apps_app, name="app")
 app.add_typer(dev_app, name="dev")
 campaign_app = typer.Typer(no_args_is_help=True, help="Job-search campaigns.")
 app.add_typer(campaign_app, name="campaign")
+eval_app = typer.Typer(no_args_is_help=True, help="Prompt evaluations (paid LLM calls).")
+app.add_typer(eval_app, name="eval")
+details_app = typer.Typer(
+    no_args_is_help=True, help="Fill application details from their emails: the eval."
+)
+eval_app.add_typer(details_app, name="details")
+DETAILS_DIR = Path("../eval/details")
 
 
 @app.callback()
@@ -236,6 +243,94 @@ def app_import(csv_path: Path) -> None:
     typer.echo(f"imported {len(rows)} applications; matched {matched} inbox events")
 
 
+def _value(value) -> str:
+    text = ", ".join(value) if isinstance(value, list) else str(value)
+    text = " ".join(text.split())
+    return text if len(text) <= 90 else f"{text[:90]}…"
+
+
+@apps_app.command("fill-details")
+def app_fill_details(
+    only: str | None = typer.Option(None, help="Only applications whose company contains this"),
+    all_: bool = typer.Option(
+        False, "--all", help="Also applications that already have some details"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be filled, save nothing"
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Skip the confirmation"),
+) -> None:
+    """⚠️ Paid + reads your inbox: fill each application's empty fields from its own emails.
+
+    Never overwrites a value you have: those proposals are listed, not applied.
+    """
+    from jobtracker.adapters.anthropic_llm import AnthropicLLM
+    from jobtracker.core import details
+    from jobtracker.core.ports import LLMError
+
+    settings = _settings()
+    repo = _repo(settings)
+    clock = SystemClock()
+    apps = [
+        a
+        for a in sorted(repo.list_applications(), key=lambda a: a.company_name.lower())
+        if (all_ or details.has_no_details(a))
+        and (only is None or only.lower() in a.company_name.lower())
+        and details.message_ids(repo.list_events(a.id))
+    ]
+    if not apps:
+        typer.echo("nothing to fill (use --all to include applications that have details)")
+        return
+    typer.echo(
+        f"{len(apps)} application(s) -> reads their emails from Gmail (read-only) and makes "
+        f"{len(apps)} paid call(s) to {settings.llm_model} (effort {settings.llm_paste_effort})"
+        + (" · dry run, nothing is saved" if dry_run else "")
+    )
+    if not yes:
+        typer.confirm("Go?", abort=True)
+    llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_paste_effort)
+    source = _imap(settings)
+    filled = failed = 0
+    try:
+        for app in apps:
+            typer.echo(f"\n{app.company_name} · {app.role_title}")
+            try:
+                with repo.transaction():
+                    r = details.fill_application(
+                        repo, clock, source, llm, settings.tz, app, dry_run=dry_run
+                    )
+            except LLMError as err:
+                failed += 1
+                typer.echo(f"   ! AI call failed ({err}); skipped")
+                continue
+            if r.error:
+                typer.echo(f"   ! {r.error}")
+                continue
+            note = f", {r.emails_missing} no longer in Gmail" if r.emails_missing else ""
+            typer.echo(f"   {r.emails_read} email(s){note}")
+            for c in r.applied:
+                verb = "added to" if c.kind == "append" else "filled"
+                typer.echo(f"   {verb:9} {c.label}: {_value(c.proposed)}")
+            for c in r.skipped:
+                typer.echo(
+                    f"   kept      {c.label}: {_value(c.current)}  (emails say: {_value(c.proposed)})"
+                )
+            if r.salary_note:
+                typer.echo(f"   salary {r.salary_note}")
+            if not r.applied and not r.skipped:
+                typer.echo("   nothing to add")
+            filled += bool(r.applied)
+    finally:
+        source.close()
+    u = llm.usage
+    verb = "would fill" if dry_run else "filled"
+    typer.echo(
+        f"\n{verb} {filled}/{len(apps)} application(s)"
+        + (f", {failed} failed" if failed else "")
+        + f" · {u.calls} call(s), {u.input_tokens} in / {u.output_tokens} out tokens"
+    )
+
+
 @apps_app.command("list")
 def app_list() -> None:
     settings = _settings()
@@ -301,3 +396,100 @@ def dev_seed() -> None:
     with repo.transaction():
         n = seed(repo, SystemClock(), settings.tz)
     typer.echo(f"seeded {n} sample applications")
+
+
+@eval_app.command("paste")
+def eval_paste(
+    directory: Path = typer.Argument(Path("../eval/paste"), help="Folder of .txt pastes"),
+    only: str | None = typer.Option(None, help="Only files whose name contains this"),
+    yes: bool = typer.Option(False, "--yes", help="Skip the confirmation"),
+) -> None:
+    """⚠️ Paid: run the paste prompt over real pastes and check them against approved expectations."""
+    from jobtracker.adapters.anthropic_llm import AnthropicLLM
+    from jobtracker.evals import paste_eval
+
+    settings = _settings()
+    files = [f for f in sorted(directory.glob("*.txt")) if only is None or only in f.name]
+    if not files:
+        raise typer.BadParameter(f"no .txt files in {directory}")
+    typer.echo(
+        f"{len(files)} file(s) -> {len(files)} paid call(s) to {settings.llm_model} "
+        f"(effort {settings.llm_paste_effort})"
+    )
+    if not yes:
+        typer.confirm("Run them?", abort=True)
+    llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_paste_effort)
+    results = []
+    for path in files:
+        result = paste_eval.run_case(path, llm, settings.tz, datetime.now(UTC))
+        results.append(result)
+        typer.echo("\n".join(paste_eval.render(result)))
+    u = llm.usage
+    passed = sum(r.passed for r in results)
+    typer.echo(
+        f"\n{passed}/{len(results)} passed · {u.input_tokens} in / {u.output_tokens} out tokens"
+    )
+    if passed < len(results):
+        raise typer.Exit(1)
+
+
+@details_app.command("collect")
+def details_collect(directory: Path = typer.Argument(DETAILS_DIR)) -> None:
+    """⚠️ Reads your inbox (read-only, no AI): saves each application's emails for the eval."""
+    from jobtracker.evals import details_eval
+
+    settings = _settings()
+    repo, source = _repo(settings), _imap(settings)
+    try:
+        lines = details_eval.collect(repo, source, directory, settings.tz)
+    finally:
+        source.close()
+    typer.echo("\n".join(lines) or "no application has emails")
+    chars = sum(len(p.read_text()) for p in directory.glob("*.txt"))
+    typer.echo(f"\n{len(lines)} application(s) -> {len(lines)} paid call(s) per run, "
+               f"~{chars // 4:,} input tokens of emails in total")  # fmt: skip
+
+
+@details_app.command("snapshot")
+def details_snapshot(
+    directory: Path = typer.Argument(DETAILS_DIR),
+    force: bool = typer.Option(False, "--force", help="Replace existing expectations"),
+) -> None:
+    """Save each application's reviewed fields (from the DB) as its expected result."""
+    from jobtracker.evals import details_eval
+
+    settings = _settings()
+    typer.echo("\n".join(details_eval.snapshot(_repo(settings), directory, force)))
+
+
+@details_app.command("run")
+def details_run(
+    directory: Path = typer.Argument(DETAILS_DIR),
+    only: str | None = typer.Option(None, help="Only applications whose file name contains this"),
+    yes: bool = typer.Option(False, "--yes", help="Skip the confirmation"),
+) -> None:
+    """⚠️ Paid: run the prompt over the collected emails and score it against the snapshot."""
+    from jobtracker.adapters.anthropic_llm import AnthropicLLM
+    from jobtracker.evals import details_eval
+
+    settings = _settings()
+    cases = details_eval.metas(directory, only)
+    ready = [c for c in cases if (directory / f"{c[0]}.expected.json").is_file()]
+    if not ready:
+        raise typer.BadParameter(f"nothing to run in {directory}: collect, review, snapshot first")
+    typer.echo(
+        f"{len(ready)} application(s) -> {len(ready)} paid call(s) to {settings.llm_model} "
+        f"(effort {settings.llm_paste_effort})"
+    )
+    if not yes:
+        typer.confirm("Run them?", abort=True)
+    llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_paste_effort)
+    now = datetime.now(UTC)
+    runs = [
+        details_eval.run_case(directory, name, meta, llm, settings.tz, now) for name, meta in cases
+    ]
+    report = details_eval.save_report(directory, runs, settings.llm_model, now)
+    previous = details_eval.previous_report(directory, report)
+    typer.echo("\n".join(details_eval.render(runs, previous)))
+    u = llm.usage
+    typer.echo(f"{u.calls} call(s) · {u.input_tokens} in / {u.output_tokens} out tokens · {report}")

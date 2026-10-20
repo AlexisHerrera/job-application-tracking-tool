@@ -143,7 +143,7 @@ export interface PasteOption {
 }
 
 export interface PasteRecord {
-  company: string;
+  company: string | null; // null: the text doesn't name the hiring company (e.g. an agency post)
   evidence: string;
   salary_note: string | null;
   options: PasteOption[];

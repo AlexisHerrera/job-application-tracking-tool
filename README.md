@@ -76,12 +76,15 @@ Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside
 | `db migrate` | Apply migrations (compose runs this automatically) |
 | `app add --company X --role Y [--applied-at 2026-08-01 --stage rejected]` | Add an application |
 | `app import file.csv` | Bulk import (`company,role,applied_at,stage,job_url,company_domain,source_channel,seniority,stack,location,notes`) |
+| `app fill-details [--only COMPANY] [--all] [--dry-run]` | ⚠️ Reads each application's own emails again (read-only) and fills its **empty** fields: stack, location, salary, benefits, the job post… One paid call per application, asks first. Never overwrites: what the emails say differently is listed as *kept*. By default only applications with no details yet |
 | `app list`, `stats` | Quick look from the terminal |
 | `process-eml FILE…` | Run the pipeline on local `.eml` files (dry run by default) ⚠️ paid LLM calls for job-like mail |
 | `backfill [--since 2026-09-15] [--until …] [--dry-run] [--limit N]` (defaults to the current campaign's start) | ⚠️ Reads your **real inbox** over a date range, with paid LLM calls. Idempotent |
 | `ingest [--dry-run] [--loop 900]` | ⚠️ Incremental run from the last processed UID (what the Lambda does every 15 min) |
 | `campaign create --name "Sep 2026" --start 2026-09-15`, `campaign list` | Job-search campaigns (an ongoing earlier one ends the day before) |
 | `dev seed` | Fake sample data (local only) |
+| `eval paste [DIR] [--only NAME]` | ⚠️ Runs the paste prompt over the real pastes in `eval/paste/*.txt` (one paid call each, asks first) and checks each against its approved `.expected.json` |
+| `eval details collect` → `snapshot` → `run` | The details eval (files in `eval/details/`): `collect` ⚠️ re-reads each application's emails from Gmail (read-only, no AI); `snapshot` saves the fields you reviewed in the app as the expected result; `run` ⚠️ runs the prompt over the collected emails (one paid call per application, asks first) and reports wrong fills / misses per field, compared with the previous run |
 
 The first `ingest` run (or **Scan inbox now**) continues right after the newest email a `backfill` already processed, so nothing in between is skipped. With no backfill it only records the mailbox's current position. Use `backfill` for history; Message-ID dedupe makes overlaps harmless.
 

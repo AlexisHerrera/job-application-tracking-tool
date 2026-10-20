@@ -88,6 +88,15 @@ class GmailImapSource:
         log.info("backfill matched %d messages", len(uids))
         yield from self._fetch(uids)
 
+    def fetch_by_message_ids(self, message_ids: list[str]) -> Iterator[EmailMessage]:
+        uids = []
+        for mid in message_ids:
+            found = self._search(["X-GM-RAW", _quote(f"rfc822msgid:{mid.strip('<>')}")])
+            if not found:
+                log.warning("message no longer in the mailbox")  # never log the id or content
+            uids += found[:1]
+        yield from self._fetch(sorted(set(uids)))
+
     def _fetch(self, uids: list[int]) -> Iterator[EmailMessage]:
         for i in range(0, len(uids), BATCH):
             chunk = ",".join(str(u) for u in uids[i : i + BATCH])
