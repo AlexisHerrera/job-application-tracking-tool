@@ -1,14 +1,10 @@
-import { useState } from "react";
 import { CalendarDays, ChevronRight, Mail, MessagesSquare, NotebookPen, PenLine, Video } from "lucide-react";
-import { Link } from "react-router-dom";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { api, errorText, fmtDate, label, relativeDay, type Interview } from "../api";
+import { api, fmtDate, label, relativeDay, type Interview } from "../api";
 import { Empty, Loading, PageHeader } from "../components/common";
 import { interviewName, talkWith } from "../InterviewNotes";
-import { useRefresh } from "../lib/refresh";
+import { plainText, useOpenEditor } from "../NotesEditor";
 import { useAsync } from "../useAsync";
 
 const SOURCE_ICON = { calendar: CalendarDays, email: Mail, manual: PenLine } as const;
@@ -74,9 +70,10 @@ function NotesBadge({ iv }: { iv: Interview }) {
 }
 
 function InterviewLink({ iv }: { iv: Interview }) {
+  const openEditor = useOpenEditor();
   const Icon = SOURCE_ICON[iv.source];
   return (
-    <Link to={`/applications?open=${iv.application_id}`} className="group flex items-center gap-3 px-4 py-3 hover:bg-muted/50">
+    <button type="button" onClick={() => openEditor("interview", iv.id)} className="group flex w-full items-center gap-3 px-4 py-3 text-left outline-none hover:bg-muted/50 focus-visible:bg-muted/50">
       <When iv={iv} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium group-hover:underline">{iv.company}</div>
@@ -87,65 +84,32 @@ function InterviewLink({ iv }: { iv: Interview }) {
       </div>
       <NotesBadge iv={iv} />
       <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-    </Link>
+    </button>
   );
 }
 
-/** A talk with a recruiter or agency: no application to open, so its notes edit right here. */
+/** A talk with a recruiter or agency: no application, so its notes live on the interview. */
 function GeneralRow({ iv }: { iv: Interview }) {
-  const { bump } = useRefresh();
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState(iv.notes ?? "");
+  const openEditor = useOpenEditor();
   const upcoming = new Date(iv.starts_at) > new Date();
-
-  async function save() {
-    try {
-      await api.updateInterview(iv.id, { notes: text.trim() || null });
-      toast.success("Notes saved");
-      setOpen(false);
-      bump();
-    } catch (e) {
-      toast.error(errorText(e));
-    }
-  }
-
+  const preview = plainText(iv.notes);
   return (
-    <div className="px-4 py-3">
-      <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50">
+      <button type="button" onClick={() => openEditor("interview", iv.id)} className="group flex min-w-0 flex-1 items-center gap-3 text-left outline-none focus-visible:underline">
         <When iv={iv} />
-        <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-          <div className="flex items-center gap-2 text-sm font-medium">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-sm font-medium group-hover:underline">
             <MessagesSquare className="size-4 shrink-0 text-muted-foreground" />
             <span className="truncate">General talk{talkWith(iv) ? ` · ${talkWith(iv)}` : ""}</span>
           </div>
-          <div className="truncate text-xs text-muted-foreground">{interviewName(iv)} · not tied to an application</div>
-        </button>
-        {upcoming && iv.meeting_url && (
-          <Button asChild variant="ghost" size="icon-xs" aria-label="Join the call"><a href={iv.meeting_url} target="_blank" rel="noreferrer"><Video /></a></Button>
-        )}
-        <NotesBadge iv={iv} />
-      </div>
-      {!open && iv.notes && (
-        <button type="button" onClick={() => setOpen(true)} className="mt-2 block w-full whitespace-pre-wrap rounded-md text-left text-sm text-muted-foreground hover:text-foreground sm:pl-31">
-          {iv.notes}
-        </button>
-      )}
-      {open && (
-        <div className="mt-3 space-y-2 sm:pl-31">
-          <Textarea
-            rows={5}
-            autoFocus
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Which roles and companies came up, what they need from you, next steps…"
-            aria-label="Notes for this talk"
-          />
-          <div className="flex gap-2">
-            <Button size="sm" onClick={save}>Save notes</Button>
-            <Button size="sm" variant="ghost" onClick={() => { setText(iv.notes ?? ""); setOpen(false); }}>Cancel</Button>
-          </div>
+          <div className="truncate text-xs text-muted-foreground">{preview || `${interviewName(iv)} · not tied to an application`}</div>
         </div>
+      </button>
+      {upcoming && iv.meeting_url && (
+        <Button asChild variant="ghost" size="icon-xs" aria-label="Join the call"><a href={iv.meeting_url} target="_blank" rel="noreferrer"><Video /></a></Button>
       )}
+      <NotesBadge iv={iv} />
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
     </div>
   );
 }

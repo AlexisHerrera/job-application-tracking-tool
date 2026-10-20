@@ -74,6 +74,17 @@ class InterviewStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class StepKind(StrEnum):
+    INTERVIEW = "interview"  # takes a calendar/email interview, in order
+    TAKE_HOME = "take_home"  # no calendar event: marked done by hand
+    OTHER = "other"
+
+
+class StepLink(StrEnum):
+    AUTO = "auto"  # matched to the next interview in time order
+    MANUAL = "manual"  # interview_id set by hand; None means "not happened yet"
+
+
 class Origin(StrEnum):
     MANUAL = "manual"
     EMAIL = "email"
@@ -292,5 +303,22 @@ class InterviewNote:
     went_well: str | None = None
     went_wrong: str | None = None
     topics_to_study: list[str] = field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class ProcessStep:
+    """One expected step of a hiring process, as the recruiter described it."""
+
+    application_id: uuid.UUID
+    name: str
+    position: int
+    id: uuid.UUID = field(default_factory=new_id)
+    kind: StepKind = StepKind.INTERVIEW
+    optional: bool = False  # "4-5 rounds": the fifth may not happen
+    link: StepLink = StepLink.AUTO
+    interview_id: uuid.UUID | None = None
+    done_at: datetime | None = None  # marked done by hand
     created_at: datetime | None = None
     updated_at: datetime | None = None

@@ -27,7 +27,10 @@ from jobtracker.core.models import (
     InterviewStatus,
     MatchMethod,
     Origin,
+    ProcessStep,
     Stage,
+    StepKind,
+    StepLink,
 )
 from jobtracker.core.ports import SyncState, ThreadMatch
 
@@ -63,6 +66,10 @@ INTERVIEW_COLUMNS = [
     "round", "interview_type", "location", "meeting_url", "organizer", "attendees", "calendar_id",
     "calendar_event_id", "ical_uid", "html_link", "event_id", "match_method", "assigned_by",
     "dismissed", "created_at", "updated_at", "general", "notes",
+]  # fmt: skip
+STEP_COLUMNS = [
+    "id", "application_id", "position", "name", "kind", "optional", "link", "interview_id",
+    "done_at", "created_at", "updated_at",
 ]  # fmt: skip
 
 
@@ -179,6 +186,14 @@ def _interview_from(r: dict) -> Interview:
         source=InterviewSource(r["source"]),
         status=InterviewStatus(r["status"]),
         match_method=MatchMethod(r["match_method"]),
+    )
+
+
+def _step_from(r: dict) -> ProcessStep:
+    return ProcessStep(
+        **{c: r[c] for c in STEP_COLUMNS if c not in {"kind", "link"}},
+        kind=StepKind(r["kind"]),
+        link=StepLink(r["link"]),
     )
 
 
@@ -532,6 +547,28 @@ class PostgresRepo:
 
     def delete_interview(self, interview_id: uuid.UUID) -> None:
         self.conn.execute("DELETE FROM interviews WHERE id = %s", (interview_id,))
+
+    # process steps
+    def list_steps(self, application_id: uuid.UUID) -> list[ProcessStep]:
+        rows = self._all(
+            "SELECT * FROM process_steps WHERE application_id = %s ORDER BY position, created_at",
+            (application_id,),
+        )
+        return [_step_from(r) for r in rows]
+
+    def get_step(self, step_id: uuid.UUID) -> ProcessStep | None:
+        r = self._one("SELECT * FROM process_steps WHERE id = %s", (step_id,))
+        return _step_from(r) if r else None
+
+    def save_step(self, step: ProcessStep) -> None:
+        row = {c: _v(getattr(step, c)) for c in STEP_COLUMNS}
+        sets = ", ".join(f"{c} = EXCLUDED.{c}" for c in row if c not in {"id", "created_at"})
+        self.conn.execute(
+            f"{_insert('process_steps', row)} ON CONFLICT (id) DO UPDATE SET {sets}", row
+        )
+
+    def delete_step(self, step_id: uuid.UUID) -> None:
+        self.conn.execute("DELETE FROM process_steps WHERE id = %s", (step_id,))
 
     # calendar sync
     def get_calendar_sync(self, calendar_id: str) -> str | None:

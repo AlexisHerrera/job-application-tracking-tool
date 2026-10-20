@@ -20,6 +20,7 @@ from jobtracker.core.models import (
     Event,
     Interview,
     InterviewNote,
+    ProcessStep,
 )
 
 
@@ -199,6 +200,15 @@ class Repository(Protocol):
         ...
 
     def delete_interview(self, interview_id: uuid.UUID) -> None: ...
+
+    # process steps
+    def list_steps(self, application_id: uuid.UUID) -> list[ProcessStep]:
+        """In position order."""
+        ...
+
+    def get_step(self, step_id: uuid.UUID) -> ProcessStep | None: ...
+    def save_step(self, step: ProcessStep) -> None: ...
+    def delete_step(self, step_id: uuid.UUID) -> None: ...
 
     # calendar sync
     def get_calendar_sync(self, calendar_id: str) -> str | None:

@@ -109,7 +109,7 @@ def fill_application(
         return result
     result.salary_note = rec.salary_note
     domains = {al.value for al in repo.list_aliases(app.company_id) if al.kind == AliasKind.DOMAIN}
-    for change in paste.diff(app, rec, domains):
+    for change in paste.diff(app, rec, domains, has_plan=bool(repo.list_steps(app.id))):
         (result.skipped if change.overwrites else result.applied).append(change)
     if result.applied and not dry_run:
         patch = {c.field: c.proposed for c in result.applied}

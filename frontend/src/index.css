@@ -171,3 +171,37 @@
     text-wrap: balance;
   }
 }
+
+/* Notes editor (Tiptap). No typography plugin: just enough for notes. */
+@layer components {
+  .notes-doc {
+    @apply min-h-[40vh] pb-16 text-[0.95rem] leading-relaxed outline-none;
+  }
+  .notes-doc > * + * {
+    @apply mt-2.5;
+  }
+  .notes-doc h1 { @apply mt-6 text-2xl font-semibold tracking-tight; }
+  .notes-doc h2 { @apply mt-5 text-lg font-semibold tracking-tight; }
+  .notes-doc h3 { @apply mt-4 text-base font-semibold; }
+  .notes-doc > :first-child { @apply mt-0; }
+  .notes-doc ul { @apply list-disc pl-6; }
+  .notes-doc ol { @apply list-decimal pl-6; }
+  .notes-doc li > p { @apply my-0.5; }
+  .notes-doc li::marker { @apply text-muted-foreground; }
+  .notes-doc blockquote { @apply border-l-2 pl-4 text-muted-foreground; }
+  .notes-doc code { @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]; }
+  .notes-doc pre { @apply overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm; }
+  .notes-doc pre code { @apply bg-transparent p-0; }
+  .notes-doc a { @apply text-primary underline underline-offset-4; }
+  .notes-doc hr { @apply my-6 border-border; }
+  .notes-doc ul[data-type="taskList"] { @apply list-none pl-1; }
+  .notes-doc ul[data-type="taskList"] li { @apply flex items-start gap-2; }
+  .notes-doc ul[data-type="taskList"] li > label { @apply mt-1 shrink-0; }
+  .notes-doc ul[data-type="taskList"] li > label input { @apply size-3.5 accent-indigo-500; }
+  .notes-doc ul[data-type="taskList"] li > div { @apply min-w-0 flex-1; }
+  .notes-doc ul[data-type="taskList"] li[data-checked="true"] > div { @apply text-muted-foreground line-through; }
+  .notes-doc p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    @apply pointer-events-none float-left h-0 text-muted-foreground/70;
+  }
+}

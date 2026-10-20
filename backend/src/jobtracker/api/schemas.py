@@ -7,7 +7,17 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
-from jobtracker.core.models import Application, Event, Interview, InterviewNote, Stage
+from jobtracker.core.models import (
+    Application,
+    Event,
+    Interview,
+    InterviewNote,
+    ProcessStep,
+    Stage,
+    StepKind,
+    StepLink,
+)
+from jobtracker.core.process import Node
 from jobtracker.core.services import ApplicationInput
 
 
@@ -120,6 +130,40 @@ def note_json(n: InterviewNote) -> dict:
     }
 
 
+def step_json(st: ProcessStep) -> dict:
+    return {
+        "id": str(st.id),
+        "position": st.position,
+        "name": st.name,
+        "kind": st.kind.value,
+        "optional": st.optional,
+        "link": st.link.value,
+        "interview_id": str(st.interview_id) if st.interview_id else None,
+        "done_at": _iso(st.done_at),
+    }
+
+
+def node_json(n: Node) -> dict:
+    return {
+        "kind": n.kind,
+        "label": n.label,
+        "state": n.state,
+        "at": _iso(n.at),
+        "step_id": str(n.step_id) if n.step_id else None,
+        "interview_id": str(n.interview_id) if n.interview_id else None,
+        "step_kind": n.step_kind.value if n.step_kind else None,
+        "optional": n.optional,
+        "implied": n.implied,
+        "outcome": n.outcome,
+    }
+
+
+class StepIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    kind: StepKind | None = None  # guessed from the name when missing
+    optional: bool = False
+
+
 class ApplicationIn(BaseModel):
     company: str = Field(min_length=1, max_length=200)
     role_title: str = Field(min_length=1, max_length=300)
@@ -139,6 +183,7 @@ class ApplicationIn(BaseModel):
     stage: Stage | None = None
     stage_at: datetime | None = None
     notes: str | None = None
+    process_steps: list[StepIn] = Field(default=[], max_length=30)
 
     def to_input(self) -> ApplicationInput:
         return ApplicationInput(
@@ -160,6 +205,7 @@ class ApplicationIn(BaseModel):
             stage=self.stage,
             stage_at=self.stage_at,
             notes=self.notes or None,
+            process_steps=[st.model_dump() for st in self.process_steps],
         )
 
 
@@ -180,6 +226,7 @@ class ApplicationPatch(BaseModel):
     notes: str | None = None
     needs_review: bool | None = None
     company_domain: str | None = Field(default=None, max_length=200)  # adds an alias, never removes
+    process_steps: list[StepIn] | None = Field(default=None, max_length=30)  # fills an empty plan
 
 
 class PasteIn(BaseModel):
@@ -279,3 +326,17 @@ class NoteIn(BaseModel):
     went_well: str | None = None
     went_wrong: str | None = None
     topics_to_study: list[str] = []
+
+
+class StepsIn(BaseModel):
+    steps: list[StepIn] = Field(min_length=1, max_length=30)
+
+
+class StepPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    kind: StepKind | None = None
+    optional: bool | None = None
+    link: StepLink | None = None
+    interview_id: uuid.UUID | None = None
+    done_at: datetime | None = None
+    position: int | None = Field(default=None, ge=0, le=50)

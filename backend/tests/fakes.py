@@ -15,6 +15,7 @@ from jobtracker.core.models import (
     Event,
     Interview,
     InterviewNote,
+    ProcessStep,
 )
 from jobtracker.core.ports import LLMError, LLMUsage, SyncState, ThreadMatch
 
@@ -44,6 +45,7 @@ class MemoryRepo:
         self.notes: dict[uuid.UUID, InterviewNote] = {}
         self.campaigns: dict[uuid.UUID, object] = {}
         self.interviews: dict[uuid.UUID, Interview] = {}
+        self.steps: dict[uuid.UUID, ProcessStep] = {}
         self.calendar_sync: dict[str, tuple[str | None, datetime]] = {}
         self.oauth: dict[str, dict] = {}
 
@@ -285,6 +287,20 @@ class MemoryRepo:
     def delete_interview(self, interview_id):
         self.interviews.pop(interview_id, None)
 
+    def list_steps(self, application_id):
+        rows = [copy.copy(st) for st in self.steps.values() if st.application_id == application_id]
+        return sorted(rows, key=lambda st: st.position)
+
+    def get_step(self, step_id):
+        st = self.steps.get(step_id)
+        return copy.copy(st) if st else None
+
+    def save_step(self, step):
+        self.steps[step.id] = copy.copy(step)
+
+    def delete_step(self, step_id):
+        self.steps.pop(step_id, None)
+
     def get_calendar_sync(self, calendar_id):
         return self.calendar_sync.get(calendar_id, (None, None))[0]
 
@@ -371,5 +387,5 @@ def paste_record(**overrides) -> dict:
 
     # Mirrors the real schema: "" / 0 mean unknown (no nullable fields).
     base = {k: 0 if k.startswith("salary_m") else "" for k in RECORD_PROPERTIES}
-    base.update({"stack": [], "evidence": "scripted"})
+    base.update({"stack": [], "process_steps": [], "evidence": "scripted"})
     return {**base, **overrides}

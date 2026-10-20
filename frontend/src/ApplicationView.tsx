@@ -26,6 +26,7 @@ import { Loading, StatusBadge, StatusDot } from "./components/common";
 import { CLOSED_STATUSES, STATUS_META } from "./lib/status";
 import { useRefresh } from "./lib/refresh";
 import { PasteAssistant } from "./PasteAssistant";
+import { ProcessTimeline } from "./ProcessTimeline";
 import { SalaryInputs, draftFrom, readSalary } from "./SalaryInput";
 import { useAsync } from "./useAsync";
 
@@ -89,6 +90,7 @@ export function ApplicationView({ id, inSheet = false, onDeleted }: { id: string
             </Button>
           )}
         </div>
+        <ProcessTimeline app={app} />
         {app.needs_review && (
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
             <Sparkles className="size-4 text-amber-600" />
@@ -103,7 +105,7 @@ export function ApplicationView({ id, inSheet = false, onDeleted }: { id: string
       <div className={cn("space-y-8 py-5", inSheet && "px-6")}>
         <Properties app={app} save={save} setStage={setStage} />
 
-        <Section icon={Mail} title="Timeline">
+        <Section icon={Mail} title="Emails & activity">
           {app.events.length === 0 ? (
             <p className="text-sm text-muted-foreground">No events yet. Emails show up here.</p>
           ) : (

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { STAGES, dayToIso, isoToDay, label, type ApplicationInput } from "./api";
+import { STAGES, dayToIso, isoToDay, label, type ApplicationInput, type StepInput } from "./api";
 import { Field } from "./ApplicationView";
 import { PasteFill, type FillReport, type FillResult } from "./PasteFill";
 import { SalaryInputs, draftFrom, readSalary, type SalaryDraft } from "./SalaryInput";
@@ -42,8 +42,9 @@ export function ApplicationForm({
   });
   const [salary, setSalary] = useState(() => draftFrom(initial));
   const [sourceAts, setSourceAts] = useState(initial?.source_ats ?? ""); // no field for it; kept from the AI fill
+  const [steps, setSteps] = useState<StepInput[]>([]); // the process the AI read; becomes the plan
   const [fromChat, setFromChat] = useState<Set<string>>(new Set());
-  const [beforeFill, setBeforeFill] = useState<{ form: typeof form; salary: SalaryDraft; sourceAts: string } | null>(null);
+  const [beforeFill, setBeforeFill] = useState<{ form: typeof form; salary: SalaryDraft; sourceAts: string; steps: StepInput[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const tag = (key: string) => (fromChat.has(key) ? "from chat" : undefined);
 
@@ -78,7 +79,7 @@ export function ApplicationForm({
     put("benefits", values.benefits, "Benefits");
     put("job_description", values.job_description, "Job description");
     put("notes", values.notes, "Notes");
-    setBeforeFill({ form, salary, sourceAts });
+    setBeforeFill({ form, salary, sourceAts, steps });
     if (values.salary_min != null || values.salary_max != null) {
       setSalary(draftFrom({
         salary_min: (values.salary_min as number | undefined) ?? null,
@@ -94,6 +95,11 @@ export function ApplicationForm({
       report.filled.push("Currency");
     }
     if (values.source_ats) setSourceAts(String(values.source_ats));
+    const process = (values.process_steps as StepInput[] | undefined) ?? [];
+    if (process.length) {
+      setSteps(process);
+      report.filled.push(`Process (${process.length} steps)`);
+    }
     setForm(next);
     setFromChat(keys);
     return report;
@@ -104,6 +110,7 @@ export function ApplicationForm({
     setForm(beforeFill.form);
     setSalary(beforeFill.salary);
     setSourceAts(beforeFill.sourceAts);
+    setSteps(beforeFill.steps);
     setFromChat(new Set());
     setBeforeFill(null);
   }
@@ -137,6 +144,7 @@ export function ApplicationForm({
         stage: (form.stage || null) as ApplicationInput["stage"],
         notes: form.notes || null,
         job_description: form.job_description || null,
+        process_steps: steps,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -183,6 +191,19 @@ export function ApplicationForm({
       <Field label="Other benefits" id="app-benefits" tag={tag("benefits")}><Textarea rows={2} placeholder="Equity, bonus, PTO, health, remote stipend…" {...field("benefits")} /></Field>
       <Field label="Job description" id="app-job_description" tag={tag("job_description")}><Textarea rows={4} placeholder="Paste it: the study report uses it later" {...field("job_description")} /></Field>
       <Field label="Notes" id="app-notes" tag={tag("notes")}><Textarea rows={2} {...field("notes")} /></Field>
+      {steps.length > 0 && (
+        <Field label="Process steps" tag="from chat" hint="Becomes the process plan; edit it later from the timeline.">
+          <div className="flex flex-wrap items-center gap-1.5 text-sm">
+            {steps.map((st, i) => (
+              <span key={i} className="inline-flex items-center gap-1.5">
+                {i > 0 && <span className="text-muted-foreground">→</span>}
+                <span className="rounded bg-muted px-1.5 leading-6">{st.name}{st.optional ? " (maybe)" : ""}</span>
+              </span>
+            ))}
+            <Button type="button" variant="ghost" size="xs" className="text-muted-foreground" onClick={() => setSteps([])}>Remove</Button>
+          </div>
+        </Field>
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Button type="submit" disabled={busy}>{busy ? "Saving…" : submitLabel}</Button>
     </form>

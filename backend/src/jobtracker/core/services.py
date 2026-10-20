@@ -35,7 +35,10 @@ from jobtracker.core.models import (
     InterviewSource,
     MatchMethod,
     Origin,
+    ProcessStep,
     Stage,
+    StepKind,
+    StepLink,
 )
 from jobtracker.core.ports import (
     CalendarSource,
@@ -43,6 +46,7 @@ from jobtracker.core.ports import (
     Clock,
     Repository,
 )
+from jobtracker.core.process import guess_kind
 from jobtracker.core.stages import apply_projection, project
 
 
@@ -105,6 +109,7 @@ class ApplicationInput:
     stage: Stage | None = None  # historical imports: where the process ended up
     stage_at: datetime | None = None
     notes: str | None = None
+    process_steps: list[dict[str, Any]] = field(default_factory=list)  # {name, kind?, optional?}
 
 
 def guess_ats(url: str | None, ats_domains: dict[str, str]) -> str | None:
@@ -154,6 +159,8 @@ def create_application(
         change_stage(
             repo, clock, app.id, data.stage, at=data.stage_at or app.applied_at, note="imported"
         )
+    if data.process_steps:
+        add_steps(repo, clock, app.id, data.process_steps)
     return app
 
 
@@ -218,12 +225,16 @@ def update_fields(
     changes: dict[str, Any],
     learned_from: str = "manual",
 ) -> Application:
-    """Set application fields (company_domain adds an alias, never removes one)."""
+    """Set application fields (company_domain adds an alias, never removes one; process_steps
+    only fills an empty plan, so links and done marks are never lost)."""
     a = repo.get_application(app_id)
     if a is None:
         raise NotFound(str(app_id))
     changes = dict(changes)
     domain = changes.pop("company_domain", None)
+    steps = changes.pop("process_steps", None)
+    if steps and not repo.list_steps(app_id):
+        add_steps(repo, clock, app_id, steps)
     for name, value in changes.items():
         setattr(a, name, value)
     if a.salary_min and a.salary_max and a.salary_min > a.salary_max:
@@ -393,6 +404,8 @@ def delete_application(repo: Repository, clock: Clock, app_id: uuid.UUID) -> Non
             repo.update_event(event)
     for note in repo.list_notes(app_id):
         repo.delete_note(note.id)
+    for step in repo.list_steps(app_id):
+        repo.delete_step(step.id)
     for iv in repo.list_interviews(app_id):
         if iv.source == InterviewSource.CALENDAR:  # back to the review queue, like its emails
             iv.application_id = None
@@ -521,6 +534,94 @@ def remove_interview(repo: Repository, clock: Clock, interview_id: uuid.UUID) ->
         repo.save_interview(iv)
     if iv.application_id:
         recompute(repo, clock, iv.application_id)
+
+
+def add_steps(
+    repo: Repository, clock: Clock, app_id: uuid.UUID, items: list[dict[str, Any]]
+) -> list[ProcessStep]:
+    """Append steps to the plan. A step's kind is guessed from its name unless given."""
+    if repo.get_application(app_id) is None:
+        raise NotFound(str(app_id))
+    existing = repo.list_steps(app_id)
+    now = clock.now()
+    out = []
+    for i, item in enumerate(items, start=len(existing)):
+        name = (item.get("name") or "").strip()
+        if not name:
+            continue
+        step = ProcessStep(
+            application_id=app_id,
+            name=name,
+            position=i,
+            kind=StepKind(item["kind"]) if item.get("kind") else guess_kind(name),
+            optional=bool(item.get("optional")),
+            created_at=now,
+            updated_at=now,
+        )
+        repo.save_step(step)
+        out.append(step)
+    return out
+
+
+STEP_FIELDS = {"name", "kind", "optional", "link", "interview_id", "done_at", "position"}
+
+
+def update_step(
+    repo: Repository, clock: Clock, step_id: uuid.UUID, fields: dict[str, Any]
+) -> ProcessStep:
+    """Rename, retype, mark done, link to an interview (or back to automatic), or move.
+
+    `link: auto` clears the interview; `interview_id` alone means a hand link (None: not yet).
+    `position` is the new index; the rest of the plan shifts around it.
+    """
+    unknown = set(fields) - STEP_FIELDS
+    if unknown:
+        raise InvalidInput(f"cannot edit: {', '.join(sorted(unknown))}")
+    step = repo.get_step(step_id)
+    if step is None:
+        raise NotFound(str(step_id))
+    now = clock.now()
+    if "name" in fields:
+        if not (fields["name"] or "").strip():
+            raise InvalidInput("a step needs a name")
+        step.name = fields["name"].strip()
+    if fields.get("kind"):
+        step.kind = StepKind(fields["kind"])
+    if "optional" in fields:
+        step.optional = bool(fields["optional"])
+    if "done_at" in fields:
+        step.done_at = fields["done_at"]
+    if "interview_id" in fields:
+        iv_id = fields["interview_id"]
+        if iv_id is not None:
+            iv = repo.get_interview(iv_id)
+            if iv is None or iv.application_id != step.application_id:
+                raise InvalidInput("that interview isn't part of this application")
+        step.link, step.interview_id = StepLink.MANUAL, iv_id
+    if fields.get("link") == StepLink.AUTO:
+        step.link, step.interview_id = StepLink.AUTO, None
+    step.updated_at = now
+    repo.save_step(step)
+    if "position" in fields and fields["position"] is not None:
+        steps = [s for s in repo.list_steps(step.application_id) if s.id != step.id]
+        steps.insert(max(0, min(int(fields["position"]), len(steps))), step)
+        for i, s in enumerate(steps):
+            if s.position != i or s.id == step.id:
+                s.position = i
+                s.updated_at = now
+                repo.save_step(s)
+    return step
+
+
+def delete_step(repo: Repository, step_id: uuid.UUID) -> None:
+    step = repo.get_step(step_id)
+    if step is None:
+        raise NotFound(str(step_id))
+    repo.delete_step(step_id)
+    for i, s in enumerate(repo.list_steps(step.application_id)):
+        if s.position != i:
+            s.position = i
+            repo.save_step(s)
 
 
 def calendar_since(repo: Repository, clock: Clock, tz: ZoneInfo) -> datetime:

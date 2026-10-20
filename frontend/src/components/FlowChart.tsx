@@ -24,6 +24,15 @@ type LaidLink = SankeyLink<N, L>;
 const HEIGHT = 340;
 const MIN_WIDTH = 600;
 const LABEL_SPACE = 132; // room for the labels of the last column
+const WIDE_LABEL_SPACE = 196; // ... when they read "Rejected after interviews"
+// Exits sit next to the stage they left, so one outcome can appear in several columns. Then each
+// says which one, or two "Rejected 2 · 13%" read like a duplicate.
+const AFTER: Record<string, string> = {
+  applied: "after applying",
+  screening: "after screening",
+  interviewing: "after interviews",
+  offer: "after the offer",
+};
 
 const color = (key: string) => `var(--flow-${key.replace("_", "-")})`;
 
@@ -53,6 +62,10 @@ function build(data: FlowData) {
       const to = add({ id: `${l.target}@${l.source}`, key: l.target, label: labels[l.target], kind: "outcome", col: from + 1 });
       links.push({ source: src, target: to, value: l.value, from: src, to, chain: `${src}->${to}` });
     }
+  }
+  const outcomes = [...nodes.values()].filter((n) => n.kind === "outcome");
+  for (const n of outcomes) {
+    if (outcomes.filter((o) => o.key === n.key).length > 1) n.label = `${n.label} ${AFTER[n.id.split("@")[1]] ?? ""}`.trim();
   }
   return { nodes: [...nodes.values()], links };
 }
@@ -106,13 +119,15 @@ export function FlowChart({ data }: { data: FlowData }) {
   const layout = useMemo(() => {
     const graph = build(data);
     if (!graph.links.length) return null;
+    const lastCol = Math.max(...graph.nodes.map((n) => n.col));
+    const room = graph.nodes.some((n) => n.col === lastCol && n.label.length > 14) ? WIDE_LABEL_SPACE : LABEL_SPACE;
     return sankey<N, L>()
       .nodeId((n) => n.id)
       .nodeAlign((n) => n.col)
       .nodeWidth(12)
       .nodePadding(22)
       .nodeSort((a, b) => rank(a) - rank(b))
-      .extent([[1, 26], [width - LABEL_SPACE, HEIGHT - 4]])(graph);
+      .extent([[1, 26], [width - room, HEIGHT - 4]])(graph);
   }, [data, width]);
 
   const nodes = (layout?.nodes ?? []) as LaidNode[];

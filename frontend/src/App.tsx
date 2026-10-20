@@ -15,6 +15,7 @@ import Campaigns from "./pages/Campaigns";
 import DashboardPage from "./pages/Dashboard";
 import Inbox from "./pages/Inbox";
 import Interviews from "./pages/Interviews";
+import { EditorDialog, EditorPage } from "./NotesEditor";
 import { useRefresh } from "./lib/refresh";
 import { useTheme, type Theme } from "./lib/theme";
 import { useAsync } from "./useAsync";
@@ -48,11 +49,14 @@ export default function App() {
             <Route path="/applications/:id" element={<ApplicationPage />} />
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/interviews" element={<Interviews />} />
+            <Route path="/interviews/:id" element={<EditorPage kind="interview" />} />
+            <Route path="/notes/:id" element={<EditorPage kind="note" />} />
             <Route path="/add" element={<AddApplication />} />
             <Route path="/campaigns" element={<Campaigns />} />
             <Route path="*" element={<p className="text-muted-foreground">Not found.</p>} />
           </Routes>
         </main>
+        <EditorDialog />
       </div>
     </div>
   );

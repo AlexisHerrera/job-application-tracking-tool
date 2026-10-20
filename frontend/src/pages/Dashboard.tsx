@@ -109,7 +109,7 @@ export default function DashboardPage() {
           {upcoming.map((i) => (
             <div key={i.id} className="flex items-center gap-1">
               <Row
-                to={i.general ? "/interviews" : `/applications?open=${i.application_id}`}
+                to={`?interview=${i.id}`}
                 title={i.general ? `General talk · ${talkWith(i) ?? ""}` : i.company ?? "?"}
                 sub={i.general ? interviewName(i) : `${interviewName(i)} · ${i.role ?? ""}`}
                 right={<span className="text-right"><span className="block font-medium">{fmtDate(i.starts_at, true)}</span><span className="text-muted-foreground">{relativeDay(i.starts_at)}</span></span>}
@@ -131,7 +131,7 @@ export default function DashboardPage() {
           {recent.map((i) => (
             <Row
               key={i.id}
-              to={i.general ? "/interviews" : `/applications?open=${i.application_id}`}
+              to={`?interview=${i.id}`}
               title={i.general ? `General talk · ${talkWith(i) ?? ""}` : i.company ?? "?"}
               sub={`${interviewName(i)} · ${relativeDay(i.starts_at)}`}
               right={

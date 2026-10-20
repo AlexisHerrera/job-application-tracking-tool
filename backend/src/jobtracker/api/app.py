@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from jobtracker.adapters.db.repo import PostgresRepo
 from jobtracker.api import schemas as s
 from jobtracker.api.auth import AccessVerifier, User
-from jobtracker.core import campaigns, interviews, paste, services, stats
+from jobtracker.core import campaigns, interviews, paste, process, services, stats
 from jobtracker.core.clock import SystemClock
 from jobtracker.core.models import Campaign, InterviewNote, Origin
 from jobtracker.core.pipeline import Pipeline, PipelineConfig, run_incremental
@@ -203,7 +203,9 @@ def create_app(
         }
         out = []
         for rec in records:
-            options, default = paste.propose(rec, apps, domains, forced)
+            options, default = paste.propose(
+                rec, apps, domains, forced, has_plan=lambda app_id: bool(repo.list_steps(app_id))
+            )
             out.append(
                 {
                     "company": rec.company,
@@ -234,15 +236,21 @@ def create_app(
             raise services.NotFound(app_id)
         notes = repo.list_notes(a.id)
         per = interviews.notes_by_interview(notes)
+        events = repo.list_events(a.id)
+        ivs = repo.list_interviews(a.id)
+        steps = repo.list_steps(a.id)
+        status = display_status(a, clock.now(), settings.ghost_days)
         return {
             **app_json(a),
-            "events": [s.event_json(e) for e in repo.list_events(a.id)],
+            "events": [s.event_json(e) for e in events],
             "interviews": [
-                s.interview_json(iv, per.get(iv.id, 0))
-                for iv in repo.list_interviews(a.id)
-                if not iv.dismissed
+                s.interview_json(iv, per.get(iv.id, 0)) for iv in ivs if not iv.dismissed
             ],
             "interview_notes": [s.note_json(n) for n in notes],
+            "steps": [s.step_json(st) for st in steps],
+            "timeline": [
+                s.node_json(n) for n in process.timeline(a, status, steps, ivs, events, clock.now())
+            ],
             "aliases": [
                 {"kind": al.kind.value, "value": al.value, "learned_from": al.learned_from}
                 for al in repo.list_aliases(a.company_id)
@@ -397,6 +405,20 @@ def create_app(
             for iv in repo.list_unassigned_interviews()
         ]
 
+    @api.get("/interviews/{interview_id}")
+    def get_interview(interview_id: str, repo: PostgresRepo = Depends(get_repo)):
+        """One interview with its application and notes: what the notes editor opens."""
+        iv = repo.get_interview(_uuid(interview_id))
+        if iv is None:
+            raise services.NotFound(interview_id)
+        app = repo.get_application(iv.application_id) if iv.application_id else None
+        notes = [n for n in repo.list_notes(app.id) if n.interview_id == iv.id] if app else []
+        return {
+            **s.interview_json(iv, len(notes) or (1 if iv.notes else 0), app and app.company_name),
+            "role": app.role_title if app else None,
+            "notes_list": [s.note_json(n) for n in sorted(notes, key=lambda n: n.created_at)],
+        }
+
     @api.get("/calendar")
     def calendar_status(repo: PostgresRepo = Depends(get_repo)):
         last = repo.last_calendar_sync_at()
@@ -442,6 +464,39 @@ def create_app(
         with repo.transaction():
             repo.save_note(note)
         return s.note_json(note)
+
+    @api.get("/notes/{note_id}")
+    def get_note(note_id: str, repo: PostgresRepo = Depends(get_repo)):
+        note = repo.get_note(_uuid(note_id))
+        if note is None:
+            raise services.NotFound(note_id)
+        app = repo.get_application(note.application_id)
+        return {
+            **s.note_json(note),
+            "company": app.company_name if app else None,
+            "role": app.role_title if app else None,
+        }
+
+    @api.post("/applications/{app_id}/steps", status_code=201)
+    def add_steps(app_id: str, body: s.StepsIn, repo: PostgresRepo = Depends(get_repo)):
+        with repo.transaction():
+            steps = services.add_steps(
+                repo, clock, _uuid(app_id), [st.model_dump() for st in body.steps]
+            )
+        return [s.step_json(st) for st in steps]
+
+    @api.patch("/steps/{step_id}")
+    def patch_step(step_id: str, body: s.StepPatch, repo: PostgresRepo = Depends(get_repo)):
+        with repo.transaction():
+            st = services.update_step(
+                repo, clock, _uuid(step_id), body.model_dump(exclude_unset=True)
+            )
+        return s.step_json(st)
+
+    @api.delete("/steps/{step_id}", status_code=204)
+    def delete_step(step_id: str, repo: PostgresRepo = Depends(get_repo)):
+        with repo.transaction():
+            services.delete_step(repo, _uuid(step_id))
 
     @api.put("/notes/{note_id}")
     def update_note(note_id: str, body: s.NoteIn, repo: PostgresRepo = Depends(get_repo)):

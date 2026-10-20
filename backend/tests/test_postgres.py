@@ -11,7 +11,7 @@ import pytest
 from jobtracker.adapters.db.migrate import migrate, migration_files
 from jobtracker.adapters.db.repo import PostgresRepo
 from jobtracker.core import services, stats
-from jobtracker.core.models import AliasKind, MatchMethod, Stage
+from jobtracker.core.models import AliasKind, MatchMethod, Stage, StepKind, StepLink
 from jobtracker.core.pipeline import Pipeline, PipelineConfig
 from tests.conftest import ME, TZ, load
 from tests.fakes import FakeLLM, extraction
@@ -42,7 +42,7 @@ def test_url():
 @pytest.fixture
 def pg(test_url):
     repo = PostgresRepo.connect(test_url)
-    for table in ("interview_notes", "interviews", "calendar_sync_state", "events", "applications", "company_aliases", "companies",
+    for table in ("process_steps", "interview_notes", "interviews", "calendar_sync_state", "events", "applications", "company_aliases", "companies",
                   "processed_messages", "mail_sync_state", "oauth_credentials"):  # fmt: skip
         repo.conn.execute(f"DELETE FROM {table}")
     yield repo
@@ -141,6 +141,24 @@ def test_notes_roundtrip(pg, clock):
         pg.save_note(note)
     [saved] = pg.list_notes(app.id)
     assert saved.self_rating == 2 and saved.questions == ["q1"] and saved.topics_to_study == ["sql"]
+
+
+def test_steps_roundtrip(pg, clock):
+    with pg.transaction():
+        app = services.create_application(
+            pg, clock, services.ApplicationInput(company="Tapi", role_title="SRE")
+        )
+        _, b = services.add_steps(pg, clock, app.id, [{"name": "Recruiter"}, {"name": "Challenge"}])
+        services.update_step(pg, clock, b.id, {"position": 0, "done_at": clock.now()})
+    steps = pg.list_steps(app.id)
+    assert [(s.name, s.kind, s.position) for s in steps] == [
+        ("Challenge", StepKind.TAKE_HOME, 0),
+        ("Recruiter", StepKind.INTERVIEW, 1),
+    ]
+    assert steps[0].done_at == clock.now() and steps[0].link == StepLink.AUTO
+    with pg.transaction():
+        services.delete_application(pg, clock, app.id)
+    assert pg.list_steps(app.id) == []
 
 
 def test_calendar_sync_roundtrip(pg, clock):

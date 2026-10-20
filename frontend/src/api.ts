@@ -94,10 +94,51 @@ export interface Note {
   topics_to_study: string[];
 }
 
+export type StepKind = "interview" | "take_home" | "other";
+
+/** One expected step of the process, as the recruiter described it. */
+export interface ProcessStep {
+  id: string;
+  position: number;
+  name: string;
+  kind: StepKind;
+  optional: boolean;
+  link: "auto" | "manual"; // manual + interview_id null = "hasn't happened yet"
+  interview_id: string | null;
+  done_at: string | null;
+}
+
+/** The process timeline, built by the API from the plan, the interviews and the outcome. */
+export interface ProcessNode {
+  kind: "applied" | "step" | "interview" | "outcome";
+  label: string;
+  state: "done" | "scheduled" | "next" | "planned" | "skipped" | "not_reached" | "outcome";
+  at: string | null;
+  step_id: string | null;
+  interview_id: string | null;
+  step_kind: StepKind | null;
+  optional: boolean;
+  implied: boolean; // done without a date: a later step already happened
+  outcome: "rejected" | "withdrawn" | "offer" | "ghosted" | "on_hold" | null;
+}
+
+export interface InterviewDetail extends Interview {
+  role: string | null;
+  notes_list: Note[];
+}
+
+export interface NoteDetail extends Note {
+  application_id: string;
+  company: string | null;
+  role: string | null;
+}
+
 export interface ApplicationDetail extends Application {
   events: TimelineEvent[];
   interviews: Interview[];
   interview_notes: Note[];
+  steps: ProcessStep[];
+  timeline: ProcessNode[];
   aliases: { kind: string; value: string; learned_from: string }[];
 }
 
@@ -230,7 +271,10 @@ export type ApplicationInput = Partial<Omit<Application, "id" | "status">> & {
   company_domain?: string;
   stage?: Stage | null;
   stage_at?: string | null;
+  process_steps?: StepInput[];
 };
+
+export type StepInput = { name: string; kind?: StepKind | null; optional?: boolean };
 
 export const api = {
   dashboard: () => request<Dashboard>("GET", "/dashboard"),
@@ -244,7 +288,7 @@ export const api = {
       text,
       application_id: applicationId ?? null,
     }),
-  updateApplication: (id: string, data: Partial<Application> & { company_domain?: string }) =>
+  updateApplication: (id: string, data: Partial<Application> & { company_domain?: string; process_steps?: StepInput[] }) =>
     request<Application>("PATCH", `/applications/${id}`, data),
   deleteApplication: (id: string) => request<void>("DELETE", `/applications/${id}`),
   changeStage: (id: string, data: { stage: Stage; at?: string; round?: number | null; note?: string }) =>
@@ -267,11 +311,20 @@ export const api = {
   markReplied: (eventId: string) => request<TimelineEvent>("POST", `/events/${eventId}/replied`, {}),
   createFromEvent: (eventId: string, data: ApplicationInput) =>
     request<Application>("POST", `/events/${eventId}/create-application`, data),
+  note: (noteId: string) => request<NoteDetail>("GET", `/notes/${noteId}`),
   addNote: (appId: string, data: Partial<Note>) => request<Note>("POST", `/applications/${appId}/notes`, data),
   updateNote: (noteId: string, data: Partial<Note>) => request<Note>("PUT", `/notes/${noteId}`, data),
   deleteNote: (noteId: string) => request<void>("DELETE", `/notes/${noteId}`),
   addInterview: (appId: string, data: InterviewInput) => request<Interview>("POST", `/applications/${appId}/interviews`, data),
   updateInterview: (id: string, data: InterviewInput) => request<Interview>("PATCH", `/interviews/${id}`, data),
+  interview: (id: string) => request<InterviewDetail>("GET", `/interviews/${id}`),
+  addSteps: (appId: string, steps: StepInput[]) =>
+    request<ProcessStep[]>("POST", `/applications/${appId}/steps`, { steps }),
+  updateStep: (
+    id: string,
+    data: Partial<Pick<ProcessStep, "name" | "kind" | "optional" | "interview_id" | "done_at" | "position">> & { link?: "auto" },
+  ) => request<ProcessStep>("PATCH", `/steps/${id}`, data),
+  deleteStep: (id: string) => request<void>("DELETE", `/steps/${id}`),
   removeInterview: (id: string) => request<void>("DELETE", `/interviews/${id}`),
   assignInterview: (id: string, applicationId: string) =>
     request<Interview>("POST", `/interviews/${id}/assign`, { application_id: applicationId }),

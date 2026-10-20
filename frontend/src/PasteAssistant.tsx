@@ -30,6 +30,7 @@ const KIND_CLASS: Record<FieldChange["kind"], string> = {
 
 function show(field: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
+  if (field === "process_steps" && Array.isArray(value)) return value.map((st: { name: string }) => st.name).join(" → ");
   if (Array.isArray(value)) return value.join(", ");
   if (field === "applied_at" && typeof value === "string") return fmtDate(value);
   if (typeof value === "number") return new Intl.NumberFormat("en-US").format(value);
