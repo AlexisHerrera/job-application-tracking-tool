@@ -48,6 +48,7 @@ def parse_ics(data: bytes, default_tz: ZoneInfo) -> list[CalendarEvent]:
                 else None,
                 method=method,
                 location=str(comp.get("LOCATION")) if comp.get("LOCATION") else None,
+                uid=str(comp.get("UID")) if comp.get("UID") else None,
             )
         )
     return out

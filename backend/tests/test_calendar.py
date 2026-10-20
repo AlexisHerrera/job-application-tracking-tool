@@ -23,6 +23,7 @@ def test_parses_utc_start():
     assert ev.start == datetime(2026, 11, 5, 15, 0, tzinfo=UTC)
     assert ev.method == "REQUEST"
     assert ev.organizer == "recruiting@contoso.test"
+    assert ev.uid == "interview-1@contoso.test"
 
 
 def test_floating_time_uses_default_tz_and_all_day_is_skipped():

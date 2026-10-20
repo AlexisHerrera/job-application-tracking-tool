@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { CalendarClock, Check, ChevronRight, Hourglass, Inbox, MessageSquareReply, Sparkles, Waypoints } from "lucide-react";
+import { CalendarCheck, CalendarClock, CalendarDays, Check, ChevronRight, Hourglass, Inbox, MessageSquareReply, NotebookPen, Sparkles, Video, Waypoints } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, daysAgo, errorText, fmtDate, type Status } from "../api";
+import { api, daysAgo, errorText, fmtDate, relativeDay, type Status } from "../api";
+import { interviewName, talkWith } from "../InterviewNotes";
 import { useCampaign } from "../campaign";
 import { FlowChart } from "../components/FlowChart";
 import { Empty, Loading, PageHeader } from "../components/common";
@@ -20,7 +21,7 @@ export default function DashboardPage() {
   const stats = useAsync(() => api.stats(campaign), [campaign]).data;
   const [reviewing, setReviewing] = useState(false);
   if (!data) return <Loading error={error} loading={loading} rows={4} />;
-  const { upcoming_interviews: upcoming, follow_ups: fu } = data;
+  const { upcoming_interviews: upcoming, recent_interviews: recent, follow_ups: fu } = data;
   const c = data.campaign;
 
   const active = stats ? Object.entries(stats.by_status).reduce((n, [s, k]) => n + (ACTIVE_STATUSES.has(s as Status) ? k : 0), 0) : null;
@@ -46,7 +47,11 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile label="Applications" value={stats?.total ?? c?.applications ?? "—"} sub={c ? `${c.per_week} per week` : undefined} />
         <Tile label="Active" value={active ?? "—"} sub="applied, screening, interviewing, on hold" />
-        <Tile label="Reached interviews" value={interviews?.count ?? "—"} sub={interviews ? `${interviews.pct}% of applications` : undefined} />
+        <Tile
+          label="Interviews done"
+          value={stats?.interviews.done ?? "—"}
+          sub={stats ? `${stats.interviews.upcoming} upcoming${interviews ? ` · ${interviews.pct}% of applications got one` : ""}` : undefined}
+        />
         <Tile
           label="Days to 1st interview"
           value={c?.days_to_first_interview ?? "—"}
@@ -54,7 +59,7 @@ export default function DashboardPage() {
         />
       </div>
 
-      {(data.unassigned > 0 || data.needs_review > 0) && (
+      {(data.unassigned > 0 || data.needs_review > 0 || data.unassigned_interviews > 0) && (
         <Card className="mt-4 border-amber-500/30 bg-amber-500/5">
           <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
             {data.needs_review > 0 && (
@@ -77,6 +82,16 @@ export default function DashboardPage() {
                 <Button asChild size="sm" variant="outline"><Link to="/inbox">Open inbox</Link></Button>
               </div>
             )}
+            {data.unassigned_interviews > 0 && (
+              <div className="flex flex-1 items-center gap-3">
+                <CalendarDays className="size-5 shrink-0 text-muted-foreground" />
+                <div className="flex-1 text-sm">
+                  <div className="font-medium">{data.unassigned_interviews} calendar interview{data.unassigned_interviews === 1 ? "" : "s"} to match</div>
+                  <div className="text-muted-foreground">Looks like an interview, but for which application?</div>
+                </div>
+                <Button asChild size="sm" variant="outline"><Link to="/inbox">Match them</Link></Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -89,10 +104,44 @@ export default function DashboardPage() {
         <CardContent>{stats ? <FlowChart data={stats.flow} /> : <Loading error={null} loading rows={1} />}</CardContent>
       </Card>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <ListCard icon={<CalendarClock className="size-4 text-violet-500" />} title="Upcoming interviews" empty="None scheduled.">
           {upcoming.map((i) => (
-            <Row key={i.application_id} to={`/applications?open=${i.application_id}`} title={i.company} sub={`${i.role}${i.round ? ` · round ${i.round}` : ""}`} right={<span className="font-medium">{fmtDate(i.at, true)}</span>} />
+            <div key={i.id} className="flex items-center gap-1">
+              <Row
+                to={i.general ? "/interviews" : `/applications?open=${i.application_id}`}
+                title={i.general ? `General talk · ${talkWith(i) ?? ""}` : i.company ?? "?"}
+                sub={i.general ? interviewName(i) : `${interviewName(i)} · ${i.role ?? ""}`}
+                right={<span className="text-right"><span className="block font-medium">{fmtDate(i.starts_at, true)}</span><span className="text-muted-foreground">{relativeDay(i.starts_at)}</span></span>}
+              />
+              {i.meeting_url && (
+                <Button asChild variant="ghost" size="icon-xs" aria-label={`Join the ${i.company ?? ""} call`}>
+                  <a href={i.meeting_url} target="_blank" rel="noreferrer"><Video /></a>
+                </Button>
+              )}
+            </div>
+          ))}
+        </ListCard>
+        <ListCard
+          icon={<CalendarCheck className="size-4 text-emerald-600" />}
+          title="Just happened"
+          description="Last two weeks. Write it down while it's fresh"
+          empty="No interviews in the last two weeks."
+        >
+          {recent.map((i) => (
+            <Row
+              key={i.id}
+              to={i.general ? "/interviews" : `/applications?open=${i.application_id}`}
+              title={i.general ? `General talk · ${talkWith(i) ?? ""}` : i.company ?? "?"}
+              sub={`${interviewName(i)} · ${relativeDay(i.starts_at)}`}
+              right={
+                i.notes_count > 0 ? (
+                  <span className="inline-flex items-center gap-1 text-muted-foreground"><NotebookPen className="size-3.5" />{i.notes_count}</span>
+                ) : (
+                  <span className="rounded-full bg-amber-500/10 px-2 leading-5 text-amber-800 dark:text-amber-300">add notes</span>
+                )
+              }
+            />
           ))}
         </ListCard>
         <ListCard
@@ -154,7 +203,7 @@ function ListCard({ icon, title, description, empty, children }: { icon: ReactNo
 
 function Row({ to, title, sub, right }: { to: string; title: string; sub: string; right: ReactNode }) {
   return (
-    <Link to={to} className="group flex items-center gap-2 py-2 text-sm">
+    <Link to={to} className="group flex min-w-0 flex-1 items-center gap-2 py-2 text-sm">
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium group-hover:underline">{title}</div>
         <div className="truncate text-xs text-muted-foreground">{sub}</div>

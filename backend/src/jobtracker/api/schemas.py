@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
-from jobtracker.core.models import Application, Event, InterviewNote, Stage
+from jobtracker.core.models import Application, Event, Interview, InterviewNote, Stage
 from jobtracker.core.services import ApplicationInput
 
 
@@ -75,10 +76,36 @@ def event_json(e: Event) -> dict:
     }
 
 
+def interview_json(iv: Interview, notes: int = 0, company: str | None = None) -> dict:
+    return {
+        "id": str(iv.id),
+        "application_id": str(iv.application_id) if iv.application_id else None,
+        "company": company,
+        "source": iv.source.value,
+        "status": iv.status.value,
+        "starts_at": _iso(iv.starts_at),
+        "ends_at": _iso(iv.ends_at),
+        "title": iv.title,
+        "round": iv.round,
+        "interview_type": iv.interview_type,
+        "location": iv.location,
+        "meeting_url": iv.meeting_url,
+        "organizer": iv.organizer,
+        "attendees": iv.attendees,
+        "html_link": iv.html_link,
+        "match_method": iv.match_method.value,
+        "general": iv.general,
+        "notes": iv.notes,
+        "notes_count": notes,
+    }
+
+
 def note_json(n: InterviewNote) -> dict:
     return {
         "id": str(n.id),
         "application_id": str(n.application_id),
+        "interview_id": str(n.interview_id) if n.interview_id else None,
+        "body": n.body,
         "round": n.round,
         "interview_at": _iso(n.interview_at),
         "interview_type": n.interview_type,
@@ -221,7 +248,28 @@ class CsvImportIn(BaseModel):
     csv: str = Field(min_length=1, max_length=2_000_000)
 
 
+class InterviewIn(BaseModel):
+    starts_at: datetime
+    ends_at: datetime | None = None
+    title: str | None = Field(default=None, max_length=300)
+    round: int | None = Field(default=None, ge=1, le=20)
+    interview_type: str | None = None
+    location: str | None = Field(default=None, max_length=500)
+
+
+class InterviewPatch(BaseModel):
+    notes: str | None = Field(default=None, max_length=20_000)  # general talks only
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    title: str | None = Field(default=None, max_length=300)
+    round: int | None = Field(default=None, ge=1, le=20)
+    interview_type: str | None = None
+    location: str | None = Field(default=None, max_length=500)
+
+
 class NoteIn(BaseModel):
+    interview_id: uuid.UUID | None = None
+    body: str | None = Field(default=None, max_length=20_000)
     round: int | None = Field(default=None, ge=1, le=20)
     interview_at: datetime | None = None
     interview_type: str | None = None

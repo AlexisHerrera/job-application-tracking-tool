@@ -6,13 +6,20 @@ import csv
 import io
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from jobtracker.core.extraction import parse_extraction
 from jobtracker.core.filtering import FREEMAIL_DOMAINS, JOB_BOARD_DOMAINS, domain_matches
+from jobtracker.core.interviews import (
+    CalendarReport,
+    apply_calendar_items,
+    external_addresses,
+    learnable_domains,
+    sync_email_interviews,
+)
 from jobtracker.core.matching import aliases_to_learn, match, normalize_company
 from jobtracker.core.models import (
     AliasKind,
@@ -24,11 +31,18 @@ from jobtracker.core.models import (
     EventKind,
     EventType,
     Extraction,
+    Interview,
+    InterviewSource,
     MatchMethod,
     Origin,
     Stage,
 )
-from jobtracker.core.ports import Clock, Repository
+from jobtracker.core.ports import (
+    CalendarSource,
+    CalendarSyncExpired,
+    Clock,
+    Repository,
+)
 from jobtracker.core.stages import apply_projection, project
 
 
@@ -229,7 +243,10 @@ def recompute(repo: Repository, clock: Clock, app_id: uuid.UUID) -> Application:
     app = repo.get_application(app_id)
     if app is None:
         raise NotFound(str(app_id))
-    apply_projection(app, project(app, repo.list_events(app_id), clock.now()))
+    sync_email_interviews(repo, clock, app_id)
+    apply_projection(
+        app, project(app, repo.list_events(app_id), clock.now(), repo.list_interviews(app_id))
+    )
     app.updated_at = clock.now()
     repo.update_application(app)
     return app
@@ -376,7 +393,171 @@ def delete_application(repo: Repository, clock: Clock, app_id: uuid.UUID) -> Non
             repo.update_event(event)
     for note in repo.list_notes(app_id):
         repo.delete_note(note.id)
+    for iv in repo.list_interviews(app_id):
+        if iv.source == InterviewSource.CALENDAR:  # back to the review queue, like its emails
+            iv.application_id = None
+            iv.match_method = MatchMethod.NONE
+            iv.assigned_by = None
+            repo.save_interview(iv)
+        else:
+            repo.delete_interview(iv.id)
     repo.delete_application(app_id)
+
+
+INTERVIEW_FIELDS = {"starts_at", "ends_at", "title", "round", "interview_type", "location", "notes"}
+
+
+def add_interview(
+    repo: Repository, clock: Clock, app_id: uuid.UUID, fields: dict[str, Any]
+) -> Interview:
+    """An interview the calendar and the emails don't know about (a phone call, say)."""
+    if repo.get_application(app_id) is None:
+        raise NotFound(str(app_id))
+    if not fields.get("starts_at"):
+        raise InvalidInput("starts_at is required")
+    now = clock.now()
+    iv = Interview(
+        starts_at=fields["starts_at"],
+        source=InterviewSource.MANUAL,
+        application_id=app_id,
+        match_method=MatchMethod.MANUAL,
+        assigned_by="manual",
+        created_at=now,
+    )
+    return update_interview(repo, clock, iv, fields)
+
+
+def update_interview(
+    repo: Repository, clock: Clock, iv: Interview, fields: dict[str, Any]
+) -> Interview:
+    unknown = set(fields) - INTERVIEW_FIELDS
+    if unknown:
+        raise InvalidInput(f"cannot edit: {', '.join(sorted(unknown))}")
+    if "notes" in fields and not iv.general:
+        raise InvalidInput("an application's interview takes notes, not inline text")
+    for name, value in fields.items():
+        setattr(iv, name, value.strip() or None if isinstance(value, str) else value)
+    if iv.starts_at is None:
+        raise InvalidInput("starts_at is required")
+    iv.updated_at = clock.now()
+    repo.save_interview(iv)
+    if iv.application_id:
+        recompute(repo, clock, iv.application_id)
+    return iv
+
+
+def assign_interview(
+    repo: Repository, clock: Clock, interview_id: uuid.UUID, app_id: uuid.UUID, my: set[str]
+) -> Interview:
+    """Like assigning an email: the attendees' company domain is remembered for next time."""
+    iv = repo.get_interview(interview_id)
+    app = repo.get_application(app_id)
+    if iv is None or app is None:
+        raise NotFound(str(interview_id if iv is None else app_id))
+    previous = iv.application_id
+    iv.application_id = app_id
+    iv.company_hint_id = app.company_id
+    iv.match_method = MatchMethod.MANUAL
+    iv.assigned_by = "manual"
+    iv.dismissed = False
+    iv.general = False
+    iv.updated_at = clock.now()
+    repo.save_interview(iv)
+    for note in repo.list_notes(previous) if previous and previous != app_id else []:
+        if note.interview_id == iv.id:
+            note.application_id = app_id
+            repo.save_note(note)
+    company = repo.get_company(app.company_id)
+    shared = set(repo.ats_domains()) | set(repo.agency_domains()) | JOB_BOARD_DOMAINS
+    attendees = external_addresses(iv.organizer, iv.attendees, my)
+    for domain in learnable_domains(attendees, shared) if company else ():
+        add_company_domain(repo, company, domain, "manual_assignment")
+    recompute(repo, clock, app_id)
+    if previous and previous != app_id:
+        recompute(repo, clock, previous)
+    return iv
+
+
+def mark_general(repo: Repository, clock: Clock, interview_id: uuid.UUID) -> Interview:
+    """A recruiter or agency talk about roles in general: out of the review queue, tied to no
+    application, never counted as an application's interview. Its notes live on the interview."""
+    iv = repo.get_interview(interview_id)
+    if iv is None:
+        raise NotFound(str(interview_id))
+    previous = iv.application_id
+    iv.general = True
+    iv.application_id = None
+    iv.company_hint_id = None
+    iv.match_method = MatchMethod.MANUAL
+    iv.assigned_by = "manual"
+    iv.dismissed = False
+    iv.updated_at = clock.now()
+    repo.save_interview(iv)
+    if previous:
+        # Notes already written stay on that application, as general notes there.
+        for note in repo.list_notes(previous):
+            if note.interview_id == iv.id:
+                note.interview_id = None
+                repo.save_note(note)
+        recompute(repo, clock, previous)
+    return iv
+
+
+def remove_interview(repo: Repository, clock: Clock, interview_id: uuid.UUID) -> None:
+    """Delete one added by hand; dismiss the rest, or the next sync would bring them back.
+    Notes stay on the application, no longer tied to an interview."""
+    iv = repo.get_interview(interview_id)
+    if iv is None:
+        raise NotFound(str(interview_id))
+    if iv.source == InterviewSource.MANUAL:
+        for note in repo.list_notes(iv.application_id) if iv.application_id else []:
+            if note.interview_id == iv.id:
+                note.interview_id = None
+                repo.save_note(note)
+        repo.delete_interview(iv.id)
+    else:
+        iv.dismissed = True
+        iv.updated_at = clock.now()
+        repo.save_interview(iv)
+    if iv.application_id:
+        recompute(repo, clock, iv.application_id)
+
+
+def calendar_since(repo: Repository, clock: Clock, tz: ZoneInfo) -> datetime:
+    """How far back the first calendar sync reaches: the first campaign, else six months."""
+    starts = [c.started_on for c in repo.list_campaigns()]
+    if starts:
+        return day_start(min(starts), tz)
+    return clock.now() - timedelta(days=180)
+
+
+def sync_calendar(
+    repo: Repository,
+    clock: Clock,
+    source: CalendarSource,
+    since: datetime,
+    my_addresses: set[str],
+) -> CalendarReport:
+    """Pull calendar changes since the last sync (everything from `since` the first time), match
+    them, and refresh every application. Also turns invite-email times into interviews."""
+    token = repo.get_calendar_sync(source.calendar_id)
+    full = token is None
+    try:
+        changes = source.fetch_changes(token, since)
+    except CalendarSyncExpired:
+        changes, full = source.fetch_changes(None, since), True
+    with repo.transaction():
+        report, touched = apply_calendar_items(
+            repo, clock, source.calendar_id, changes.items, my_addresses
+        )
+        report.full_sync = full
+        for app in repo.list_applications():
+            if sync_email_interviews(repo, clock, app.id):
+                touched.add(app.id)
+        for app_id in touched:
+            recompute(repo, clock, app_id)
+        repo.set_calendar_sync(source.calendar_id, changes.next_sync_token)
+    return report
 
 
 def mark_reviewed(repo: Repository, clock: Clock, app_id: uuid.UUID) -> Application:

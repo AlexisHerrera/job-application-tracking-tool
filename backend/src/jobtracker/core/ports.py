@@ -12,11 +12,13 @@ from typing import Protocol
 from jobtracker.core.models import (
     AliasKind,
     Application,
+    CalendarItem,
     Campaign,
     Company,
     CompanyAlias,
     EmailMessage,
     Event,
+    Interview,
     InterviewNote,
 )
 
@@ -84,6 +86,29 @@ class MailSource(Protocol):
 
     def fetch_by_message_ids(self, message_ids: list[str]) -> Iterator[EmailMessage]:
         """Specific messages by Message-ID (missing ones are skipped), no X-GM-RAW filter."""
+        ...
+
+
+@dataclass(slots=True)
+class CalendarChanges:
+    items: list[CalendarItem]
+    next_sync_token: str
+
+
+class CalendarSyncExpired(Exception):
+    """The saved sync token is no longer valid (HTTP 410): do a full sync again."""
+
+
+class CalendarAuthError(Exception):
+    """Google rejected the saved login (expired or revoked): run `jobtracker calendar login`."""
+
+
+class CalendarSource(Protocol):
+    calendar_id: str
+
+    def fetch_changes(self, sync_token: str | None, since: datetime) -> CalendarChanges:
+        """Everything changed since `sync_token`, or every event from `since` when it's None.
+        Recurring events come expanded into single instances; deletions come as cancelled."""
         ...
 
 
@@ -161,3 +186,24 @@ class Repository(Protocol):
     def get_note(self, note_id: uuid.UUID) -> InterviewNote | None: ...
     def save_note(self, note: InterviewNote) -> None: ...
     def delete_note(self, note_id: uuid.UUID) -> None: ...
+
+    # interviews
+    def list_interviews(self, application_id: uuid.UUID | None = None) -> list[Interview]: ...
+    def list_unassigned_interviews(self) -> list[Interview]: ...
+    def get_interview(self, interview_id: uuid.UUID) -> Interview | None: ...
+    def get_interview_by_calendar_event(
+        self, calendar_id: str, calendar_event_id: str
+    ) -> Interview | None: ...
+    def save_interview(self, interview: Interview) -> None:
+        """Insert or update."""
+        ...
+
+    def delete_interview(self, interview_id: uuid.UUID) -> None: ...
+
+    # calendar sync
+    def get_calendar_sync(self, calendar_id: str) -> str | None:
+        """The saved sync token."""
+        ...
+
+    def set_calendar_sync(self, calendar_id: str, sync_token: str | None) -> None: ...
+    def last_calendar_sync_at(self) -> datetime | None: ...

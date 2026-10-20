@@ -44,6 +44,7 @@ class Settings:
     gmail_app_password: str
     imap_host: str
     imap_extra_query: str
+    google_calendar_id: str
     anthropic_api_key: str
     llm_model: str
     llm_effort: str
@@ -69,6 +70,7 @@ class Settings:
             gmail_app_password=e.get("GMAIL_APP_PASSWORD", "").replace(" ", ""),
             imap_host=e.get("IMAP_HOST", "imap.gmail.com"),
             imap_extra_query=e.get("IMAP_QUERY", "-category:promotions -category:social -in:chats"),
+            google_calendar_id=e.get("GOOGLE_CALENDAR_ID", "primary").strip() or "primary",
             anthropic_api_key=e.get("ANTHROPIC_API_KEY", ""),
             llm_model=e.get("LLM_MODEL", "claude-haiku-5-5"),
             llm_effort=e.get("LLM_EFFORT", "low"),

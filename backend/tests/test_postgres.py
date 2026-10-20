@@ -42,8 +42,8 @@ def test_url():
 @pytest.fixture
 def pg(test_url):
     repo = PostgresRepo.connect(test_url)
-    for table in ("interview_notes", "events", "applications", "company_aliases", "companies",
-                  "processed_messages", "mail_sync_state"):  # fmt: skip
+    for table in ("interview_notes", "interviews", "calendar_sync_state", "events", "applications", "company_aliases", "companies",
+                  "processed_messages", "mail_sync_state", "oauth_credentials"):  # fmt: skip
         repo.conn.execute(f"DELETE FROM {table}")
     yield repo
     repo.close()
@@ -141,6 +141,40 @@ def test_notes_roundtrip(pg, clock):
         pg.save_note(note)
     [saved] = pg.list_notes(app.id)
     assert saved.self_rating == 2 and saved.questions == ["q1"] and saved.topics_to_study == ["sql"]
+
+
+def test_calendar_sync_roundtrip(pg, clock):
+    from datetime import timedelta
+
+    from jobtracker.core.models import CalendarItem, InterviewNote, InterviewStatus
+    from tests.fakes import FakeCalendar
+
+    with pg.transaction():
+        app = services.create_application(
+            pg, clock,
+            services.ApplicationInput(company="Northwind", role_title="SWE", company_domain="northwind.test"),
+        )  # fmt: skip
+    start = clock.now() + timedelta(days=1)
+    item = CalendarItem("ev1", "confirmed", "Interview", start, start + timedelta(hours=1),
+                        attendees=[ME, "jane@northwind.test"])  # fmt: skip
+    cal = FakeCalendar([item], [CalendarItem("ev1", "cancelled")])
+    services.sync_calendar(pg, clock, cal, clock.now() - timedelta(days=30), {ME})
+    [iv] = pg.list_interviews(app.id)
+    assert iv.attendees == [ME, "jane@northwind.test"]
+    assert pg.get_interview_by_calendar_event("primary", "ev1").id == iv.id
+    assert pg.get_calendar_sync("primary") == "token-1" and pg.last_calendar_sync_at()
+    pg.save_note(InterviewNote(application_id=app.id, interview_id=iv.id, body="went ok",
+                               created_at=clock.now(), updated_at=clock.now()))  # fmt: skip
+    assert pg.list_notes(app.id)[0].interview_id == iv.id
+
+    services.sync_calendar(pg, clock, cal, clock.now(), {ME})
+    assert pg.get_interview(iv.id).status == InterviewStatus.CANCELLED
+    assert pg.list_unassigned_interviews() == []
+
+    pg.set_oauth("google_calendar", {"refresh_token": "r"})
+    assert pg.get_oauth("google_calendar") == {"refresh_token": "r"}
+    pg.delete_oauth("google_calendar")
+    assert pg.get_oauth("google_calendar") is None
 
 
 def test_scan_bookkeeping(pg, test_url):

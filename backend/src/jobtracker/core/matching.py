@@ -115,9 +115,7 @@ def _company_from_sender(
     return None
 
 
-def _pick_by_role(
-    apps: list[Application], role: str | None, cfg: MatchConfig
-) -> Application | None:
+def pick_by_role(apps: list[Application], role: str | None, cfg: MatchConfig) -> Application | None:
     if len(apps) == 1:
         return apps[0]
     if not role or not apps:
@@ -155,9 +153,7 @@ def match(
     if company:
         mine = [a for a in apps if a.company_id == company.id]
         active = [a for a in mine if is_active(a)]
-        chosen = _pick_by_role(active, extraction.role, cfg) or (
-            mine[0] if len(mine) == 1 else None
-        )
+        chosen = pick_by_role(active, extraction.role, cfg) or (mine[0] if len(mine) == 1 else None)
         if chosen:
             return MatchResult(chosen.id, company.id, MatchMethod.ALIAS, 100)
         if _should_create(extraction, cfg) and not _role_exists(mine, extraction.role):
@@ -183,7 +179,7 @@ def match(
             company_id = active[0][2].company_id
             same_company = {t[2].company_id for t in active}
             if len(same_company) == 1:
-                chosen = _pick_by_role([t[2] for t in active], extraction.role, cfg)
+                chosen = pick_by_role([t[2] for t in active], extraction.role, cfg)
                 if chosen and extraction.confidence >= 0.5:
                     score = max(t[0] * 0.6 + t[1] * 0.4 for t in active if t[2] is chosen)
                     return MatchResult(chosen.id, company_id, MatchMethod.FUZZY, score)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -41,6 +42,8 @@ details_app = typer.Typer(
     no_args_is_help=True, help="Fill application details from their emails: the eval."
 )
 eval_app.add_typer(details_app, name="details")
+calendar_app = typer.Typer(no_args_is_help=True, help="Google Calendar sync (read-only).")
+app.add_typer(calendar_app, name="calendar")
 DETAILS_DIR = Path("../eval/details")
 
 
@@ -51,7 +54,7 @@ def _setup(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     # Never log request bodies or headers from HTTP clients.
-    for noisy in ("httpx", "httpcore", "anthropic"):
+    for noisy in ("httpx", "httpcore", "anthropic", "google_auth_oauthlib", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
@@ -142,6 +145,8 @@ def ingest(
         try:
             pipeline = _pipeline(settings, repo, dry_run)
             _print_report(run_incremental(pipeline, source, limit), pipeline)
+            if not dry_run:
+                _sync_calendar_if_connected(settings, repo)
         finally:
             source.close()
             repo.close()
@@ -493,3 +498,88 @@ def details_run(
     typer.echo("\n".join(details_eval.render(runs, previous)))
     u = llm.usage
     typer.echo(f"{u.calls} call(s) · {u.input_tokens} in / {u.output_tokens} out tokens · {report}")
+
+
+def _calendar(settings: Settings, repo: PostgresRepo):
+    from jobtracker.adapters.google_calendar import PROVIDER, GoogleCalendarSource
+
+    creds = repo.get_oauth(PROVIDER)
+    return GoogleCalendarSource(creds, settings.google_calendar_id) if creds else None
+
+
+def _sync_calendar(settings: Settings, repo: PostgresRepo, source) -> None:
+    clock = SystemClock()
+    since = services.calendar_since(repo, clock, settings.tz)
+    report = services.sync_calendar(repo, clock, source, since, settings.my_addresses)
+    typer.echo(json.dumps({"calendar": asdict(report)}, indent=2))
+
+
+def _sync_calendar_if_connected(settings: Settings, repo: PostgresRepo) -> None:
+    from jobtracker.core.ports import CalendarAuthError
+
+    if (source := _calendar(settings, repo)) is None:
+        return
+    try:
+        _sync_calendar(settings, repo, source)
+    except CalendarAuthError as err:
+        typer.echo(f"calendar skipped: {err}", err=True)
+
+
+@calendar_app.command("login")
+def calendar_login(
+    client_file: Path | None = typer.Option(
+        None, help="OAuth client JSON from Google Cloud (default: client_secret*.json in the repo)"
+    ),
+) -> None:
+    """Connect Google Calendar: opens the browser for a read-only consent, stores the login locally."""
+    from jobtracker.adapters.google_calendar import PROVIDER, find_client_file, login
+
+    settings = _settings()
+    path = client_file or find_client_file()
+    if path is None or not path.is_file():
+        raise typer.BadParameter("no client_secret*.json found; pass --client-file")
+    creds = login(path)
+    repo = _repo(settings)
+    repo.set_oauth(PROVIDER, creds)
+    typer.echo("Google Calendar connected (read-only). Run `jobtracker calendar sync` next.")
+
+
+@calendar_app.command("logout")
+def calendar_logout() -> None:
+    """Forget the stored Google login (revoke it too at myaccount.google.com/permissions)."""
+    from jobtracker.adapters.google_calendar import PROVIDER
+
+    _repo(_settings()).delete_oauth(PROVIDER)
+    typer.echo("Google login removed from the local database.")
+
+
+@calendar_app.command("sync")
+def calendar_sync(
+    full: bool = typer.Option(False, help="Forget the sync token and re-read the whole window."),
+) -> None:
+    """Pull calendar changes and match them to applications (free: no LLM calls)."""
+    settings = _settings()
+    repo = _repo(settings)
+    source = _calendar(settings, repo)
+    if source is None:
+        raise typer.BadParameter("not connected: run `jobtracker calendar login` first")
+    if full:
+        repo.set_calendar_sync(source.calendar_id, None)
+    _sync_calendar(settings, repo, source)
+
+
+@calendar_app.command("list")
+def calendar_list() -> None:
+    """Interviews the app knows about, oldest first."""
+    settings = _settings()
+    repo = _repo(settings)
+    names = {a.id: a.company_name for a in repo.list_applications()}
+    for iv in repo.list_interviews():
+        if iv.dismissed:
+            continue
+        who = names.get(iv.application_id, "UNMATCHED") if iv.application_id else "UNMATCHED"
+        when = iv.starts_at.astimezone(settings.tz)
+        typer.echo(
+            f"{when:%Y-%m-%d %H:%M}  {iv.status.value:<9} {iv.source.value:<8} {who:<24} "
+            f"{iv.title or ''}"
+        )

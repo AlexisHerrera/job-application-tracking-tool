@@ -56,8 +56,33 @@ export interface TimelineEvent {
   company_hint?: string | null;
 }
 
+export interface Interview {
+  id: string;
+  application_id: string | null;
+  company: string | null;
+  role?: string | null;
+  source: "calendar" | "email" | "manual";
+  status: "scheduled" | "cancelled";
+  starts_at: string;
+  ends_at: string | null;
+  title: string | null;
+  round: number | null;
+  interview_type: string | null;
+  location: string | null;
+  meeting_url: string | null;
+  organizer: string | null;
+  attendees: string[];
+  html_link: string | null;
+  match_method: string;
+  general: boolean; // a recruiter/agency talk about roles: no application, notes inline
+  notes: string | null;
+  notes_count: number;
+}
+
 export interface Note {
   id: string;
+  interview_id: string | null;
+  body: string | null;
   round: number | null;
   interview_at: string | null;
   interview_type: string | null;
@@ -71,6 +96,7 @@ export interface Note {
 
 export interface ApplicationDetail extends Application {
   events: TimelineEvent[];
+  interviews: Interview[];
   interview_notes: Note[];
   aliases: { kind: string; value: string; learned_from: string }[];
 }
@@ -91,7 +117,9 @@ export interface CampaignSummary {
 }
 
 export interface Dashboard {
-  upcoming_interviews: { application_id: string; company: string; role: string; round: number | null; at: string }[];
+  upcoming_interviews: Interview[];
+  recent_interviews: Interview[];
+  unassigned_interviews: number;
   follow_ups: {
     needs_reply: { event_id: string; application_id: string | null; company: string | null; subject: string; received_at: string }[];
     no_news: { application_id: string; company: string; role: string; last_event_at: string | null }[];
@@ -112,7 +140,19 @@ export interface Stats {
   funnel: { stage: Stage; count: number; pct: number }[];
   time_to_first_response: { count: number; median_days: number | null; mean_days: number | null };
   flow: FlowData;
+  interviews: { done: number; upcoming: number };
 }
+
+export interface CalendarSyncResult {
+  seen: number;
+  created: number;
+  updated: number;
+  cancelled: number;
+  unassigned: number;
+  full_sync: boolean;
+}
+
+export type InterviewInput = Partial<Pick<Interview, "starts_at" | "ends_at" | "title" | "round" | "interview_type" | "location" | "notes">>;
 
 export interface ScanResult {
   seen: number;
@@ -228,7 +268,18 @@ export const api = {
   createFromEvent: (eventId: string, data: ApplicationInput) =>
     request<Application>("POST", `/events/${eventId}/create-application`, data),
   addNote: (appId: string, data: Partial<Note>) => request<Note>("POST", `/applications/${appId}/notes`, data),
+  updateNote: (noteId: string, data: Partial<Note>) => request<Note>("PUT", `/notes/${noteId}`, data),
   deleteNote: (noteId: string) => request<void>("DELETE", `/notes/${noteId}`),
+  addInterview: (appId: string, data: InterviewInput) => request<Interview>("POST", `/applications/${appId}/interviews`, data),
+  updateInterview: (id: string, data: InterviewInput) => request<Interview>("PATCH", `/interviews/${id}`, data),
+  removeInterview: (id: string) => request<void>("DELETE", `/interviews/${id}`),
+  assignInterview: (id: string, applicationId: string) =>
+    request<Interview>("POST", `/interviews/${id}/assign`, { application_id: applicationId }),
+  unassignedInterviews: () => request<Interview[]>("GET", "/interviews/unassigned"),
+  interviews: () => request<Interview[]>("GET", "/interviews"),
+  markGeneral: (id: string) => request<Interview>("POST", `/interviews/${id}/general`, {}),
+  calendarStatus: () => request<{ connected: boolean; calendar_id: string; last_sync_at: string | null }>("GET", "/calendar"),
+  syncCalendar: () => request<CalendarSyncResult>("POST", "/calendar/sync", {}),
 };
 
 const TZ = "America/Buenos_Aires";
@@ -269,6 +320,19 @@ export const errorText = (e: unknown) => (e instanceof Error ? e.message : Strin
 export const dayToIso = (day: string) => `${day}T12:00:00-03:00`;
 export const isoToDay = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ }) : "";
+/** <input type="datetime-local"> value in the app's timezone, and back (Buenos Aires has no DST). */
+export const isoToDateTime = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString("sv-SE", { timeZone: TZ, hour12: false }).slice(0, 16).replace(" ", "T") : "";
+export const dateTimeToIso = (local: string) => `${local}:00-03:00`;
+
+export function relativeDay(iso: string): string {
+  const day = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: TZ });
+  const diff = Math.round((new Date(day(new Date(iso))).getTime() - new Date(day(new Date())).getTime()) / 86_400_000);
+  if (diff === 0) return "today";
+  if (diff === 1) return "tomorrow";
+  if (diff === -1) return "yesterday";
+  return diff > 0 ? `in ${diff} days` : `${-diff} days ago`;
+}
 
 export function fmtSalary(a: Pick<Application, "salary_min" | "salary_max" | "salary_currency">): string | null {
   if (!a.salary_min && !a.salary_max) return null;

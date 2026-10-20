@@ -67,6 +67,23 @@ The ingester opens All Mail **read-only** (`EXAMINE` + `BODY.PEEK`), so it never
 3. Put it in `.env` as `ANTHROPIC_API_KEY`. The model is set by `LLM_MODEL` (default `claude-haiku-5-5`).
 4. Optional: set a monthly spend limit under *Settings → Limits*.
 
+### Google Calendar (OAuth, read-only)
+
+Free: the Calendar API has no charge at this volume, and no billing account is needed.
+
+1. At https://console.cloud.google.com create a project (e.g. `jobtracker`).
+2. *APIs & Services → Library*: enable the **Google Calendar API**.
+3. *Google Auth Platform → Branding*: app name and your email as support email. Fill **Developer contact information** with your email too. Leave the logo empty: a logo makes Google ask for verification.
+4. *Audience*: user type **External**, add your Gmail as a **test user**.
+5. *Data access*: add the scope `.../auth/calendar.readonly`.
+6. *Clients → Create client*, type **Desktop app**. Download the JSON into the repo root. `client_secret*.json` is gitignored.
+7. `cd backend && uv run jobtracker calendar login`. A browser tab asks for consent; the login is stored in the local database (`oauth_credentials`), not in a file.
+8. `uv run jobtracker calendar sync`. The first sync reads from the first campaign's start (else six months back). After that, only changes are read.
+
+**The 7-day catch:** while the app's publishing status is *Testing*, Google expires the login after 7 days and syncing fails with "login expired". Run `calendar login` again, or click **Publish app** under *Audience* (this needs step 3 done). Publishing a single-user app needs no verification: at consent you'll see "Google hasn't verified this app", then *Advanced → Go to … (unsafe)*. Run `calendar login` once more after publishing, so the new login doesn't expire.
+
+Revoke access any time at https://myaccount.google.com/permissions, and run `jobtracker calendar logout`.
+
 ## CLI
 
 Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside the container with `docker compose exec api jobtracker …`.
@@ -82,6 +99,9 @@ Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside
 | `backfill [--since 2026-09-15] [--until …] [--dry-run] [--limit N]` (defaults to the current campaign's start) | ⚠️ Reads your **real inbox** over a date range, with paid LLM calls. Idempotent |
 | `ingest [--dry-run] [--loop 900]` | ⚠️ Incremental run from the last processed UID (what the Lambda does every 15 min) |
 | `campaign create --name "Sep 2026" --start 2026-09-15`, `campaign list` | Job-search campaigns (an ongoing earlier one ends the day before) |
+| `calendar login` / `logout` | Connect Google Calendar (browser consent, read-only scope) / forget the stored login |
+| `calendar sync [--full]` | Pull calendar changes and match them to applications. Free: no AI. `ingest` and **Scan inbox & calendar** run it too when connected |
+| `calendar list` | The interviews the app knows about |
 | `dev seed` | Fake sample data (local only) |
 | `eval paste [DIR] [--only NAME]` | ⚠️ Runs the paste prompt over the real pastes in `eval/paste/*.txt` (one paid call each, asks first) and checks each against its approved `.expected.json` |
 | `eval details collect` → `snapshot` → `run` | The details eval (files in `eval/details/`): `collect` ⚠️ re-reads each application's emails from Gmail (read-only, no AI); `snapshot` saves the fields you reviewed in the app as the expected result; `run` ⚠️ runs the prompt over the collected emails (one paid call per application, asks first) and reports wrong fills / misses per field, compared with the previous run |
@@ -112,6 +132,18 @@ The first `ingest` run (or **Scan inbox now**) continues right after the newest 
 ## Campaigns
 
 A campaign is a job-search period (start date, optional end). Applications belong to the campaign whose range contains their applied date. That's computed, not stored, so editing a campaign's dates re-sorts its applications. The header picker scopes the applications list and stats. Each campaign shows its days running, applications per week, and days to the first interview.
+
+## Interviews and the calendar
+
+An **interview** is one row whatever told us about it: a Google Calendar event, the time in an invite email, or one you add by hand. When the calendar event for an email's interview shows up (same application, within 90 minutes), it takes that row over, so notes stay attached and nothing counts twice.
+
+- **What gets stored from the calendar**: only events that match an application, plus events whose title reads like an interview ("interview", "entrevista", "technical", "recruiter"…) or that were booked through an ATS or scheduler. Those unmatched ones go to the **Inbox** to be assigned. Other events (the dentist) are never stored. Descriptions are read in memory for matching and never saved.
+- **Matching**: an assigned invite email for the same event (same `.ics` UID, which survives moves, else the same time) → an attendee's company domain or address → a company name in the title. Assigning one by hand remembers the attendees' domain for that company.
+- **Invite emails** with the same UID are one interview: an "updated invitation" moves it, an `.ics` cancellation cancels it, and the calendar event with that UID takes it over even if it was moved. UIDs are recorded for mail processed from 2026-10-20 on; older emails still link by time only.
+- **Cancelled or declined** events mark the interview cancelled. It's kept, with its notes, but not counted. A "rescheduled" email in the same thread cancels the old time too.
+- **Notes** belong to one interview or are general. On the application page, click an interview to see only its notes; *All notes* shows everything. The dashboard lists interviews from the last two weeks and flags the ones without notes.
+- **General talks**: a recruiter or agency call about roles in general (*General talk, no application* in the Inbox). It belongs to no application and isn't counted as an interview. Its notes are a text field on the **Interviews** page, which lists every interview, upcoming and past.
+- Interviews feed *next interview*, and past ones count as activity for the ghosted timer. They don't change the stage: emails and your drags still do that.
 
 ## How email processing works (short version)
 

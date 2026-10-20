@@ -4,6 +4,9 @@
 !.env.example
 *.pem
 *.key
+# Google OAuth client + saved token (calendar sync)
+client_secret*.json
+google_token.json
 
 # python
 __pycache__/

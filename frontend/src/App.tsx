@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Flag, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, Menu, Monitor, Moon, Plus, RefreshCw, Sun } from "lucide-react";
+import { CalendarDays, Flag, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, Menu, Monitor, Moon, Plus, RefreshCw, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { api, errorText, timeAgo, type ScanResult } from "./api";
+import { api, errorText, timeAgo, type CalendarSyncResult, type ScanResult } from "./api";
 import { CampaignPicker } from "./campaign";
 import AddApplication from "./pages/AddApplication";
 import ApplicationPage from "./pages/ApplicationPage";
@@ -14,6 +14,7 @@ import Applications from "./pages/Applications";
 import Campaigns from "./pages/Campaigns";
 import DashboardPage from "./pages/Dashboard";
 import Inbox from "./pages/Inbox";
+import Interviews from "./pages/Interviews";
 import { useRefresh } from "./lib/refresh";
 import { useTheme, type Theme } from "./lib/theme";
 import { useAsync } from "./useAsync";
@@ -25,12 +26,12 @@ export default function App() {
   return (
     <div className="flex min-h-svh bg-background">
       <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r bg-sidebar md:flex">
-        <Sidebar inbox={counts?.unassigned ?? 0} />
+        <Sidebar inbox={(counts?.unassigned ?? 0) + (counts?.unassigned_interviews ?? 0)} />
       </aside>
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetContent side="left" className="w-64 bg-sidebar p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <Sidebar inbox={counts?.unassigned ?? 0} onNavigate={() => setMenuOpen(false)} />
+          <Sidebar inbox={(counts?.unassigned ?? 0) + (counts?.unassigned_interviews ?? 0)} onNavigate={() => setMenuOpen(false)} />
         </SheetContent>
       </Sheet>
 
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="/applications" element={<Applications />} />
             <Route path="/applications/:id" element={<ApplicationPage />} />
             <Route path="/inbox" element={<Inbox />} />
+            <Route path="/interviews" element={<Interviews />} />
             <Route path="/add" element={<AddApplication />} />
             <Route path="/campaigns" element={<Campaigns />} />
             <Route path="*" element={<p className="text-muted-foreground">Not found.</p>} />
@@ -59,6 +61,7 @@ export default function App() {
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/applications", label: "Applications", icon: KanbanSquare },
+  { to: "/interviews", label: "Interviews", icon: CalendarDays },
   { to: "/inbox", label: "Inbox", icon: InboxIcon, count: "inbox" as const },
   { to: "/campaigns", label: "Campaigns", icon: Flag },
 ];
@@ -113,11 +116,21 @@ function scanSummary(r: ScanResult): string {
   return parts.join(" · ");
 }
 
-// Runs the incremental ingest now (reads Gmail, paid LLM calls for job-like mail). Local only
-// for now; in AWS the scheduled Lambda does this every 15 minutes.
+function calendarSummary(r: CalendarSyncResult): string | null {
+  const parts = [];
+  if (r.created) parts.push(`${r.created} new interview${r.created === 1 ? "" : "s"} from the calendar`);
+  if (r.cancelled) parts.push(`${r.cancelled} cancelled`);
+  if (r.unassigned) parts.push(`${r.unassigned} to match`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+// Runs the incremental ingest now (reads Gmail, paid LLM calls for job-like mail), then the
+// calendar sync if it's connected (read-only, free). Local only for now; in AWS the scheduled
+// Lambda does this every 15 minutes.
 function ScanButton() {
   const { bump } = useRefresh();
   const status = useAsync(api.scanStatus).data;
+  const calendar = useAsync(api.calendarStatus).data;
   const [busy, setBusy] = useState(false);
   if (!status?.available) return null;
 
@@ -128,17 +141,24 @@ function ScanButton() {
       const r = await api.scan();
       if (r.errors) toast.warning(`${scanSummary(r)}. Stopped at an email that failed; the next scan retries it.`, { id });
       else toast.success(scanSummary(r), { id });
-      bump();
     } catch (e) {
       toast.error(errorText(e), { id });
-    } finally {
-      setBusy(false);
     }
+    if (calendar?.connected) {
+      try {
+        const c = calendarSummary(await api.syncCalendar());
+        if (c) toast.success(c);
+      } catch (e) {
+        toast.error(`Calendar: ${errorText(e)}`);
+      }
+    }
+    bump();
+    setBusy(false);
   }
   return (
     <div className="space-y-1">
       <Button variant="outline" size="sm" className="w-full justify-start" disabled={busy} onClick={scan}>
-        <RefreshCw className={cn(busy && "animate-spin")} /> {busy ? "Scanning…" : "Scan inbox now"}
+        <RefreshCw className={cn(busy && "animate-spin")} /> {busy ? "Scanning…" : calendar?.connected ? "Scan inbox & calendar" : "Scan inbox now"}
       </Button>
       <p className="px-1 text-xs text-muted-foreground">Last scan: {timeAgo(status.last_scan_at)}</p>
     </div>

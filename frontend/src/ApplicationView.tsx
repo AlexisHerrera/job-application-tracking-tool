@@ -21,6 +21,7 @@ import {
   type Application, type ApplicationDetail, type Stage, type TimelineEvent,
 } from "./api";
 import { CHANNELS, SENIORITY } from "./ApplicationForm";
+import { InterviewsAndNotes } from "./InterviewNotes";
 import { Loading, StatusBadge, StatusDot } from "./components/common";
 import { CLOSED_STATUSES, STATUS_META } from "./lib/status";
 import { useRefresh } from "./lib/refresh";
@@ -112,8 +113,8 @@ export function ApplicationView({ id, inSheet = false, onDeleted }: { id: string
           )}
         </Section>
 
-        <Section icon={NotebookPen} title="Interview notes">
-          <Notes app={app} onDone={bump} />
+        <Section icon={NotebookPen} title="Interviews & notes">
+          <InterviewsAndNotes app={app} onDone={bump} />
         </Section>
 
         <Collapsible>
@@ -409,83 +410,6 @@ function EventItem({ e, awaiting, onDone }: { e: TimelineEvent; awaiting: boolea
       {e.subject && <div className="text-sm">{e.subject}</div>}
       {e.summary && <div className="text-sm text-muted-foreground">{e.summary}</div>}
     </li>
-  );
-}
-
-function Notes({ app, onDone }: { app: ApplicationDetail; onDone: () => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="space-y-3">
-      {app.interview_notes.length === 0 && !open && <p className="text-sm text-muted-foreground">No notes yet.</p>}
-      {app.interview_notes.map((n) => (
-        <div key={n.id} className="space-y-1 rounded-lg border p-3 text-sm">
-          <div className="flex items-center gap-2 font-medium">
-            Round {n.round ?? "?"} · {label(n.interview_type ?? "interview")} · {fmtDate(n.interview_at)}
-            {n.self_rating ? <span className="text-amber-500" aria-label={`${n.self_rating} of 5`}>{"★".repeat(n.self_rating)}<span className="text-muted-foreground/40">{"★".repeat(5 - n.self_rating)}</span></span> : null}
-            <Button variant="ghost" size="icon-xs" className="ml-auto" aria-label="Delete note" onClick={async () => { await api.deleteNote(n.id); onDone(); }}><Trash2 /></Button>
-          </div>
-          {n.questions.length > 0 && <ul className="list-disc pl-5">{n.questions.map((q, i) => <li key={i}>{q}</li>)}</ul>}
-          {n.went_well && <p><span className="font-medium">Went well:</span> {n.went_well}</p>}
-          {n.went_wrong && <p><span className="font-medium">Went wrong:</span> {n.went_wrong}</p>}
-          {n.topics_to_study.length > 0 && <p><span className="font-medium">Study:</span> {n.topics_to_study.join(", ")}</p>}
-        </div>
-      ))}
-      {open ? (
-        <NoteForm appId={app.id} round={app.current_round} onDone={() => { setOpen(false); onDone(); }} onCancel={() => setOpen(false)} />
-      ) : (
-        <Button variant="outline" size="sm" onClick={() => setOpen(true)}><NotebookPen /> Add interview note</Button>
-      )}
-    </div>
-  );
-}
-
-const INTERVIEW_TYPES = ["recruiter", "technical", "system_design", "behavioral", "take_home", "onsite", "other"];
-
-function NoteForm({ appId, round, onDone, onCancel }: { appId: string; round: number | null; onDone: () => void; onCancel: () => void }) {
-  const [f, setF] = useState({ round: round ? String(round) : "", interview_at: "", interview_type: "technical", questions: "", self_rating: "3", went_well: "", went_wrong: "", topics: "" });
-  const bind = (k: keyof typeof f) => ({ id: `note-${k}`, value: f[k], onChange: (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value }) });
-  const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    try {
-      await api.addNote(appId, {
-        round: f.round ? Number(f.round) : null,
-        interview_at: f.interview_at ? dayToIso(f.interview_at) : null,
-        interview_type: f.interview_type,
-        questions: lines(f.questions),
-        self_rating: Number(f.self_rating),
-        went_well: f.went_well || null,
-        went_wrong: f.went_wrong || null,
-        topics_to_study: f.topics.split(",").map((t) => t.trim()).filter(Boolean),
-      });
-      onDone();
-    } catch (err) {
-      toast.error(errorText(err));
-    }
-  }
-  return (
-    <form className="space-y-3 rounded-lg border p-3" onSubmit={submit}>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Field label="Round" id="note-round"><Input type="number" min={1} {...bind("round")} /></Field>
-        <Field label="Date" id="note-interview_at"><Input type="date" {...bind("interview_at")} /></Field>
-        <Field label="Type" id="note-interview_type">
-          <NativeSelect className="w-full" {...bind("interview_type")}>
-            {INTERVIEW_TYPES.map((t) => <NativeSelectOption key={t} value={t}>{label(t)}</NativeSelectOption>)}
-          </NativeSelect>
-        </Field>
-        <Field label="Self-rating (1–5)" id="note-self_rating"><Input type="number" min={1} max={5} {...bind("self_rating")} /></Field>
-      </div>
-      <Field label="Questions asked (one per line)" id="note-questions"><Textarea rows={3} {...bind("questions")} /></Field>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="What went well" id="note-went_well"><Textarea rows={2} {...bind("went_well")} /></Field>
-        <Field label="What went wrong" id="note-went_wrong"><Textarea rows={2} {...bind("went_wrong")} /></Field>
-      </div>
-      <Field label="Topics to study (comma separated)" id="note-topics"><Input {...bind("topics")} /></Field>
-      <div className="flex gap-2">
-        <Button type="submit" size="sm">Save note</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
-      </div>
-    </form>
   );
 }
 

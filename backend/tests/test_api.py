@@ -117,3 +117,82 @@ def test_scan_runs_the_incremental_pipeline(repo):
     assert r.json()["seen"] == 1 and r.json()["created"] == 1
     status = client.get("/api/scan").json()
     assert status["available"] and status["last_scan_at"]
+
+
+def test_interviews_and_notes_per_interview(repo):
+    from datetime import UTC, datetime, timedelta
+
+    from jobtracker.core.models import CalendarItem
+    from tests.fakes import FakeCalendar
+
+    soon = datetime.now(UTC) + timedelta(days=2)
+    cal = FakeCalendar(
+        [
+            CalendarItem("ev1", "confirmed", "Technical interview", soon, soon + timedelta(hours=1),
+                         attendees=["jane@northwind.test"]),
+            CalendarItem("ev2", "confirmed", "Entrevista con Contoso", soon + timedelta(days=1)),
+        ]
+    )  # fmt: skip
+    settings = Settings.from_env(
+        {"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com"}
+    )
+    client = TestClient(
+        create_app(settings, repo_factory=lambda: repo, calendar_factory=lambda _repo: cal)
+    )
+    app = client.post(
+        "/api/applications",
+        json={"company": "Northwind", "role_title": "Backend", "company_domain": "northwind.test"},
+    ).json()
+    assert client.get("/api/calendar").json()["connected"] is True
+    r = client.post("/api/calendar/sync").json()
+    assert (r["created"], r["unassigned"]) == (2, 1)
+
+    detail = client.get(f"/api/applications/{app['id']}").json()
+    [iv] = detail["interviews"]
+    assert iv["interview_type"] == "technical" and iv["source"] == "calendar"
+    note = client.post(f"/api/applications/{app['id']}/notes",
+                       json={"interview_id": iv["id"], "body": "Asked about queues"}).json()  # fmt: skip
+    assert note["interview_id"] == iv["id"]
+    [iv] = client.get(f"/api/applications/{app['id']}").json()["interviews"]
+    assert iv["notes_count"] == 1
+
+    # An interview from another application can't take this application's note.
+    [other] = client.get("/api/interviews/unassigned").json()
+    r = client.post(f"/api/applications/{app['id']}/notes", json={"interview_id": other["id"]})
+    assert r.status_code == 422
+
+    assert client.post(f"/api/interviews/{other['id']}/assign",
+                       json={"application_id": app["id"]}).status_code == 200  # fmt: skip
+    manual = client.post(f"/api/applications/{app['id']}/interviews",
+                         json={"starts_at": (soon - timedelta(days=5)).isoformat(),
+                               "title": "Phone screen"}).json()  # fmt: skip
+    assert manual["source"] == "manual"
+    patched = client.patch(f"/api/interviews/{manual['id']}", json={"round": 1}).json()
+    assert patched["round"] == 1
+
+    dash = client.get("/api/dashboard").json()
+    assert [i["title"] for i in dash["upcoming_interviews"]] == [
+        "Technical interview",
+        "Entrevista con Contoso",
+    ]
+    assert dash["recent_interviews"][0]["company"] == "Northwind"
+    assert client.get("/api/stats").json()["interviews"] == {"done": 1, "upcoming": 2}
+
+    assert client.delete(f"/api/interviews/{manual['id']}").status_code == 204
+    assert len(client.get(f"/api/applications/{app['id']}").json()["interviews"]) == 2
+
+    # A general talk: no application, notes inline, listed on the interviews page.
+    ivs = client.get("/api/interviews").json()
+    contoso = next(i for i in ivs if i["title"] == "Entrevista con Contoso")
+    general = client.post(f"/api/interviews/{contoso['id']}/general").json()
+    assert general["general"] and general["application_id"] is None
+    r = client.patch(f"/api/interviews/{contoso['id']}", json={"notes": "Two roles to pitch"})
+    assert r.json()["notes_count"] == 1
+    row = next(i for i in client.get("/api/interviews").json() if i["id"] == contoso["id"])
+    assert row["notes"] == "Two roles to pitch" and row["company"] is None
+    assert client.get("/api/stats").json()["interviews"] == {"done": 0, "upcoming": 1}
+
+
+def test_calendar_not_connected(client):
+    assert client.get("/api/calendar").json()["connected"] is False
+    assert client.post("/api/calendar/sync").status_code == 409

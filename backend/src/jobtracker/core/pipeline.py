@@ -168,6 +168,7 @@ class Pipeline:
     ) -> Event:
         repo = self.repo
         result = match(email, extraction, repo, thread_app_id, self.cfg.match)
+        cal = first_interview(email.calendar_parts, self.cfg.tz)
         event = Event(
             kind=EventKind.EMAIL,
             event_type=extraction.event_type,
@@ -192,6 +193,7 @@ class Pipeline:
             match_method=result.method,
             assigned_by="auto" if result.application_id or result.create_application else None,
             company_hint_id=result.company_id,
+            ical_uid=cal.uid if cal else None,
             created_at=self.clock.now(),
         )
         if self.dry_run:

@@ -13,6 +13,7 @@ from jobtracker.core.models import (
     Company,
     CompanyAlias,
     Event,
+    Interview,
     InterviewNote,
 )
 from jobtracker.core.ports import LLMError, LLMUsage, SyncState, ThreadMatch
@@ -42,6 +43,9 @@ class MemoryRepo:
         self.events: dict[uuid.UUID, Event] = {}
         self.notes: dict[uuid.UUID, InterviewNote] = {}
         self.campaigns: dict[uuid.UUID, object] = {}
+        self.interviews: dict[uuid.UUID, Interview] = {}
+        self.calendar_sync: dict[str, tuple[str | None, datetime]] = {}
+        self.oauth: dict[str, dict] = {}
 
     @contextmanager
     def transaction(self):
@@ -230,6 +234,88 @@ class MemoryRepo:
 
     def delete_note(self, note_id):
         self.notes.pop(note_id, None)
+
+    def _iv(self, iv):
+        iv = copy.copy(iv)
+        iv.attendees = list(iv.attendees)
+        return iv
+
+    def list_interviews(self, application_id=None):
+        rows = [
+            self._iv(iv)
+            for iv in self.interviews.values()
+            if application_id is None or iv.application_id == application_id
+        ]
+        return sorted(rows, key=lambda iv: iv.starts_at)
+
+    def list_unassigned_interviews(self):
+        return [
+            iv
+            for iv in self.list_interviews()
+            if iv.application_id is None
+            and not iv.dismissed
+            and not iv.general
+            and iv.status == "scheduled"
+        ]
+
+    def get_interview(self, interview_id):
+        iv = self.interviews.get(interview_id)
+        return self._iv(iv) if iv else None
+
+    def get_interview_by_calendar_event(self, calendar_id, calendar_event_id):
+        return next(
+            (
+                self._iv(iv)
+                for iv in self.interviews.values()
+                if iv.calendar_id == calendar_id and iv.calendar_event_id == calendar_event_id
+            ),
+            None,
+        )
+
+    def save_interview(self, interview):
+        if interview.calendar_event_id:
+            assert all(
+                (iv.calendar_id, iv.calendar_event_id)
+                != (interview.calendar_id, interview.calendar_event_id)
+                for iv in self.interviews.values()
+                if iv.id != interview.id
+            )
+        self.interviews[interview.id] = self._iv(interview)
+
+    def delete_interview(self, interview_id):
+        self.interviews.pop(interview_id, None)
+
+    def get_calendar_sync(self, calendar_id):
+        return self.calendar_sync.get(calendar_id, (None, None))[0]
+
+    def set_calendar_sync(self, calendar_id, sync_token):
+        self.calendar_sync[calendar_id] = (sync_token, datetime.now(UTC))
+
+    def last_calendar_sync_at(self):
+        return max((at for _, at in self.calendar_sync.values()), default=None)
+
+    def get_oauth(self, provider):
+        return self.oauth.get(provider)
+
+
+class FakeCalendar:
+    """Scripted calendar: a full sync returns `items`; an incremental one returns `changes`."""
+
+    calendar_id = "primary"
+
+    def __init__(self, items=(), changes=(), expired=False):
+        self.items, self.changes, self.expired = list(items), list(changes), expired
+        self.calls: list[str | None] = []
+
+    def fetch_changes(self, sync_token, since):
+        from jobtracker.core.ports import CalendarChanges, CalendarSyncExpired
+
+        self.calls.append(sync_token)
+        if sync_token is not None and self.expired:
+            self.expired = False
+            raise CalendarSyncExpired()
+        items = self.items if sync_token is None else self.changes
+        return CalendarChanges(list(items), f"token-{len(self.calls)}")
 
 
 class FakeLLM:

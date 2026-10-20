@@ -21,7 +21,10 @@ from jobtracker.core.models import (
     Event,
     EventKind,
     EventType,
+    Interview,
     InterviewNote,
+    InterviewSource,
+    InterviewStatus,
     MatchMethod,
     Origin,
     Stage,
@@ -48,10 +51,18 @@ EVENT_COLUMNS = [
     "gm_thread_id", "in_reply_to", "refs", "from_address", "from_name", "subject", "snippet",
     "stage_implied", "round", "interview_at", "needs_reply", "replied_at", "summary", "confidence",
     "extraction", "model", "filter_path", "match_method", "assigned_by", "dismissed", "created_at",
+    "ical_uid",
 ]  # fmt: skip
 NOTE_COLUMNS = [
     "id", "application_id", "round", "interview_at", "interview_type", "interviewers", "questions",
     "self_rating", "went_well", "went_wrong", "topics_to_study", "created_at", "updated_at",
+    "interview_id", "body",
+]  # fmt: skip
+INTERVIEW_COLUMNS = [
+    "id", "application_id", "company_hint_id", "source", "status", "starts_at", "ends_at", "title",
+    "round", "interview_type", "location", "meeting_url", "organizer", "attendees", "calendar_id",
+    "calendar_event_id", "ical_uid", "html_link", "event_id", "match_method", "assigned_by",
+    "dismissed", "created_at", "updated_at", "general", "notes",
 ]  # fmt: skip
 
 
@@ -130,6 +141,7 @@ def _event_from(r: dict) -> Event:
         match_method=MatchMethod(r["match_method"]),
         assigned_by=r["assigned_by"],
         dismissed=r["dismissed"],
+        ical_uid=r["ical_uid"],
         created_at=r["created_at"],
     )
 
@@ -146,6 +158,27 @@ def _note_from(r: dict) -> InterviewNote:
         **{c: r[c] for c in NOTE_COLUMNS if c not in {"questions", "topics_to_study"}},
         questions=list(r["questions"] or []),
         topics_to_study=list(r["topics_to_study"] or []),
+    )
+
+
+def _interview_row(iv: Interview) -> dict:
+    row = {c: _v(getattr(iv, c)) for c in INTERVIEW_COLUMNS if c != "attendees"}
+    row["attendees"] = Jsonb(iv.attendees)
+    return row
+
+
+def _interview_from(r: dict) -> Interview:
+    return Interview(
+        **{
+            c: r[c]
+            for c in INTERVIEW_COLUMNS
+            if c not in {"attendees", "source", "status", "match_method", "general"}
+        },
+        general=bool(r["general"]),
+        attendees=list(r["attendees"] or []),
+        source=InterviewSource(r["source"]),
+        status=InterviewStatus(r["status"]),
+        match_method=MatchMethod(r["match_method"]),
     )
 
 
@@ -457,3 +490,80 @@ class PostgresRepo:
 
     def delete_note(self, note_id: uuid.UUID) -> None:
         self.conn.execute("DELETE FROM interview_notes WHERE id = %s", (note_id,))
+
+    # interviews
+    def list_interviews(self, application_id: uuid.UUID | None = None) -> list[Interview]:
+        if application_id is None:
+            rows = self._all("SELECT * FROM interviews ORDER BY starts_at")
+        else:
+            rows = self._all(
+                "SELECT * FROM interviews WHERE application_id = %s ORDER BY starts_at",
+                (application_id,),
+            )
+        return [_interview_from(r) for r in rows]
+
+    def list_unassigned_interviews(self) -> list[Interview]:
+        rows = self._all(
+            "SELECT * FROM interviews WHERE application_id IS NULL AND dismissed = false"
+            " AND general IS NOT TRUE AND status = %s ORDER BY starts_at DESC",
+            (InterviewStatus.SCHEDULED.value,),
+        )
+        return [_interview_from(r) for r in rows]
+
+    def get_interview(self, interview_id: uuid.UUID) -> Interview | None:
+        r = self._one("SELECT * FROM interviews WHERE id = %s", (interview_id,))
+        return _interview_from(r) if r else None
+
+    def get_interview_by_calendar_event(
+        self, calendar_id: str, calendar_event_id: str
+    ) -> Interview | None:
+        r = self._one(
+            "SELECT * FROM interviews WHERE calendar_id = %s AND calendar_event_id = %s",
+            (calendar_id, calendar_event_id),
+        )
+        return _interview_from(r) if r else None
+
+    def save_interview(self, interview: Interview) -> None:
+        row = _interview_row(interview)
+        sets = ", ".join(f"{c} = EXCLUDED.{c}" for c in row if c not in {"id", "created_at"})
+        self.conn.execute(
+            f"{_insert('interviews', row)} ON CONFLICT (id) DO UPDATE SET {sets}", row
+        )
+
+    def delete_interview(self, interview_id: uuid.UUID) -> None:
+        self.conn.execute("DELETE FROM interviews WHERE id = %s", (interview_id,))
+
+    # calendar sync
+    def get_calendar_sync(self, calendar_id: str) -> str | None:
+        r = self._one(
+            "SELECT sync_token FROM calendar_sync_state WHERE calendar_id = %s", (calendar_id,)
+        )
+        return r["sync_token"] if r else None
+
+    def set_calendar_sync(self, calendar_id: str, sync_token: str | None) -> None:
+        self.conn.execute(
+            "INSERT INTO calendar_sync_state (calendar_id, sync_token, updated_at)"
+            " VALUES (%s, %s, %s) ON CONFLICT (calendar_id) DO UPDATE SET"
+            " sync_token = EXCLUDED.sync_token, updated_at = EXCLUDED.updated_at",
+            (calendar_id, sync_token, _now()),
+        )
+
+    def last_calendar_sync_at(self) -> datetime | None:
+        r = self._one("SELECT max(updated_at) AS at FROM calendar_sync_state")
+        return r["at"] if r else None
+
+    # OAuth logins (adapter-only: the core never sees tokens)
+    def get_oauth(self, provider: str) -> dict | None:
+        r = self._one("SELECT data FROM oauth_credentials WHERE provider = %s", (provider,))
+        return r["data"] if r else None
+
+    def set_oauth(self, provider: str, data: dict) -> None:
+        self.conn.execute(
+            "INSERT INTO oauth_credentials (provider, data, updated_at) VALUES (%s, %s, %s)"
+            " ON CONFLICT (provider) DO UPDATE SET data = EXCLUDED.data,"
+            " updated_at = EXCLUDED.updated_at",
+            (provider, Jsonb(data), _now()),
+        )
+
+    def delete_oauth(self, provider: str) -> None:
+        self.conn.execute("DELETE FROM oauth_credentials WHERE provider = %s", (provider,))

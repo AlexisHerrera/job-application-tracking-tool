@@ -53,6 +53,7 @@ class MatchMethod(StrEnum):
     FUZZY = "fuzzy"
     MANUAL = "manual"
     CREATED = "created"
+    INVITE = "invite"  # calendar event at the time an assigned invite email names
     NONE = "none"
 
 
@@ -60,6 +61,17 @@ class AliasKind(StrEnum):
     DOMAIN = "domain"
     ADDRESS = "address"
     DISPLAY_NAME = "display_name"
+
+
+class InterviewSource(StrEnum):
+    CALENDAR = "calendar"
+    EMAIL = "email"  # an invite email's interview_at, until the calendar event shows up
+    MANUAL = "manual"
+
+
+class InterviewStatus(StrEnum):
+    SCHEDULED = "scheduled"  # past or upcoming is derived from starts_at, never stored
+    CANCELLED = "cancelled"
 
 
 class Origin(StrEnum):
@@ -102,6 +114,26 @@ class CalendarEvent:
     organizer: str | None
     method: str | None  # REQUEST / CANCEL / PUBLISH
     location: str | None = None
+    uid: str | None = None  # stays the same when the organizer moves the event
+
+
+@dataclass(slots=True)
+class CalendarItem:
+    """One event from Google Calendar before matching. Descriptions live only in memory."""
+
+    calendar_event_id: str
+    status: str  # confirmed | tentative | cancelled
+    title: str = ""
+    start: datetime | None = None  # None: all-day event, or a deleted one with no details
+    end: datetime | None = None
+    ical_uid: str | None = None
+    description: str = ""
+    location: str | None = None
+    meeting_url: str | None = None
+    organizer: str | None = None
+    attendees: list[str] = field(default_factory=list)
+    html_link: str | None = None
+    declined: bool = False  # I declined it
 
 
 @dataclass(slots=True)
@@ -196,6 +228,7 @@ class Event:
     match_method: MatchMethod = MatchMethod.NONE
     assigned_by: str | None = None  # auto | manual
     dismissed: bool = False
+    ical_uid: str | None = None  # the invite's UID, when the email carried an .ics
     created_at: datetime | None = None
 
 
@@ -212,9 +245,44 @@ class Campaign:
 
 
 @dataclass(slots=True)
+class Interview:
+    """One interview, from the calendar, an invite email, or added by hand. Notes hang off it."""
+
+    starts_at: datetime
+    source: InterviewSource
+    id: uuid.UUID = field(default_factory=new_id)
+    application_id: uuid.UUID | None = None  # None: in the review queue
+    company_hint_id: uuid.UUID | None = None
+    status: InterviewStatus = InterviewStatus.SCHEDULED
+    ends_at: datetime | None = None
+    title: str | None = None
+    round: int | None = None
+    interview_type: str | None = None
+    location: str | None = None
+    meeting_url: str | None = None
+    organizer: str | None = None
+    attendees: list[str] = field(default_factory=list)
+    calendar_id: str | None = None
+    calendar_event_id: str | None = None
+    ical_uid: str | None = None
+    html_link: str | None = None
+    event_id: uuid.UUID | None = None  # the invite email it came from
+    match_method: MatchMethod = MatchMethod.NONE
+    assigned_by: str | None = None  # auto | manual
+    dismissed: bool = False
+    # A talk with a recruiter or agency about roles in general: no application, notes inline.
+    general: bool = False
+    notes: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(slots=True)
 class InterviewNote:
     application_id: uuid.UUID
     id: uuid.UUID = field(default_factory=new_id)
+    interview_id: uuid.UUID | None = None  # None: about the process in general
+    body: str | None = None
     round: int | None = None
     interview_at: datetime | None = None
     interview_type: str | None = None

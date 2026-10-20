@@ -6,7 +6,16 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from jobtracker.core.models import GHOSTED, Application, Event, EventKind, EventType, Stage
+from jobtracker.core.models import (
+    GHOSTED,
+    Application,
+    Event,
+    EventKind,
+    EventType,
+    Interview,
+    InterviewStatus,
+    Stage,
+)
 
 PROGRESS_ORDER = {
     Stage.APPLIED: 0,
@@ -56,12 +65,20 @@ class Projection:
     next_interview_at: datetime | None
 
 
-def project(app: Application, events: Iterable[Event], now: datetime) -> Projection:
+def project(
+    app: Application,
+    events: Iterable[Event],
+    now: datetime,
+    interviews: Iterable[Interview] | None = None,
+) -> Projection:
     """Replay events in time order.
 
     Rules: automatic events only move forward; a terminal stage sticks unless a later terminal
     event or a manual change overrides it. Manual changes can set any stage. On hold remembers
     where the process was and resumes when an email moves it to that stage or beyond.
+
+    With `interviews` (calendar, invite emails, manual), the next interview comes from them, since
+    they already account for reschedules and cancellations, and a past interview counts as news.
     """
     ordered = sorted((e for e in events if not e.dismissed), key=lambda e: e.occurred_at)
     stage = Stage.APPLIED
@@ -104,11 +121,21 @@ def project(app: Application, events: Iterable[Event], now: datetime) -> Project
             max_stage = stage
 
     round_ = explicit_round or (len(rounds) or None)
-    upcoming = [
-        e.interview_at
-        for e in ordered
-        if e.interview_at and e.interview_at >= now and e.event_type != EventType.REJECTION
-    ]
+    if interviews is None:
+        upcoming = [
+            e.interview_at
+            for e in ordered
+            if e.interview_at and e.interview_at >= now and e.event_type != EventType.REJECTION
+        ]
+    else:
+        held = [
+            iv.starts_at
+            for iv in interviews
+            if iv.status == InterviewStatus.SCHEDULED and not iv.dismissed
+        ]
+        upcoming = [at for at in held if at >= now]
+        if past := [at for at in held if at < now]:
+            last_at = max(past) if last_at is None else max(last_at, *past)
     return Projection(
         current_stage=stage,
         current_round=round_,
