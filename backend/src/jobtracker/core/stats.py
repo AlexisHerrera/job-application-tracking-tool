@@ -187,9 +187,11 @@ def flow(
     apps: list[Application], by_app: dict[uuid.UUID, list[Event]], now: datetime, ghost_days: int
 ) -> dict:
     """Sankey of the search: each application walks the progress stages it actually reached
-    (from its events, so a skipped screening isn't invented), then ends where it stands now."""
+    (from its events, so a skipped screening isn't invented), then ends where it stands now.
+    `paths` gives each application's walk, so a click on the chart can list who's in it."""
     links: Counter[tuple[str, str]] = Counter()
     nodes: Counter[str] = Counter()
+    paths: dict[str, list[str]] = {}
     for a in apps:
         reached = {Stage.APPLIED, a.max_stage_reached}
         reached |= {s for e in by_app.get(a.id, []) if (s := stage_of(e)) in PROGRESS_ORDER}
@@ -199,6 +201,7 @@ def flow(
             status = "waiting" if path[-1] == Stage.APPLIED else "in_progress"
         if status != path[-1]:
             path.append(status)
+        paths[str(a.id)] = path
         for node in path:
             nodes[node] += 1
         for src, dst in pairwise(path):
@@ -206,6 +209,7 @@ def flow(
     return {
         "nodes": [{"id": n, "label": FLOW_LABELS.get(n, n), "count": c} for n, c in nodes.items()],
         "links": [{"source": s, "target": t, "value": v} for (s, t), v in links.items()],
+        "paths": paths,
     }
 
 

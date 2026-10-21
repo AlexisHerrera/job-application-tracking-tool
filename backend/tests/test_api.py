@@ -192,6 +192,11 @@ def test_interviews_and_notes_per_interview(repo):
     assert row["notes"] == "Two roles to pitch" and row["company"] is None
     assert client.get("/api/stats").json()["interviews"] == {"done": 0, "upcoming": 1}
 
+    kinds = [i["kind"] for i in client.get("/api/activity").json()["items"]]
+    assert "talk" in kinds and "interview" in kinds
+    types = client.get("/api/insights").json()["interview_types"]
+    assert sum(r["done"] for r in types) == 0  # like stats: the past one was deleted
+
 
 def test_calendar_not_connected(client):
     assert client.get("/api/calendar").json()["connected"] is False

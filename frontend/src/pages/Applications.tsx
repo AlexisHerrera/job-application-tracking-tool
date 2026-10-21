@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { KanbanSquare, List, Plus, Search, Sparkles } from "lucide-react";
+import { KanbanSquare, List, Plus, Search, Sparkles, Waypoints, X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { fold } from "../ApplicationPicker";
 import { ApplicationView } from "../ApplicationView";
 import { useCampaign } from "../campaign";
 import { Empty, Loading, PageHeader, StatusDot } from "../components/common";
+import { flowLabel, inFlow } from "../components/FlowChart";
 import { ACTIVE_STATUSES, STATUS_META, STATUS_ORDER } from "../lib/status";
 import { useRefresh } from "../lib/refresh";
 import { ReviewDialog } from "../ReviewDialog";
@@ -37,12 +38,14 @@ export default function Applications() {
   const q = params.get("q") ?? "";
   const status = (params.get("status") ?? "all") as Filter;
   const reviewOnly = params.get("needs_review") === "true";
+  const flow = params.get("flow"); // a node or flow of the dashboard's chart
   const openId = params.get("open");
   const [reviewing, setReviewing] = useState(false);
 
   const { selected: campaign } = useCampaign();
   const { bump } = useRefresh();
   const { data, error, loading, setData } = useAsync(() => api.applications({ campaign }), [campaign]);
+  const flowData = useAsync(() => (flow ? api.stats(campaign).then((s) => s.flow) : Promise.resolve(null)), [campaign, !!flow]).data;
 
   const set = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
@@ -62,15 +65,16 @@ export default function Applications() {
     }
   };
 
-  // Search and "to review" apply to both views; the status chips only to the list.
+  // Search, "to review" and the chart's selection apply to both views; the status chips only to the list.
   const searched = useMemo(() => {
     const words = fold(q).split(/\s+/).filter(Boolean);
     return (data ?? []).filter((a) => {
       if (reviewOnly && !a.needs_review) return false;
+      if (flow && !inFlow(flowData?.paths[a.id], flow)) return false;
       const h = fold(`${a.company} ${a.role_title} ${a.location ?? ""} ${a.stack.join(" ")}`);
       return words.every((w) => h.includes(w));
     });
-  }, [data, q, reviewOnly]);
+  }, [data, q, reviewOnly, flow, flowData]);
   const counts = useMemo(() => {
     const c = new Map<Filter, number>([["all", searched.length], ["active", 0]]);
     for (const a of searched) {
@@ -142,6 +146,15 @@ export default function Applications() {
         <Button variant={reviewOnly ? "secondary" : "ghost"} size="sm" aria-pressed={reviewOnly} onClick={() => set({ needs_review: reviewOnly ? null : "true" })}>
           Only to review
         </Button>
+        {flow && (
+          <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-primary/40 bg-primary/5 pr-1 pl-2.5 text-xs font-medium">
+            <Waypoints className="size-3.5 text-muted-foreground" />
+            {flowData ? flowLabel(flowData, flow) : "From the chart"}
+            <button type="button" onClick={() => set({ flow: null })} aria-label="Clear the chart filter" className="rounded-full p-0.5 hover:bg-muted">
+              <X className="size-3.5" />
+            </button>
+          </span>
+        )}
       </div>
 
       {view === "all" && (

@@ -173,6 +173,8 @@ export interface Dashboard {
 export interface FlowData {
   nodes: { id: string; label: string; count: number }[];
   links: { source: string; target: string; value: number }[];
+  /** Each application's walk through the chart, by application id. */
+  paths: Record<string, string[]>;
 }
 
 export interface Stats {
@@ -182,6 +184,63 @@ export interface Stats {
   time_to_first_response: { count: number; median_days: number | null; mean_days: number | null };
   flow: FlowData;
   interviews: { done: number; upcoming: number };
+}
+
+export type InterviewOutcome = "advanced" | "rejected" | "withdrew" | "no_answer" | "waiting";
+
+export interface TypedInterview {
+  id: string;
+  company: string;
+  role: string;
+  at: string;
+  title: string | null;
+  round: number | null;
+  interview_type: string | null;
+  /** The type read from the title when none is set. */
+  guessed: string | null;
+  outcome: InterviewOutcome;
+  rating: number | null;
+}
+
+export interface TypeRow extends Record<InterviewOutcome, number> {
+  type: string; // an interview type, or "not_set"
+  done: number;
+  rated: number;
+  rating_advanced: number | null;
+  rating_not: number | null;
+  interviews: TypedInterview[];
+}
+
+export interface Insights {
+  interview_types: TypeRow[];
+}
+
+export interface ActivityInterview {
+  id: string;
+  at: string;
+  title: string | null;
+  interview_type: string | null;
+  round: number | null;
+  upcoming: boolean;
+}
+
+export type ActivityItem =
+  | ({ kind: "interview"; application_id: string; company: string; role: string; interview_id: string } & ActivityInterview)
+  | ({ kind: "talk"; interview_id: string; organizer: string | null; attendees: string[] } & ActivityInterview)
+  | { kind: "applied" | "reply" | "rejected" | "withdrawn" | "offer"; application_id: string; company: string; role: string; at: string };
+
+export interface Process {
+  application_id: string;
+  company: string;
+  role: string;
+  status: Status;
+  applied_at: string | null;
+  reply_at: string | null;
+  ended_at: string | null;
+  last_event_at: string | null;
+  days: number | null;
+  quiet_days: number | null;
+  interviews: (ActivityInterview & { outcome: InterviewOutcome | null })[];
 }
 
 export interface CalendarSyncResult {
@@ -279,6 +338,9 @@ export type StepInput = { name: string; kind?: StepKind | null; optional?: boole
 export const api = {
   dashboard: () => request<Dashboard>("GET", "/dashboard"),
   stats: (campaign: string) => request<Stats>("GET", `/stats?${new URLSearchParams({ campaign })}`),
+  insights: (campaign: string) => request<Insights>("GET", `/insights?${new URLSearchParams({ campaign })}`),
+  activity: (campaign: string) =>
+    request<{ items: ActivityItem[]; processes: Process[] }>("GET", `/activity?${new URLSearchParams({ campaign })}`),
   applications: (params: Record<string, string> = {}) =>
     request<Application[]>("GET", `/applications?${new URLSearchParams(params)}`),
   application: (id: string) => request<ApplicationDetail>("GET", `/applications/${id}`),
@@ -348,6 +410,15 @@ export function fmtDate(iso: string | null, withTime = false): string {
     year: "numeric",
     ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
   }).format(new Date(iso));
+}
+
+/** The calendar day (YYYY-MM-DD) an instant falls on, in the app's timezone. */
+export function localDay(iso: string | Date): string {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
+}
+
+export function fmtTime(iso: string): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 }
 
 export function daysAgo(iso: string | null): string {

@@ -81,6 +81,8 @@ def test_flow_follows_the_stages_each_application_reached():
     }
     counts = {n["id"]: n["count"] for n in f["nodes"]}
     assert counts["applied"] == 6 and counts["interviewing"] == 3 and counts["rejected"] == 2
+    assert f["paths"][str(rejected_late.id)] == ["applied", "interviewing", "rejected"]
+    assert f["paths"][str(waiting.id)] == ["applied", "waiting"]
 
 
 def test_reply_requests_close_when_the_process_moves_on():

@@ -1,13 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { CalendarCheck, CalendarClock, CalendarDays, Check, ChevronRight, Hourglass, Inbox, MessageSquareReply, NotebookPen, Sparkles, Video, Waypoints } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, daysAgo, errorText, fmtDate, relativeDay, type Status } from "../api";
+import { api, daysAgo, errorText, fmtDate, fmtTime, relativeDay, type Interview, type Status } from "../api";
 import { interviewName, talkWith } from "../InterviewNotes";
 import { useCampaign } from "../campaign";
 import { FlowChart } from "../components/FlowChart";
+import { InterviewTypesCard } from "../components/Insights";
 import { Empty, Loading, PageHeader } from "../components/common";
 import { ACTIVE_STATUSES } from "../lib/status";
 import { useRefresh } from "../lib/refresh";
@@ -19,7 +20,9 @@ export default function DashboardPage() {
   const { bump } = useRefresh();
   const { data, error, loading } = useAsync(api.dashboard);
   const stats = useAsync(() => api.stats(campaign), [campaign]).data;
+  const insights = useAsync(() => api.insights(campaign), [campaign]).data;
   const [reviewing, setReviewing] = useState(false);
+  const navigate = useNavigate();
   if (!data) return <Loading error={error} loading={loading} rows={4} />;
   const { upcoming_interviews: upcoming, recent_interviews: recent, follow_ups: fu } = data;
   const c = data.campaign;
@@ -44,7 +47,10 @@ export default function DashboardPage() {
         description={c ? <>{c.name} · day {c.day} · started {fmtDate(c.started_on)}</> : <>No ongoing campaign. <Link to="/campaigns" className="text-primary hover:underline">Start one</Link> to group this search.</>}
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* When something's coming up, it's the first thing to see. */}
+      {upcoming.length > 0 && <UpcomingCard upcoming={upcoming} />}
+
+      <div className={`grid grid-cols-2 gap-3 lg:grid-cols-4${upcoming.length > 0 ? " mt-4" : ""}`}>
         <Tile label="Applications" value={stats?.total ?? c?.applications ?? "—"} sub={c ? `${c.per_week} per week` : undefined} />
         <Tile label="Active" value={active ?? "—"} sub="applied, screening, interviewing, on hold" />
         <Tile
@@ -96,32 +102,22 @@ export default function DashboardPage() {
         </Card>
       )}
 
+
       <Card className="mt-4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Waypoints className="size-4 text-muted-foreground" /> Where applications went</CardTitle>
-          <CardDescription>Each application through the stages it reached, ending where it stands today. Hover a flow for numbers.</CardDescription>
         </CardHeader>
-        <CardContent>{stats ? <FlowChart data={stats.flow} /> : <Loading error={null} loading rows={1} />}</CardContent>
+        <CardContent>
+          {stats ? (
+            <FlowChart data={stats.flow} onSelect={(key) => navigate(`/applications?${new URLSearchParams({ view: "all", flow: key })}`)} />
+          ) : (
+            <Loading error={null} loading rows={1} />
+          )}
+        </CardContent>
       </Card>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <ListCard icon={<CalendarClock className="size-4 text-violet-500" />} title="Upcoming interviews" empty="None scheduled.">
-          {upcoming.map((i) => (
-            <div key={i.id} className="flex items-center gap-1">
-              <Row
-                to={`?interview=${i.id}`}
-                title={i.general ? `General talk · ${talkWith(i) ?? ""}` : i.company ?? "?"}
-                sub={i.general ? interviewName(i) : `${interviewName(i)} · ${i.role ?? ""}`}
-                right={<span className="text-right"><span className="block font-medium">{fmtDate(i.starts_at, true)}</span><span className="text-muted-foreground">{relativeDay(i.starts_at)}</span></span>}
-              />
-              {i.meeting_url && (
-                <Button asChild variant="ghost" size="icon-xs" aria-label={`Join the ${i.company ?? ""} call`}>
-                  <a href={i.meeting_url} target="_blank" rel="noreferrer"><Video /></a>
-                </Button>
-              )}
-            </div>
-          ))}
-        </ListCard>
+      <div className={`mt-4 grid gap-4 ${upcoming.length > 0 ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
+        {upcoming.length === 0 && <ListCard icon={<CalendarClock className="size-4 text-violet-500" />} title="Upcoming interviews" empty="None scheduled.">{[]}</ListCard>}
         <ListCard
           icon={<CalendarCheck className="size-4 text-emerald-600" />}
           title="Just happened"
@@ -132,7 +128,7 @@ export default function DashboardPage() {
             <Row
               key={i.id}
               to={`?interview=${i.id}`}
-              title={i.general ? `General talk · ${talkWith(i) ?? ""}` : i.company ?? "?"}
+              title={who(i)}
               sub={`${interviewName(i)} · ${relativeDay(i.starts_at)}`}
               right={
                 i.notes_count > 0 ? (
@@ -169,8 +165,72 @@ export default function DashboardPage() {
         </ListCard>
       </div>
 
+
+      {insights && <div className="mt-4"><InterviewTypesCard data={insights} /></div>}
+
       <ReviewDialog open={reviewing} onOpenChange={setReviewing} />
     </>
+  );
+}
+
+const who = (i: Interview) => (i.general ? `General talk · ${talkWith(i) ?? ""}` : i.company ?? "?");
+
+function JoinButton({ i, size = "icon-xs" }: { i: Interview; size?: "icon-xs" | "sm" }) {
+  if (!i.meeting_url) return null;
+  return (
+    <Button asChild variant={size === "sm" ? "default" : "ghost"} size={size} aria-label={`Join the ${i.company ?? ""} call`}>
+      <a href={i.meeting_url} target="_blank" rel="noreferrer"><Video />{size === "sm" && " Join call"}</a>
+    </Button>
+  );
+}
+
+/** The next interview up front, then the rest. */
+function UpcomingCard({ upcoming }: { upcoming: Interview[] }) {
+  const [next, ...rest] = upcoming;
+  const when = relativeDay(next.starts_at);
+  return (
+    <Card className="mt-4 border-violet-500/30 bg-violet-500/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><CalendarClock className="size-4 text-violet-500" /> Upcoming interviews</CardTitle>
+        <CardAction><span className="text-sm text-muted-foreground tabular-nums">{upcoming.length}</span></CardAction>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Link to={`?interview=${next.id}`} className="group flex min-w-0 flex-1 items-center gap-4">
+            <div className="shrink-0 rounded-lg border bg-card px-3 py-1.5 text-center">
+              <div className="text-xs font-medium text-violet-600 capitalize dark:text-violet-300">{when}</div>
+              <div className="text-xl font-semibold tabular-nums">{fmtTime(next.starts_at)}</div>
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-lg font-semibold group-hover:underline">{who(next)}</div>
+              <div className="truncate text-sm text-muted-foreground">
+                {next.general ? interviewName(next) : `${interviewName(next)}${next.role ? ` · ${next.role}` : ""}`}
+              </div>
+              <div className="text-xs text-muted-foreground">{fmtDate(next.starts_at)}</div>
+            </div>
+          </Link>
+          <div className="flex shrink-0 gap-2">
+            <Button asChild size="sm" variant="outline"><Link to={`?interview=${next.id}`}><NotebookPen /> Notes</Link></Button>
+            <JoinButton i={next} size="sm" />
+          </div>
+        </div>
+        {rest.length > 0 && (
+          <div className="mt-3 divide-y border-t">
+            {rest.map((i) => (
+              <div key={i.id} className="flex items-center gap-1">
+                <Row
+                  to={`?interview=${i.id}`}
+                  title={who(i)}
+                  sub={i.general ? interviewName(i) : `${interviewName(i)} · ${i.role ?? ""}`}
+                  right={<span className="text-right"><span className="block font-medium">{fmtDate(i.starts_at, true)}</span><span className="text-muted-foreground">{relativeDay(i.starts_at)}</span></span>}
+                />
+                <JoinButton i={i} />
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

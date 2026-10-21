@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, Flag, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, Menu, Monitor, Moon, Plus, RefreshCw, Sun } from "lucide-react";
+import { CalendarDays, CalendarRange, Flag, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, Menu, Monitor, Moon, Plus, RefreshCw, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { CampaignPicker } from "./campaign";
 import AddApplication from "./pages/AddApplication";
 import ApplicationPage from "./pages/ApplicationPage";
 import Applications from "./pages/Applications";
+import CalendarPage from "./pages/Calendar";
 import Campaigns from "./pages/Campaigns";
 import DashboardPage from "./pages/Dashboard";
 import Inbox from "./pages/Inbox";
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="/applications/:id" element={<ApplicationPage />} />
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/interviews" element={<Interviews />} />
+            <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/interviews/:id" element={<EditorPage kind="interview" />} />
             <Route path="/notes/:id" element={<EditorPage kind="note" />} />
             <Route path="/add" element={<AddApplication />} />
@@ -66,6 +68,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/applications", label: "Applications", icon: KanbanSquare },
   { to: "/interviews", label: "Interviews", icon: CalendarDays },
+  { to: "/calendar", label: "Calendar", icon: CalendarRange },
   { to: "/inbox", label: "Inbox", icon: InboxIcon, count: "inbox" as const },
   { to: "/campaigns", label: "Campaigns", icon: Flag },
 ];

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { sankey, type SankeyLink, type SankeyNode } from "d3-sankey";
 import { Table2, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import type { FlowData } from "../api";
 // An application that skipped a stage passes through an invisible waypoint above that stage.
 // Colors live in index.css (--flow-*): an indigo ramp for progress, neutral grays for "no answer",
 // hue only for offer / on hold / rejected. Every node is labelled with its count and share.
+// Clicking a node or a flow selects it: a key that `inFlow` matches against an application's path.
 
 const STAGE_COL: Record<string, number> = { applied: 0, screening: 1, interviewing: 2, offer: 3 };
 const OUTCOME_ORDER = ["in_progress", "waiting", "on_hold", "ghosted", "withdrawn", "rejected"];
@@ -70,6 +71,25 @@ function build(data: FlowData) {
   return { nodes: [...nodes.values()], links };
 }
 
+/** Does an application's path (from `FlowData.paths`) go through a node id or a flow chain? */
+export function inFlow(path: string[] | undefined, key: string): boolean {
+  if (!path) return false;
+  const [a, b] = key.split("->");
+  const step = (id: string) => id.split("@") as [string, string | undefined];
+  if (b === undefined) {
+    const [node, after] = step(a);
+    return after === undefined ? path.includes(node) : path.at(-1) === node && path.at(-2) === after;
+  }
+  const to = step(b)[0];
+  return path.some((p, i) => p === a && path[i + 1] === to);
+}
+
+/** "Rejected after interviews", or "Applied → Interviews" for a flow. */
+export function flowLabel(data: FlowData, key: string): string {
+  const labels = new Map(build(data).nodes.map((n) => [n.id, n.label]));
+  return key.split("->").map((id) => labels.get(id) ?? id).join(" → ");
+}
+
 // Within a column: pass-through waypoints on top, then the stage, then its exits.
 function rank(n: N): number {
   if (n.kind === "via") return 0;
@@ -105,7 +125,7 @@ function useWidth() {
   return [ref, width] as const;
 }
 
-export function FlowChart({ data }: { data: FlowData }) {
+export function FlowChart({ data, onSelect }: { data: FlowData; onSelect?: (key: string) => void }) {
   const uid = useId().replace(/:/g, "");
   const [ref, measured] = useWidth();
   const [asTable, setAsTable] = useState(false);
@@ -196,7 +216,8 @@ export function FlowChart({ data }: { data: FlowData }) {
                         stroke={`url(#${uid}-g${i})`}
                         strokeWidth={Math.max(1.5, l.width ?? 0)}
                         strokeOpacity={lit(l) ? 0.42 : 0.08}
-                        className="transition-[stroke-opacity] duration-150"
+                        className={`transition-[stroke-opacity] duration-150${onSelect ? " cursor-pointer" : ""}`}
+                        onClick={() => onSelect?.(l.chain)}
                         onMouseEnter={() => setFocus(l.chain)}
                         onMouseMove={(e) => {
                           const box = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect();
@@ -217,7 +238,21 @@ export function FlowChart({ data }: { data: FlowData }) {
                   const hasOut = (n.sourceLinks?.length ?? 0) > 0;
                   const dim = focus && focus !== n.id && !links.some((l) => lit(l) && (l.from === n.id || l.to === n.id));
                   return (
-                    <g key={n.id} onMouseEnter={() => { setFocus(n.id); setHover(null); }} opacity={dim ? 0.35 : 1} className="transition-opacity duration-150">
+                    <g
+                      key={n.id}
+                      onMouseEnter={() => { setFocus(n.id); setHover(null); }}
+                      opacity={dim ? 0.35 : 1}
+                      className={`transition-opacity duration-150 outline-none${onSelect ? " cursor-pointer" : ""}`}
+                      {...(onSelect && {
+                        role: "link",
+                        tabIndex: 0,
+                        "aria-label": `${n.label}: ${n.value} applications`,
+                        onClick: () => onSelect(n.id),
+                        onKeyDown: (e: KeyboardEvent) => e.key === "Enter" && onSelect(n.id),
+                        onFocus: () => setFocus(n.id),
+                        onBlur: () => setFocus(null),
+                      })}
+                    >
                       <rect x={x0 - 6} y={y0 - 4} width={x1 - x0 + 12} height={Math.max(y1 - y0, 4) + 8} fill="transparent" />
                       <rect x={x0} y={y0} width={x1 - x0} height={Math.max(y1 - y0, 3)} rx={3} fill={color(n.key)} />
                       {/* Stages with onward flows are labelled above; exits to their right. */}

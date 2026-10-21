@@ -18,10 +18,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { api, errorText, fmtDate, label, relativeDay, type Interview, type InterviewDetail, type Note } from "./api";
+import { api, errorText, fmtDate, relativeDay, type Interview, type InterviewDetail, type Note } from "./api";
 import { Field } from "./ApplicationView";
 import { Loading } from "./components/common";
-import { interviewName, talkWith } from "./InterviewNotes";
+import { interviewName, talkWith, TypePicker } from "./InterviewNotes";
 import { useRefresh } from "./lib/refresh";
 
 // The notes editor: a dialog over any page (?interview=<id>, ?note=<id>, ?note=new:<application id>)
@@ -417,7 +417,7 @@ export function InterviewEditor({ id, inDialog = false }: { id: string; inDialog
       <Header
         eyebrow={<><Icon className="size-3.5 shrink-0" /><AppLink appId={iv.application_id} company={iv.company} role={iv.role} /></>}
         title={interviewName(iv)}
-        sub={<>{when}{iv.interview_type && <span>· {label(iv.interview_type)}</span>}</>}
+        sub={<>{when}<span>·</span><TypePicker key={iv.id} id={iv.id} value={iv.interview_type} onSaved={(t) => setIv({ ...iv, interview_type: t })} /></>}
         actions={
           <>
             {actions}

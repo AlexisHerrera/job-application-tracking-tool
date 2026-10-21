@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from jobtracker.adapters.db.repo import PostgresRepo
 from jobtracker.api import schemas as s
 from jobtracker.api.auth import AccessVerifier, User
-from jobtracker.core import campaigns, interviews, paste, process, services, stats
+from jobtracker.core import campaigns, insights, interviews, paste, process, services, stats
 from jobtracker.core.clock import SystemClock
 from jobtracker.core.models import Campaign, InterviewNote, Origin
 from jobtracker.core.pipeline import Pipeline, PipelineConfig, run_incremental
@@ -133,6 +133,12 @@ def create_app(
 
     def today():
         return clock.now().astimezone(tz).date()
+
+    def campaign_start(repo, campaign: str | None):
+        if not campaign or campaign == "all":
+            return None
+        c = repo.get_campaign(_uuid(campaign))
+        return c.started_on if c else None
 
     def app_json(a):
         return s.application_json(a, display_status(a, clock.now(), settings.ghost_days))
@@ -531,6 +537,28 @@ def create_app(
                 repo.list_interviews(), {a.id for a in apps}, clock.now()
             ),
         }
+
+    @api.get("/insights")
+    def get_insights(campaign: str | None = Query(None), repo: PostgresRepo = Depends(get_repo)):
+        return insights.summary(
+            scoped(repo, campaign),
+            repo.list_interviews(),
+            repo.list_notes(),
+            clock.now(),
+            settings.ghost_days,
+        )
+
+    @api.get("/activity")
+    def get_activity(campaign: str | None = Query(None), repo: PostgresRepo = Depends(get_repo)):
+        return insights.activity(
+            scoped(repo, campaign),
+            repo.list_all_events(),
+            repo.list_interviews(),
+            clock.now(),
+            settings.ghost_days,
+            campaign_start(repo, campaign),
+            tz,
+        )
 
     @api.get("/scan")
     def scan_status(repo: PostgresRepo = Depends(get_repo)):
