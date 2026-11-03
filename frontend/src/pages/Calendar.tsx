@@ -9,17 +9,11 @@ import { api, fmtDate, fmtTime, localDay, type ActivityItem, type Process } from
 import { useCampaign } from "../campaign";
 import { Loading, PageHeader, StatusDot } from "../components/common";
 import { interviewName, talkWith } from "../InterviewNotes";
+import { addDays, daysBetween, utc, weekday, WEEKDAYS } from "../lib/days";
 import { STATUS_META } from "../lib/status";
 import { useOpenEditor } from "../NotesEditor";
 import { useAsync } from "../useAsync";
 
-// Days are "YYYY-MM-DD" strings in the app's timezone; arithmetic goes through UTC midnights.
-const DAY_MS = 86_400_000;
-const utc = (d: string) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10));
-const addDays = (d: string, n: number) => new Date(utc(d) + n * DAY_MS).toISOString().slice(0, 10);
-const weekday = (d: string) => (new Date(utc(d)).getUTCDay() + 6) % 7; // Monday = 0
-const daysBetween = (a: string, b: string) => Math.round((utc(b) - utc(a)) / DAY_MS);
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // The board's status colors, except a first reply (amber: sky is too close to applied's blue).
 const KIND: Record<string, { label: string; dot: string }> = {

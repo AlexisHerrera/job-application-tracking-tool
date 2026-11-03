@@ -3,12 +3,14 @@ import { CalendarCheck, CalendarClock, CalendarDays, Check, ChevronRight, Hourgl
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, daysAgo, errorText, fmtDate, fmtTime, relativeDay, type Interview, type Status } from "../api";
 import { interviewName, talkWith } from "../InterviewNotes";
 import { useCampaign } from "../campaign";
 import { FlowChart } from "../components/FlowChart";
 import { InterviewTypesCard } from "../components/Insights";
+import { MiniCalendar } from "../components/MiniCalendar";
 import { Empty, Loading, PageHeader } from "../components/common";
 import { ACTIVE_STATUSES } from "../lib/status";
 import { useRefresh } from "../lib/refresh";
@@ -30,6 +32,24 @@ export default function DashboardPage() {
   const active = stats ? Object.entries(stats.by_status).reduce((n, [s, k]) => n + (ACTIVE_STATUSES.has(s as Status) ? k : 0), 0) : null;
   const interviews = stats?.funnel.find((f) => f.stage === "interviewing");
 
+  // Beside the calendar the column is narrower, so four across waits for xl.
+  const tiles = (
+    <div className={cn("grid grid-cols-2 gap-3", upcoming.length > 0 ? "xl:grid-cols-4" : "lg:grid-cols-4")}>
+      <Tile label="Applications" value={stats?.total ?? c?.applications ?? "—"} sub={c ? `day ${c.day} · ${c.per_week} per week` : undefined} />
+      <Tile label="Active" value={active ?? "—"} sub="applied, screening, interviewing, on hold" />
+      <Tile
+        label="Interviews done"
+        value={stats?.interviews.done ?? "—"}
+        sub={stats ? `${stats.interviews.upcoming} upcoming${interviews ? ` · ${interviews.pct}% of applications got one` : ""}` : undefined}
+      />
+      <Tile
+        label="Days to 1st interview"
+        value={c?.days_to_first_interview ?? "—"}
+        sub={stats?.time_to_first_response.median_days != null ? `first reply in ${stats.time_to_first_response.median_days} days (median)` : undefined}
+      />
+    </div>
+  );
+
   async function done(eventId: string) {
     try {
       await api.markReplied(eventId);
@@ -42,28 +62,25 @@ export default function DashboardPage() {
 
   return (
     <>
+      {/* Title only: the campaign's name is in the sidebar, its day in the first tile. */}
       <PageHeader
         title="Dashboard"
-        description={c ? <>{c.name} · day {c.day} · started {fmtDate(c.started_on)}</> : <>No ongoing campaign. <Link to="/campaigns" className="text-primary hover:underline">Start one</Link> to group this search.</>}
+        description={c ? undefined : <>No ongoing campaign. <Link to="/campaigns" className="text-primary hover:underline">Start one</Link> to group this search.</>}
       />
 
-      {/* When something's coming up, it's the first thing to see. */}
-      {upcoming.length > 0 && <UpcomingCard upcoming={upcoming} />}
-
-      <div className={`grid grid-cols-2 gap-3 lg:grid-cols-4${upcoming.length > 0 ? " mt-4" : ""}`}>
-        <Tile label="Applications" value={stats?.total ?? c?.applications ?? "—"} sub={c ? `${c.per_week} per week` : undefined} />
-        <Tile label="Active" value={active ?? "—"} sub="applied, screening, interviewing, on hold" />
-        <Tile
-          label="Interviews done"
-          value={stats?.interviews.done ?? "—"}
-          sub={stats ? `${stats.interviews.upcoming} upcoming${interviews ? ` · ${interviews.pct}% of applications got one` : ""}` : undefined}
-        />
-        <Tile
-          label="Days to 1st interview"
-          value={c?.days_to_first_interview ?? "—"}
-          sub={stats?.time_to_first_response.median_days != null ? `first reply in ${stats.time_to_first_response.median_days} days (median)` : undefined}
-        />
-      </div>
+      {/* When something's coming up: the KPI tiles, then the upcoming interviews, with a month
+          calendar beside both (a month is about as tall as the two together). */}
+      {upcoming.length > 0 ? (
+        <div className="grid gap-4 lg:grid-cols-[1fr_17rem]">
+          <div className="flex min-w-0 flex-col gap-4">
+            {tiles}
+            <UpcomingCard upcoming={upcoming} />
+          </div>
+          <MiniCalendar className="hidden lg:flex" />
+        </div>
+      ) : (
+        tiles
+      )}
 
       {(data.unassigned > 0 || data.needs_review > 0 || data.unassigned_interviews > 0) && (
         <Card className="mt-4 border-amber-500/30 bg-amber-500/5">
@@ -189,7 +206,7 @@ function UpcomingCard({ upcoming }: { upcoming: Interview[] }) {
   const [next, ...rest] = upcoming;
   const when = relativeDay(next.starts_at);
   return (
-    <Card className="mt-4 border-violet-500/30 bg-violet-500/5">
+    <Card className="border-violet-500/30 bg-violet-500/5">
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><CalendarClock className="size-4 text-violet-500" /> Upcoming interviews</CardTitle>
         <CardAction><span className="text-sm text-muted-foreground tabular-nums">{upcoming.length}</span></CardAction>
