@@ -67,22 +67,24 @@ The ingester opens All Mail **read-only** (`EXAMINE` + `BODY.PEEK`), so it never
 3. Put it in `.env` as `ANTHROPIC_API_KEY`. The model is set by `LLM_MODEL` (default `claude-haiku-5-5`).
 4. Optional: set a monthly spend limit under *Settings → Limits*.
 
-### Google Calendar (OAuth, read-only)
+### Google Calendar (read-only)
 
 Free: the Calendar API has no charge at this volume, and no billing account is needed.
 
-1. At https://console.cloud.google.com create a project (e.g. `jobtracker`).
-2. *APIs & Services → Library*: enable the **Google Calendar API**.
-3. *Google Auth Platform → Branding*: app name and your email as support email. Fill **Developer contact information** with your email too. Leave the logo empty: a logo makes Google ask for verification.
-4. *Audience*: user type **External**, add your Gmail as a **test user**.
-5. *Data access*: add the scope `.../auth/calendar.readonly`.
-6. *Clients → Create client*, type **Desktop app**. Download the JSON into the repo root. `client_secret*.json` is gitignored.
-7. `cd backend && uv run jobtracker calendar login`. A browser tab asks for consent; the login is stored in the local database (`oauth_credentials`), not in a file.
-8. `uv run jobtracker calendar sync`. The first sync reads from the first campaign's start (else six months back). After that, only changes are read.
+The app reads your calendar as a **service account** you share it with. There's no consent screen, the access never expires, and it works the same once deployed (the Lambda can't open a browser). The account gets **no project roles**: sharing the calendar is its only access.
 
-**The 7-day catch:** while the app's publishing status is *Testing*, Google expires the login after 7 days and syncing fails with "login expired". Run `calendar login` again, or click **Publish app** under *Audience* (this needs step 3 done). Publishing a single-user app needs no verification: at consent you'll see "Google hasn't verified this app", then *Advanced → Go to … (unsafe)*. Run `calendar login` once more after publishing, so the new login doesn't expire.
+1. At https://console.cloud.google.com create a project (e.g. `jobtracker`) and, under *APIs & Services → Library*, enable the **Google Calendar API**.
+2. *IAM & Admin → Service accounts → Create service account* (e.g. `calendar-reader`). Leave both "grant access" steps empty.
+3. On the account: *Keys → Add key → Create new key → JSON*. Leave the download in `~/Downloads`, outside the repo.
+4. In Google Calendar: *Settings → your calendar → Share with specific people or groups*, add the account's address with **See all event details**. Events you mark *private* stay hidden from it. Copy the *Calendar ID* from *Integrate calendar* (your Gmail address for the main calendar).
+5. From `backend/`: `uv run jobtracker calendar use-service-account ~/Downloads/<key>.json`. It checks the access by reading the calendar's name (no events), then writes `GOOGLE_SERVICE_ACCOUNT_KEY` (base64 of the key) and `GOOGLE_CALENDAR_ID` into `.env`, which becomes owner-only. If you synced before under `primary`, those interviews move to the new ID, so nothing is duplicated.
+6. Delete the downloaded key, reload the API (`docker compose up -d --force-recreate api`), and run `uv run jobtracker calendar sync`. The first sync reads from the first campaign's start (else six months back); after that, only changes.
 
-Revoke access any time at https://myaccount.google.com/permissions, and run `jobtracker calendar logout`.
+**To cut access**: unshare the calendar, or delete the key in Google Cloud. To rotate it: create a new key, run step 5 again, delete the old one.
+
+**In AWS (Phase 3)**: `GOOGLE_SERVICE_ACCOUNT_KEY` goes into SSM as a SecureString with the other secrets, and the ingest Lambda syncs the calendar after the mail. A calendar error is logged and never fails the mail run.
+
+**Fallback, OAuth login** (`jobtracker calendar login`, local only): an OAuth *Desktop app* client (`client_secret*.json` in the repo root, gitignored) with the `calendar.readonly` scope, and your Gmail as a test user. While the consent screen is in *Testing*, Google expires the login after 7 days. Publishing it needs a public home page and privacy policy. The service account is used whenever it's configured. Revoke an old login at https://myaccount.google.com/permissions and run `jobtracker calendar logout`.
 
 ## CLI
 
@@ -99,7 +101,8 @@ Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside
 | `backfill [--since 2026-09-15] [--until …] [--dry-run] [--limit N]` (defaults to the current campaign's start) | ⚠️ Reads your **real inbox** over a date range, with paid LLM calls. Idempotent |
 | `ingest [--dry-run] [--loop 900]` | ⚠️ Incremental run from the last processed UID (what the Lambda does every 15 min) |
 | `campaign create --name "Sep 2026" --start 2026-09-15`, `campaign list` | Job-search campaigns (an ongoing earlier one ends the day before) |
-| `calendar login` / `logout` | Connect Google Calendar (browser consent, read-only scope) / forget the stored login |
+| `calendar use-service-account KEY_FILE [--calendar-id ID]` | Connect Google Calendar through a service account it's shared with (no expiry). Checks access, then writes the key and ID into `.env` |
+| `calendar login` / `logout` | Fallback: connect with a browser consent (expires in 7 days while in Testing) / forget that login |
 | `calendar sync [--full]` | Pull calendar changes and match them to applications. Free: no AI. `ingest` and **Scan inbox & calendar** run it too when connected |
 | `calendar list` | The interviews the app knows about |
 | `dev seed` | Fake sample data (local only) |

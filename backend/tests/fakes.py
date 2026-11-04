@@ -307,6 +307,13 @@ class MemoryRepo:
     def set_calendar_sync(self, calendar_id, sync_token):
         self.calendar_sync[calendar_id] = (sync_token, datetime.now(UTC))
 
+    def rename_calendar(self, old_id, new_id):
+        moved = [iv for iv in self.interviews.values() if iv.calendar_id == old_id]
+        for iv in moved:
+            iv.calendar_id = new_id
+        self.calendar_sync.pop(old_id, None)
+        return len(moved)
+
     def last_calendar_sync_at(self):
         return max((at for _, at in self.calendar_sync.values()), default=None)
 

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
@@ -12,20 +13,38 @@ class ConfigError(RuntimeError):
     pass
 
 
+def find_dotenv(path: str = ".env") -> Path | None:
+    """The repo's `.env`: here, or one folder up (the CLI runs from `backend/`)."""
+    return next((c for c in (Path(path), Path("..") / path) if c.is_file()), None)
+
+
 def load_dotenv(path: str = ".env") -> None:
     """Minimal .env loader for running the CLI on the host. Never overrides real env vars."""
-    from pathlib import Path
-
-    for candidate in (Path(path), Path("..") / path):
-        if not candidate.is_file():
-            continue
+    if (candidate := find_dotenv(path)) is not None:
         for line in candidate.read_text().splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, value = line.partition("=")
             os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-        return
+
+
+def set_dotenv_values(path: Path, values: dict[str, str]) -> None:
+    """Set KEY=value lines in a .env file: replaces existing ones, appends the rest, keeps every
+    other line as is. The file ends up readable by its owner only, since it holds secrets."""
+    lines = path.read_text().splitlines() if path.is_file() else []
+    pending = dict(values)
+    out = []
+    for line in lines:
+        key = line.split("=", 1)[0].strip() if "=" in line else None
+        if key in values and not line.lstrip().startswith("#"):
+            if key in pending:
+                out.append(f"{key}={pending.pop(key)}")
+            continue  # a duplicate of a key already written
+        out.append(line)
+    out += [f"{k}={v}" for k, v in pending.items()]
+    path.write_text("\n".join(out) + "\n")
+    path.chmod(0o600)
 
 
 def _bool(value: str | None) -> bool:
@@ -53,6 +72,8 @@ class Settings:
     timezone: str
     ghost_days: int
     followup_days: int
+    # Base64 of the service account's JSON key (or the JSON). Never printed in a repr.
+    google_service_account_key: str = field(default="", repr=False)
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
@@ -79,6 +100,7 @@ class Settings:
             timezone=e.get("TIMEZONE", "America/Buenos_Aires"),
             ghost_days=int(e.get("GHOST_DAYS", "14")),
             followup_days=int(e.get("FOLLOWUP_DAYS", "7")),
+            google_service_account_key=e.get("GOOGLE_SERVICE_ACCOUNT_KEY", "").strip(),
         )
         s.validate(in_lambda=bool(e.get("AWS_LAMBDA_FUNCTION_NAME")))
         return s
@@ -91,6 +113,12 @@ class Settings:
             raise ConfigError(f"APP_ENV must be local or prod, got {self.app_env!r}")
         if self.ghost_days <= self.followup_days:
             raise ConfigError("GHOST_DAYS must be greater than FOLLOWUP_DAYS")
+        if self.google_service_account_key and self.google_calendar_id == "primary":
+            # "primary" would be the service account's own (empty) calendar, not yours.
+            raise ConfigError(
+                "GOOGLE_SERVICE_ACCOUNT_KEY needs GOOGLE_CALENDAR_ID set to your calendar's ID "
+                "(your Gmail address for the main calendar)"
+            )
 
     @cached_property
     def tz(self) -> ZoneInfo:

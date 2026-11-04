@@ -40,7 +40,31 @@ def ingest(event, context):
             "counts": dict(report.counts),
             "errors": report.errors,
             "llm_calls": llm.usage.calls,
+            "calendar": _sync_calendar(s, repo),
         }
     finally:
         source.close()
         repo.close()
+
+
+def _sync_calendar(s, repo) -> dict | None:
+    """Calendar changes after the mail, as `jobtracker ingest` does. In AWS only the service
+    account works (an OAuth login needs a browser), and a calendar failure never fails the mail
+    run: it's logged and returned."""
+    from dataclasses import asdict
+
+    from jobtracker.adapters.google_calendar import make_source
+    from jobtracker.core import services
+    from jobtracker.core.clock import SystemClock
+    from jobtracker.core.ports import CalendarAuthError
+
+    source = make_source(s.google_service_account_key, s.google_calendar_id, None)
+    if source is None:
+        return None
+    clock = SystemClock()
+    try:
+        since = services.calendar_since(repo, clock, s.tz)
+        return asdict(services.sync_calendar(repo, clock, source, since, s.my_addresses))
+    except CalendarAuthError as err:
+        logging.error("calendar sync skipped: %s", err)
+        return {"error": str(err)}

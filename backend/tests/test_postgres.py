@@ -189,6 +189,12 @@ def test_calendar_sync_roundtrip(pg, clock):
     assert pg.get_interview(iv.id).status == InterviewStatus.CANCELLED
     assert pg.list_unassigned_interviews() == []
 
+    # Switching to the service account: "primary" becomes the calendar's address.
+    moved_ids = {i.id for i in pg.list_interviews() if i.calendar_id == cal.calendar_id}
+    assert pg.rename_calendar(cal.calendar_id, "me@example.com") == len(moved_ids) > 0
+    assert {i.id for i in pg.list_interviews() if i.calendar_id == "me@example.com"} == moved_ids
+    assert pg.get_calendar_sync(cal.calendar_id) is None
+
     pg.set_oauth("google_calendar", {"refresh_token": "r"})
     assert pg.get_oauth("google_calendar") == {"refresh_token": "r"}
     pg.delete_oauth("google_calendar")

@@ -585,6 +585,18 @@ class PostgresRepo:
             (calendar_id, sync_token, _now()),
         )
 
+    def rename_calendar(self, old_id: str, new_id: str) -> int:
+        """The same calendar under a new ID ("primary" → its address): its interviews follow, so
+        the next full sync updates them instead of adding copies. The old sync token is dropped.
+        Returns how many interviews moved."""
+        with self.transaction():
+            moved = self.conn.execute(
+                "UPDATE interviews SET calendar_id = %s WHERE calendar_id = %s", (new_id, old_id)
+            ).rowcount
+        with self.transaction():
+            self.conn.execute("DELETE FROM calendar_sync_state WHERE calendar_id = %s", (old_id,))
+        return moved
+
     def last_calendar_sync_at(self) -> datetime | None:
         r = self._one("SELECT max(updated_at) AS at FROM calendar_sync_state")
         return r["at"] if r else None

@@ -501,10 +501,11 @@ def details_run(
 
 
 def _calendar(settings: Settings, repo: PostgresRepo):
-    from jobtracker.adapters.google_calendar import PROVIDER, GoogleCalendarSource
+    from jobtracker.adapters.google_calendar import PROVIDER, make_source
 
-    creds = repo.get_oauth(PROVIDER)
-    return GoogleCalendarSource(creds, settings.google_calendar_id) if creds else None
+    return make_source(
+        settings.google_service_account_key, settings.google_calendar_id, repo.get_oauth(PROVIDER)
+    )
 
 
 def _sync_calendar(settings: Settings, repo: PostgresRepo, source) -> None:
@@ -544,13 +545,82 @@ def calendar_login(
     typer.echo("Google Calendar connected (read-only). Run `jobtracker calendar sync` next.")
 
 
+@calendar_app.command("use-service-account")
+def calendar_use_service_account(
+    key_file: Path = typer.Argument(..., help="The service account's JSON key from Google Cloud"),
+    calendar_id: str | None = typer.Option(
+        None, help="Calendar ID (Calendar settings → Integrate calendar). Default: GMAIL_ADDRESS"
+    ),
+) -> None:
+    """Read the calendar as a service account it's shared with: no consent screen, no expiry.
+
+    Checks the access (reads the calendar's name only, no events), then writes the key and the
+    calendar ID into `.env`. Run it on the host, not in a container."""
+    from jobtracker.adapters.google_calendar import (
+        GoogleCalendarSource,
+        decode_service_account_key,
+        encode_service_account_key,
+    )
+    from jobtracker.core.ports import CalendarAuthError
+    from jobtracker.settings import find_dotenv, set_dotenv_values
+
+    settings = _settings()
+    env_file = find_dotenv()
+    if env_file is None:
+        raise typer.BadParameter("no .env found here or one folder up; run it from backend/")
+    try:
+        info = decode_service_account_key(key_file.read_text())
+    except (OSError, ValueError) as err:
+        raise typer.BadParameter(str(err)) from err
+    target = calendar_id or (
+        settings.google_calendar_id
+        if settings.google_calendar_id != "primary"
+        else settings.gmail_address
+    )
+    if not target:
+        raise typer.BadParameter("pass --calendar-id (your Gmail address for the main calendar)")
+    try:
+        name = GoogleCalendarSource.from_service_account(info, target).calendar_name()
+    except CalendarAuthError as err:
+        typer.echo(f"Not saved: {err}", err=True)
+        raise typer.Exit(1) from err
+
+    set_dotenv_values(
+        env_file,
+        {
+            "GOOGLE_SERVICE_ACCOUNT_KEY": encode_service_account_key(info),
+            "GOOGLE_CALENDAR_ID": target,
+        },
+    )
+    repo = _repo(settings)
+    moved = 0
+    if settings.google_calendar_id != target:
+        # Same calendar, new ID: keep its interviews (and their notes) instead of adding copies.
+        moved = repo.rename_calendar(settings.google_calendar_id, target)
+    typer.echo(
+        f"Reading {name!r} as {info['client_email']}. Saved to {env_file} (owner-only).\n"
+        + (f"{moved} synced interview(s) moved to {target}.\n" if moved else "")
+        + "Next:\n"
+        f"  1. Delete the key file: rm {key_file}\n"
+        "  2. Reload the API: docker compose up -d --force-recreate api\n"
+        "  3. uv run jobtracker calendar sync\n"
+        "  4. Once it works: uv run jobtracker calendar logout"
+    )
+
+
 @calendar_app.command("logout")
 def calendar_logout() -> None:
     """Forget the stored Google login (revoke it too at myaccount.google.com/permissions)."""
     from jobtracker.adapters.google_calendar import PROVIDER
 
-    _repo(_settings()).delete_oauth(PROVIDER)
+    settings = _settings()
+    _repo(settings).delete_oauth(PROVIDER)
     typer.echo("Google login removed from the local database.")
+    if settings.google_service_account_key:
+        typer.echo(
+            "The service account still reads the calendar. To stop that, unshare the calendar "
+            "or delete GOOGLE_SERVICE_ACCOUNT_KEY from .env."
+        )
 
 
 @calendar_app.command("sync")
@@ -562,7 +632,9 @@ def calendar_sync(
     repo = _repo(settings)
     source = _calendar(settings, repo)
     if source is None:
-        raise typer.BadParameter("not connected: run `jobtracker calendar login` first")
+        raise typer.BadParameter(
+            "not connected: run `jobtracker calendar use-service-account KEY_FILE` first"
+        )
     if full:
         repo.set_calendar_sync(source.calendar_id, None)
     _sync_calendar(settings, repo, source)

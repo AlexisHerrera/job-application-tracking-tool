@@ -85,11 +85,14 @@ def create_app(
     make_scan = scan_factory or (default_scan if settings.app_env == "local" else None)
 
     def default_calendar(repo: PostgresRepo) -> CalendarSource | None:
-        """None until `jobtracker calendar login` has stored a Google login."""
-        from jobtracker.adapters.google_calendar import PROVIDER, GoogleCalendarSource
+        """The service account if configured, else a stored Google login, else None."""
+        from jobtracker.adapters.google_calendar import PROVIDER, make_source
 
-        creds = repo.get_oauth(PROVIDER)
-        return GoogleCalendarSource(creds, settings.google_calendar_id) if creds else None
+        return make_source(
+            settings.google_service_account_key,
+            settings.google_calendar_id,
+            repo.get_oauth(PROVIDER),
+        )
 
     make_calendar = calendar_factory or default_calendar
 
@@ -428,8 +431,10 @@ def create_app(
     @api.get("/calendar")
     def calendar_status(repo: PostgresRepo = Depends(get_repo)):
         last = repo.last_calendar_sync_at()
+        source = make_calendar(repo)
         return {
-            "connected": make_calendar(repo) is not None,
+            "connected": source is not None,
+            "auth": getattr(source, "auth", None),
             "calendar_id": settings.google_calendar_id,
             "last_sync_at": last.isoformat() if last else None,
         }
@@ -440,7 +445,9 @@ def create_app(
         source = make_calendar(repo)
         if source is None:
             raise HTTPException(
-                409, "Google Calendar isn't connected: run `jobtracker calendar login`"
+                409,
+                "Google Calendar isn't connected: run "
+                "`jobtracker calendar use-service-account KEY_FILE`",
             )
         try:
             report = services.sync_calendar(

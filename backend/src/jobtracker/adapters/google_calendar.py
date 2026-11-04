@@ -1,11 +1,21 @@
-"""Google Calendar over its REST API with a read-only OAuth scope.
+"""Google Calendar over its REST API with a read-only scope.
 
-Login is a one-time browser consent on the host (`jobtracker calendar login`); the resulting
-refresh token is stored in the local database (`oauth_credentials`), never in a file in the repo.
+Two ways in, the first one configured wins:
+
+- **Service account** (`GOOGLE_SERVICE_ACCOUNT_KEY`): you share your calendar with the account
+  ("See all event details") and it reads it with its own key. No consent screen, no 7-day
+  expiry, and it works from a Lambda. The key is a setting like the other secrets: `.env`
+  locally (written by `jobtracker calendar use-service-account`), SSM in AWS.
+- **OAuth login** (`jobtracker calendar login`): a browser consent on the host; the refresh token
+  is stored in the local database (`oauth_credentials`). While the consent screen is in
+  "Testing", Google expires it after 7 days.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +32,42 @@ API = "https://www.googleapis.com/calendar/v3"
 # Working location, out of office, focus time and birthdays are never interviews.
 _SKIP_TYPES = {"workingLocation", "outOfOffice", "focusTime", "birthday", "fromGmail"}
 _DESCRIPTION_CHARS = 2000  # matched in memory only, never stored
+
+
+_KEY_FIELDS = ("client_email", "private_key", "token_uri")
+
+
+def decode_service_account_key(value: str) -> dict:
+    """The key as stored in settings: base64 of the JSON (what we write), or the JSON itself."""
+    value = value.strip()
+    try:
+        text = value if value.startswith("{") else base64.b64decode(value, validate=True).decode()
+        info = json.loads(text)
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as err:
+        raise ValueError("not a service account key (expected its JSON, or base64 of it)") from err
+    if not isinstance(info, dict) or info.get("type") != "service_account":
+        raise ValueError("not a service account key: its JSON should have type=service_account")
+    if missing := [f for f in _KEY_FIELDS if not info.get(f)]:
+        raise ValueError(f"service account key is missing {', '.join(missing)}")
+    return info
+
+
+def encode_service_account_key(info: dict) -> str:
+    """One line with nothing to escape, for `.env`, docker compose and SSM alike."""
+    return base64.b64encode(json.dumps(info, separators=(",", ":")).encode()).decode()
+
+
+def make_source(
+    service_account_key: str, calendar_id: str, oauth: dict | None
+) -> GoogleCalendarSource | None:
+    """The configured calendar source: the service account if set, else the stored OAuth login."""
+    if service_account_key:
+        return GoogleCalendarSource.from_service_account(
+            decode_service_account_key(service_account_key), calendar_id
+        )
+    if oauth:
+        return GoogleCalendarSource.from_oauth(oauth, calendar_id)
+    return None
 
 
 def find_client_file() -> Path | None:
@@ -93,11 +139,19 @@ def parse_event(ev: dict) -> CalendarItem | None:
 
 
 class GoogleCalendarSource:
-    def __init__(self, credentials: dict, calendar_id: str = "primary"):
+    def __init__(self, creds, calendar_id: str, *, auth: str, session=None):
+        """`auth` is "service_account" or "oauth"; `session` is for tests."""
         from google.auth.transport.requests import AuthorizedSession
-        from google.oauth2.credentials import Credentials
 
         self.calendar_id = calendar_id
+        self.auth = auth
+        self._account = getattr(creds, "service_account_email", None)
+        self.session = session or AuthorizedSession(creds)
+
+    @classmethod
+    def from_oauth(cls, credentials: dict, calendar_id: str = "primary") -> GoogleCalendarSource:
+        from google.oauth2.credentials import Credentials
+
         creds = Credentials(
             token=None,
             refresh_token=credentials["refresh_token"],
@@ -106,11 +160,48 @@ class GoogleCalendarSource:
             client_secret=credentials["client_secret"],
             scopes=credentials.get("scopes", SCOPES),
         )
-        self.session = AuthorizedSession(creds)
+        return cls(creds, calendar_id, auth="oauth")
 
-    def fetch_changes(self, sync_token: str | None, since: datetime) -> CalendarChanges:
+    @classmethod
+    def from_service_account(cls, info: dict, calendar_id: str) -> GoogleCalendarSource:
+        from google.oauth2 import service_account
+
+        creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+        return cls(creds, calendar_id, auth="service_account")
+
+    def _get(self, url: str, params: dict[str, str] | None = None):
+        """GET with Google's auth failures turned into CalendarAuthError."""
         from google.auth.exceptions import RefreshError
 
+        try:
+            r = self.session.get(url, params=params)
+        except RefreshError as err:
+            if self.auth == "service_account":
+                raise CalendarAuthError(
+                    "Google rejected the service account key (deleted or disabled?); create a "
+                    "new key and run `jobtracker calendar use-service-account` again"
+                ) from err
+            # The usual cause: the app is still in "Testing", where logins expire in 7 days.
+            raise CalendarAuthError(
+                "Google login expired or was revoked; run `jobtracker calendar login`"
+            ) from err
+        if r.status_code == 404 and self.auth == "service_account":
+            # What Google answers for a calendar that isn't shared with the account.
+            raise CalendarAuthError(
+                f"calendar {self.calendar_id!r} not found or not shared with {self._account}: "
+                "share it with that address (See all event details)"
+            )
+        if r.status_code in (401, 403):
+            raise CalendarAuthError(f"Google Calendar refused access ({r.status_code})")
+        return r
+
+    def calendar_name(self) -> str:
+        """Reads only the calendar's own metadata (no events): proves the access works."""
+        r = self._get(f"{API}/calendars/{quote(self.calendar_id, safe='')}")
+        r.raise_for_status()
+        return r.json().get("summary") or self.calendar_id
+
+    def fetch_changes(self, sync_token: str | None, since: datetime) -> CalendarChanges:
         params: dict[str, str] = {
             "singleEvents": "true",
             "showDeleted": "true",
@@ -124,19 +215,9 @@ class GoogleCalendarSource:
         items: list[CalendarItem] = []
         page: str | None = None
         while True:
-            try:
-                r = self.session.get(
-                    url, params={**params, **({"pageToken": page} if page else {})}
-                )
-            except RefreshError as err:
-                # The usual cause: the app is still in "Testing", where logins expire in 7 days.
-                raise CalendarAuthError(
-                    "Google login expired or was revoked; run `jobtracker calendar login`"
-                ) from err
+            r = self._get(url, {**params, **({"pageToken": page} if page else {})})
             if r.status_code == 410:
                 raise CalendarSyncExpired()
-            if r.status_code in (401, 403):
-                raise CalendarAuthError(f"Google Calendar refused access ({r.status_code})")
             r.raise_for_status()
             data = r.json()
             items += [item for ev in data.get("items", []) if (item := parse_event(ev))]
