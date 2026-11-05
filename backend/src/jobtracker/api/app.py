@@ -1,4 +1,4 @@
-"""HTTP API. Every route except /api/health requires a valid Cloudflare Access JWT."""
+"""HTTP API. Every route except /api/health and /api/auth/config needs a Cognito ID token."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from jobtracker.adapters.lambda_ingest import (
     LambdaIngest,
 )
 from jobtracker.api import schemas as s
-from jobtracker.api.auth import AccessVerifier, User
+from jobtracker.api.auth import TokenVerifier, User, cognito_issuer
 from jobtracker.core import campaigns, insights, interviews, paste, process, services, stats
 from jobtracker.core.clock import SystemClock
 from jobtracker.core.models import Campaign, InterviewNote, Origin
@@ -64,7 +64,7 @@ def create_app(
     remote_scan: Callable[[], dict] | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
-    verifier = AccessVerifier(settings)
+    verifier = TokenVerifier(settings)
     clock = SystemClock()
     tz = settings.tz
     make_repo = repo_factory or (lambda: PostgresRepo.open(settings))
@@ -150,6 +150,20 @@ def create_app(
     @app.get("/api/health")
     def health():
         return {"ok": True}
+
+    @app.get("/api/auth/config")
+    def auth_config():
+        """Public: how the SPA signs in. Nothing here is secret (the same values appear in the
+        login page's URL). Locally, with the dev bypass, there's no login at all."""
+        if verifier.bypass:
+            return {"mode": "none"}
+        return {
+            "mode": "cognito",
+            "authority": cognito_issuer(settings.cognito_user_pool_id),
+            "client_id": settings.cognito_client_id,
+            "domain": settings.cognito_domain,
+            "app_url": settings.app_url,
+        }
 
     api = APIRouter(prefix="/api", dependencies=[Depends(verifier)])
 

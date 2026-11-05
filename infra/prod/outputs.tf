@@ -23,13 +23,16 @@ output "ingest_function_name" {
   value = module.ingest.function_name
 }
 
-output "acm_validation_records" {
-  description = "CNAMEs for Phase 4 (Cloudflare DNS, DNS only / not proxied)."
-  value = [for o in aws_acm_certificate.site.domain_validation_options : {
-    name  = o.resource_record_name
-    type  = o.resource_record_type
-    value = o.resource_record_value
-  }]
+output "app_url" {
+  value = "https://${var.domain}"
+}
+
+output "login_domain" {
+  value = local.login_domain
+}
+
+output "user_pool_id" {
+  value = aws_cognito_user_pool.main.id
 }
 
 output "next_steps" {

@@ -24,7 +24,7 @@ docker compose exec api jobtracker dev seed   # optional: FAKE sample data for t
 - API: http://localhost:8000/api/health
 - Postgres: `localhost:5433`, database/user/password `jobtracker` (5433 so it doesn't clash with other local Postgres containers; override with `DB_PORT`)
 
-Locally, `AUTH_DEV_BYPASS=true` skips Cloudflare Access. The app **refuses to start** with that flag when `APP_ENV` isn't `local` or when running inside Lambda.
+Locally, `AUTH_DEV_BYPASS=true` skips the login (Cognito in prod). The app **refuses to start** with that flag when `APP_ENV` isn't `local` or when running inside Lambda.
 
 Editing anything under `backend/src` reloads the API; editing `frontend/src` hot-reloads the page.
 
@@ -87,7 +87,7 @@ terraform apply tfplan
 terraform output next_steps     # the commands for step 3, with the real endpoint and role ARNs
 ```
 
-This creates the DSQL cluster (deletion protection on), both Lambdas, the ingest schedule (**disabled**), the Function URL (IAM auth), CloudFront + OAC, the private SPA bucket, the ACM certificate (pending until Phase 4 adds its DNS records: `terraform output acm_validation_records`), the $5 budget alert and 14-day log groups. Rebuild the zip and plan again to ship backend code.
+This creates the DSQL cluster (deletion protection on), both Lambdas, the ingest schedule (**disabled**), the Function URL (IAM auth), CloudFront + OAC, the private SPA bucket, the ACM certificate (validated through its Route 53 record), the Cognito user pool and login pages, the `jobs` DNS records, the $5 budget alert and 14-day log groups. Rebuild the zip and plan again to ship backend code.
 
 ### 3. Database, secrets, data (from `backend/`)
 
@@ -129,7 +129,22 @@ From then on the ingest Lambda reads the inbox every 15 minutes.
 AWS_PROFILE=jobtracker infra/scripts/deploy-frontend.sh   # build, upload to S3, invalidate
 ```
 
-Until Phase 4 (Cloudflare Access) the API answers **401 to every call**, which is correct: there's no login yet, and no bypass exists in AWS. The Function URL answers 403 to anything not signed by CloudFront.
+The app is at **https://jobs.alexisherrera.dev**. The page itself is public; every API call needs a Cognito sign-in, and without one the API answers 401 (there's no bypass in AWS). The Function URL answers 403 to anything not signed by CloudFront.
+
+### 6. Signing in (Cognito)
+
+The prod stack creates a user pool with one user, `owner_email`, and sign-up turned off (`infra/prod/cognito.tf`).
+
+1. Creating the user emails a **temporary password** from `no-reply@verificationemail.com` (check spam). It expires after 7 days; to send a new one:
+   ```bash
+   aws cognito-idp admin-create-user --profile jobtracker \
+     --user-pool-id "$(terraform -chdir=infra/prod output -raw user_pool_id)" \
+     --username alexysaguilar@gmail.com --message-action RESEND
+   ```
+2. Open https://jobs.alexisherrera.dev. It sends you to the login page: sign in with the email and the temporary password, choose a new password (12+ characters, upper and lower case, a number), then scan the QR code with an authenticator app (Google Authenticator, 1Password, …) and enter its code.
+3. From then on every sign-in is password + authenticator code. The session renews itself for 7 days; **Sign out** in the sidebar ends it.
+
+"Forgot your password?" on the login page emails a reset code. There's no self-service reset for a lost authenticator, so use an app that backs up its codes (1Password, Google Authenticator with backup on).
 
 ### Costs
 

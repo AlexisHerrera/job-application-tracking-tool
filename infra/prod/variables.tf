@@ -20,15 +20,16 @@ variable "domain" {
   default = "jobs.alexisherrera.dev"
 }
 
-variable "cf_access_team_domain" {
-  type    = string
-  default = "alexisherrera.cloudflareaccess.com"
+variable "dns_zone" {
+  type        = string
+  default     = "alexisherrera.dev"
+  description = "Existing Route 53 public zone. This stack only adds its own records to it."
 }
 
-variable "cf_access_aud" {
+variable "login_domain_prefix" {
   type        = string
-  default     = "not-configured-until-phase-4"
-  description = "Cloudflare Access application AUD tag. Until Phase 4 no token can match, so the API answers 401 to everything."
+  default     = "alexisherrera-jobs"
+  description = "Cognito login pages at https://<prefix>.auth.us-east-1.amazoncognito.com (unique per region)."
 }
 
 variable "ingest_schedule_enabled" {

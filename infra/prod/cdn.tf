@@ -1,9 +1,8 @@
 # CloudFront in front of a private S3 bucket (the SPA) and the API's Function URL, both through
-# Origin Access Control. Phase 3 serves on the *.cloudfront.net name with CloudFront's own cert;
-# Phase 4 adds jobs.alexisherrera.dev (alias + the ACM cert below) and Cloudflare in front.
+# Origin Access Control, served as jobs.alexisherrera.dev (dns.tf, cert.tf).
 #
-# The SPA on the cloudfront.net name stays reachable without Cloudflare Access: it holds no data
-# or secrets, and every /api/* call still needs the Access JWT (plan §6).
+# The SPA itself is public (also on the bare cloudfront.net name): it holds no data or secrets,
+# and every /api/* call needs a Cognito ID token (plan §6, cognito.tf).
 
 resource "aws_s3_bucket" "web" {
   bucket = "${local.name}-web-${local.account_id}"
@@ -75,8 +74,9 @@ data "aws_cloudfront_cache_policy" "disabled" {
   name = "Managed-CachingDisabled"
 }
 
-# Every viewer header (Cf-Access-Jwt-Assertion, cookies, x-amz-content-sha256), cookies and query
-# strings, but not Host: OAC signs for the Function URL's own host.
+# Every viewer header (X-Id-Token, x-amz-content-sha256), cookies and query strings, but not
+# Host: OAC signs for the Function URL's own host. OAC also replaces any viewer Authorization
+# header with its signature, which is why the token has its own header.
 data "aws_cloudfront_origin_request_policy" "all_but_host" {
   name = "Managed-AllViewerExceptHostHeader"
 }
@@ -142,6 +142,8 @@ resource "aws_cloudfront_distribution" "main" {
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security.id
   }
 
+  aliases = [var.domain]
+
   restrictions {
     geo_restriction {
       restriction_type = "none"
@@ -149,7 +151,9 @@ resource "aws_cloudfront_distribution" "main" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true # Phase 4: acm_certificate_arn + aliases
+    acm_certificate_arn      = aws_acm_certificate_validation.site.certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 }
 

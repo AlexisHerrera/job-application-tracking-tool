@@ -1,4 +1,6 @@
-// Typed client for the FastAPI backend. Same origin, so Cloudflare Access cookies ride along.
+// Typed client for the FastAPI backend (same origin). In prod every call carries the Cognito ID
+// token (auth.ts); locally there's no login.
+import { idToken, onAuthorized, onUnauthorized } from "./auth";
 
 export type Status =
   | "applied" | "screening" | "interviewing" | "on_hold" | "offer" | "rejected" | "withdrawn" | "ghosted";
@@ -314,7 +316,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     // payloads: every write carries the SHA-256 of its body (of "" when there is none).
     headers["x-amz-content-sha256"] = await sha256Hex(payload ?? "");
   }
+  const token = await idToken();
+  if (token) headers["X-Id-Token"] = token;
   const res = await fetch(`/api${path}`, { method, headers, body: payload, credentials: "same-origin" });
+  // Prod only (both are no-ops locally): a 401 means the session ran out, so sign in again.
+  if (res.status === 401 && (await onUnauthorized())) return new Promise<T>(() => {}); // leaving for the login page
+  if (res.ok) onAuthorized();
   if (!res.ok) {
     let detail = res.statusText;
     try {

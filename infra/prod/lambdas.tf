@@ -3,15 +3,13 @@
 
 locals {
   common_env = {
-    APP_ENV               = "prod"
-    DSQL_ENDPOINT         = local.dsql_endpoint
-    TIMEZONE              = "America/Buenos_Aires"
-    ALLOWED_EMAIL         = var.owner_email
-    GMAIL_ADDRESS         = var.owner_email
-    GOOGLE_CALENDAR_ID    = var.owner_email # prod reads the calendar through the service account only
-    CF_ACCESS_TEAM_DOMAIN = var.cf_access_team_domain
-    CF_ACCESS_AUD         = var.cf_access_aud
-    SSM_PARAMETER_PREFIX  = local.ssm_prefix
+    APP_ENV              = "prod"
+    DSQL_ENDPOINT        = local.dsql_endpoint
+    TIMEZONE             = "America/Buenos_Aires"
+    ALLOWED_EMAIL        = var.owner_email
+    GMAIL_ADDRESS        = var.owner_email
+    GOOGLE_CALENDAR_ID   = var.owner_email # prod reads the calendar through the service account only
+    SSM_PARAMETER_PREFIX = local.ssm_prefix
   }
   api_name    = "${local.name}-api"
   ingest_name = "${local.name}-ingest"
@@ -51,7 +49,7 @@ data "aws_iam_policy_document" "ingest" {
 module "api" {
   source      = "../modules/lambda_function"
   name        = local.api_name
-  description = "jobtracker HTTP API (FastAPI). Every route but /api/health needs a Cloudflare Access JWT."
+  description = "jobtracker HTTP API (FastAPI). Every route but /api/health and /api/auth/config needs a Cognito ID token."
   handler     = "jobtracker.lambdas.handlers.api"
   zip_path    = var.lambda_zip
   memory_mb   = 1024 # more CPU for the cold start
@@ -60,6 +58,10 @@ module "api" {
     DSQL_USER            = "jobtracker_api"
     SSM_SECRETS          = join(",", local.secrets.api)
     INGEST_FUNCTION_NAME = local.ingest_name
+    COGNITO_USER_POOL_ID = aws_cognito_user_pool.main.id
+    COGNITO_CLIENT_ID    = aws_cognito_user_pool_client.web.id
+    COGNITO_DOMAIN       = local.login_domain
+    APP_URL              = "https://${var.domain}"
   })
   policy_json        = data.aws_iam_policy_document.api.json
   log_retention_days = var.log_retention_days

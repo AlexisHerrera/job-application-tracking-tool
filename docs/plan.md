@@ -11,19 +11,20 @@ Status: **approved 2026-10-19**.
 - **LinkedIn Easy Apply**: used sometimes. Keep "application sent" confirmations and drop alerts. Manual add always works.
 - **Auto-create applications**: yes. They're flagged `needs_review` and shown in a "To review" list until confirmed.
 - **Notion import**: dropped (32 rows, entered manually through the UI/CSV).
-- **Cloudflare team**: `alexisherrera`.
+- **Cloudflare team**: `alexisherrera`. *(Superseded 2026-11-05: the login is Amazon Cognito, §19.)*
 
 ## 1. Big picture
 
 ```
-                    ┌──────────────── Cloudflare (DNS + Access, OTP to my email) ────────────────┐
- browser ──https──▶ │ jobs.alexisherrera.dev  ── adds Cf-Access-Jwt-Assertion ──▶ CloudFront     │
-                    └─────────────────────────────────────────────────────────────┬──────────────┘
-                                                                                  │
-                              ┌───────────────────────────────┬───────────────────┘
+            ┌── Cognito managed login (password + authenticator code) ──┐
+            │   returns an ID token to the SPA (code + PKCE)            │
+            ▼                                                           │
+ browser ──https──▶ jobs.alexisherrera.dev (Route 53 alias) ──▶ CloudFront   (X-Id-Token header)
+                                                                  │
+                              ┌───────────────────────────────┬───┘
                               ▼ /*  (OAC)                     ▼ /api/*  (OAC → Function URL)
                         S3 (private)                   Lambda "api"  (FastAPI via Mangum)
-                        React SPA                      validates CF Access JWT, else 401
+                        React SPA                      validates the Cognito ID token, else 401
                                                               │
  EventBridge Scheduler ── every 15 min ──▶ Lambda "ingest" ───┤
                                               │  IMAP (app password, X-GM-RAW search)
@@ -32,7 +33,7 @@ Status: **approved 2026-10-19**.
                                       SSM SecureString     Aurora DSQL (Postgres-compatible, serverless)
 ```
 
-Both Lambdas sit **outside a VPC**, so they get outbound internet (IMAP, Anthropic, Cloudflare certs) with no NAT gateway, and they reach DSQL, SSM and S3 over public AWS endpoints.
+Both Lambdas sit **outside a VPC**, so they get outbound internet (IMAP, Anthropic, the Cognito signing keys) with no NAT gateway, and they reach DSQL, SSM and S3 over public AWS endpoints.
 
 ## 2. Storage evaluation (you asked for SQL vs DynamoDB)
 
@@ -81,7 +82,7 @@ Getting data from local into prod (the backfill runs in Phase 2, before AWS exis
 │   │   │   ├── imap_gmail.py         # IMAP + X-GM-RAW + X-GM-THRID, UID checkpointing
 │   │   │   ├── anthropic_llm.py      # LLMClient over the Anthropic SDK (tool use / JSON schema)
 │   │   │   └── ssm_secrets.py
-│   │   ├── api/                      # FastAPI app + Cloudflare Access JWT middleware
+│   │   ├── api/                      # FastAPI app + Cognito ID-token check
 │   │   ├── cli/                      # Typer CLI: ingest, backfill, import, eval, db, app add…
 │   │   └── lambdas/                  # ingest_handler.py, api_handler.py (thin)
 │   ├── migrations/                   # 0001_init.sql …
@@ -152,6 +153,8 @@ Timestamps are stored as `timestamptz` in UTC and shown in `America/Buenos_Aires
 
 ## 6. Auth
 
+*(As planned with Cloudflare Access. Replaced by Amazon Cognito on 2026-11-05; see §19. The OAC, 401 and dev-bypass rules below still hold.)*
+
 - The API middleware validates `Cf-Access-Jwt-Assertion` with PyJWT: an RS256 signature against `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` (JWKS cached, refetched on an unknown `kid`), plus `aud`, `iss`, `exp`/`nbf`, and the `email` claim equal to the allowed email. Anything else gets **401**. The JWT check is mandatory regardless of the layers below.
 - **Defense in depth (proposal):** put the Function URL behind CloudFront OAC with `AuthType=AWS_IAM`, so a direct call to the Function URL gets 403 from AWS before the code even runs.
   - Gotcha: with OAC, POST/PUT/PATCH need an `x-amz-content-sha256` header with the body hash. The frontend fetch wrapper will add it.
@@ -193,7 +196,7 @@ The CLI (`uv run jobtracker …`) talks to the same DB. Tests: core unit tests u
    - Event-type accuracy with a confusion matrix, and matching accuracy.
    - Prompt tuning only against your labeled real emails.
 3. **AWS infra**: Terraform bootstrap + prod (both Lambdas, Scheduler, DSQL, SSM, S3, CloudFront + OAC, an ACM cert in us-east-1, Budget, log retention). Plus the data copy from local into DSQL.
-4. **Cloudflare (guided)**: your 8 steps, one at a time, with me verifying each (`dig`, curl). Terraform handles the DNS records, the ACM validation records, and the Access app + policy.
+4. **Login + domain** *(was Cloudflare; changed 2026-11-05, §19)*: Cognito user pool and managed login, the SPA's sign-in, the API's token check, and `jobs.alexisherrera.dev` in Route 53 with the ACM certificate validated. Terraform does all of it; I verify with `dig` and curl.
 5. **Dashboard**: the full UI, mobile-friendly. Stats page and "what should I study" report.
 6. **Deploy + verify**: an end-to-end check, including 401 without a valid JWT on the `cloudfront.net` hostname and on the Function URL. With OAC, the Function URL returns 403.
 7. *(Optional)* Chrome extension.
@@ -335,5 +338,26 @@ Branch `phase-3`. Nothing has been applied to AWS yet: every `terraform apply` w
 
 **SPA deployed (2026-11-05)** with `infra/scripts/deploy-frontend.sh`: `/`, `/index.html` and a deep link 200 `no-cache`; hashed assets `max-age=31536000, immutable`; `/api/applications` still 401.
 
-**Not verified yet**: the `api` role's DSQL login (every route but `/api/health` stops at the JWT check until Phase 4), and the lease refusing a second run under DSQL's OCC.
+**Not verified yet**: the lease refusing a second run under DSQL's OCC. *(The `api` role's DSQL login was verified on 2026-11-05 with the first real sign-in, §19.)*
+
+## 19. Phase 4: Cognito instead of Cloudflare (2026-11-05)
+
+**Why the change.** Cloudflare Access only protects hostnames that Cloudflare proxies, and on the free plan that means moving the whole `alexisherrera.dev` zone to Cloudflare's nameservers (partial/CNAME setup is Business and up, subdomain zones Enterprise). The zone is in Route 53, registered there, and another project's Terraform (`tapi.alexisherrera.dev`) already manages records in it; more AWS pages are coming. Moving DNS would push every future record out of Terraform-on-Route 53. Cognito keeps DNS where it is: this stack only adds its own records.
+
+**Login** (`infra/prod/cognito.tf`):
+- User pool `jobtracker`, Essentials tier (free up to 10,000 monthly active users; managed login needs it), deletion protection on. Sign-in with email, case-insensitive. **Sign-up off**: the only user is `owner_email`, created by Terraform, which makes Cognito email a temporary password (Terraform never sees a password).
+- **MFA required, authenticator app (TOTP) only.** Email codes would need SES; SMS costs money. Managed login asks for a new password and shows the QR code at the first sign-in.
+- Password: 12+ characters, upper, lower, number. "Forgot password" sends a code to the verified email (Cognito's default sender).
+- Managed login (v2) on `https://alexisherrera-jobs.auth.us-east-1.amazoncognito.com`. An app client made through the API has no style until a `aws_cognito_managed_login_branding` exists (Cognito's defaults here), and its pages don't load without one.
+- App client `jobtracker-web`: public (no secret), authorization code + PKCE, scopes `openid email`, returns only to `https://jobs.alexisherrera.dev/auth/callback`, logout to `/`. ID and access tokens 60 minutes, refresh token 7 days, revocation on.
+
+**API** (`api/auth.py`): validates the **ID token** in `X-Id-Token`: RS256 against the pool's JWKS (cached, refetched on an unknown `kid`), `iss` = the pool, `aud` = the app client, `token_use = id`, `exp`/`iat`/`sub` present, and `email` = `ALLOWED_EMAIL` with `email_verified = true`. Anything else → 401. Not `Authorization`: OAC overwrites it with the SigV4 signature for the Function URL. `GET /api/auth/config` (public) tells the SPA the authority, client ID, login domain and app URL, or `{"mode": "none"}` with the local dev bypass. The bypass rules (§6) are unchanged.
+
+**SPA** (`auth.ts`, `AuthGate.tsx`, `oidc-client-ts` 3.5.0): before rendering, load the config; on any host other than `APP_URL` (the bare cloudfront.net name), move to `APP_URL`, since Cognito only returns to registered URLs; finish the redirect on `/auth/callback` and go back to the page you asked for; otherwise sign in when there's no valid session. Tokens live in localStorage (the page loads no third-party script) and renew with the refresh token. A 401 signs in again once; a second 401 right after (e.g. a valid login for another email) shows the error instead of looping. **Sign out** revokes the refresh token, clears the tokens and calls Cognito's `/logout`.
+
+**Domain** (`infra/prod/dns.tf`): reads the existing `alexisherrera.dev` zone (doesn't own it), adds ACM's validation CNAME and waits for `ISSUED`, then CloudFront gets `aliases = [jobs.alexisherrera.dev]` with that certificate (SNI, TLS 1.2_2021), and `jobs` A/AAAA alias records point at the distribution. `tapi`'s records are untouched. The certificate was requested on 2026-11-04 21:18 UTC; ACM gives up on DNS validation after 72 hours, so the apply has to happen before 2026-11-07 21:18 UTC (otherwise the certificate has to be replaced).
+
+**Applied 2026-11-05** (9 added, 3 changed; the bucket policy came out identical). Checked from outside: `jobs` A/AAAA → CloudFront, `tapi` unchanged; certificate `CN=jobs.alexisherrera.dev` issued by Amazon (renews through the kept CNAME); `/` and `/api/health` 200, `/api/auth/config` 200 with the pool, `/api/applications` 401 without a token, the Function URL directly 403, the login page 200. The pool's discovery document lists a `revocation_endpoint`, so sign-out's revoke works. Then the user signed in (temporary password → new password → authenticator) and the dashboard loaded with real data: the first time the `jobtracker_api` role logged in to DSQL. No errors in the API's log.
+
+**Gaps**: there's no self-service reset for a lost authenticator (use an app that backs up its codes). The SPA shell is public, as before; it holds no data.
 

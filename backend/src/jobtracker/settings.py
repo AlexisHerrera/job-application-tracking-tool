@@ -57,8 +57,11 @@ class Settings:
     database_url: str
     allowed_email: str
     auth_dev_bypass: bool
-    cf_access_team_domain: str
-    cf_access_aud: str
+    # Amazon Cognito (prod login, plan §6): the user pool, the SPA's app client, and the login
+    # domain (https://<prefix>.auth.<region>.amazoncognito.com). None of them is secret.
+    cognito_user_pool_id: str
+    cognito_client_id: str
+    cognito_domain: str
     gmail_address: str
     gmail_app_password: str
     imap_host: str
@@ -79,6 +82,9 @@ class Settings:
     dsql_user: str = "admin"
     # Prod: the API's scan button invokes this Lambda instead of reading mail in-process.
     ingest_function_name: str = ""
+    # Prod: where the app lives (the login's return address). The SPA moves there from any other
+    # host (the bare cloudfront.net name), since Cognito only returns to registered URLs.
+    app_url: str = ""
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
@@ -90,8 +96,9 @@ class Settings:
             ),
             allowed_email=e.get("ALLOWED_EMAIL", "").strip().lower(),
             auth_dev_bypass=_bool(e.get("AUTH_DEV_BYPASS")),
-            cf_access_team_domain=e.get("CF_ACCESS_TEAM_DOMAIN", "").strip(),
-            cf_access_aud=e.get("CF_ACCESS_AUD", "").strip(),
+            cognito_user_pool_id=e.get("COGNITO_USER_POOL_ID", "").strip(),
+            cognito_client_id=e.get("COGNITO_CLIENT_ID", "").strip(),
+            cognito_domain=e.get("COGNITO_DOMAIN", "").strip().rstrip("/"),
             gmail_address=e.get("GMAIL_ADDRESS", "").strip().lower(),
             gmail_app_password=e.get("GMAIL_APP_PASSWORD", "").replace(" ", ""),
             imap_host=e.get("IMAP_HOST", "imap.gmail.com"),
@@ -109,6 +116,7 @@ class Settings:
             dsql_endpoint=e.get("DSQL_ENDPOINT", "").strip(),
             dsql_user=e.get("DSQL_USER", "admin").strip() or "admin",
             ingest_function_name=e.get("INGEST_FUNCTION_NAME", "").strip(),
+            app_url=e.get("APP_URL", "").strip().rstrip("/"),
         )
         s.validate(in_lambda=bool(e.get("AWS_LAMBDA_FUNCTION_NAME")))
         return s

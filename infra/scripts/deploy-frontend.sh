@@ -22,4 +22,4 @@ aws s3 cp dist/index.html "s3://$bucket/index.html" --profile "$profile" \
   --cache-control "no-cache" --content-type "text/html; charset=utf-8"
 aws cloudfront create-invalidation --profile "$profile" --distribution-id "$dist_id" \
   --paths "/index.html" "/" >/dev/null
-echo "deployed to https://$(cd "$root/infra/prod" && terraform output -raw cloudfront_domain)"
+echo "deployed to $(cd "$root/infra/prod" && terraform output -raw app_url)"

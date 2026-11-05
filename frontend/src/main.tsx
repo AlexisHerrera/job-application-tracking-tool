@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import App from "./App";
+import { AuthGate } from "./AuthGate";
 import { CampaignProvider } from "./campaign";
 import { RefreshProvider } from "./lib/refresh";
 import { ThemeProvider } from "./lib/theme";
@@ -13,14 +14,16 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
       <TooltipProvider delayDuration={300}>
-        <BrowserRouter>
-          <RefreshProvider>
-            <CampaignProvider>
-              <App />
-              <Toaster position="bottom-right" richColors closeButton />
-            </CampaignProvider>
-          </RefreshProvider>
-        </BrowserRouter>
+        <AuthGate>
+          <BrowserRouter>
+            <RefreshProvider>
+              <CampaignProvider>
+                <App />
+                <Toaster position="bottom-right" richColors closeButton />
+              </CampaignProvider>
+            </RefreshProvider>
+          </BrowserRouter>
+        </AuthGate>
       </TooltipProvider>
     </ThemeProvider>
   </StrictMode>,

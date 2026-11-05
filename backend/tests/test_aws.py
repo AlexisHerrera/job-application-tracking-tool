@@ -289,7 +289,7 @@ def test_prod_scan_still_running():
 def test_prod_api_without_jwt_is_401():
     settings = Settings.from_env(
         {"APP_ENV": "prod", "ALLOWED_EMAIL": "me@example.com",
-         "CF_ACCESS_TEAM_DOMAIN": "t.cloudflareaccess.com", "CF_ACCESS_AUD": "aud"}
+         "COGNITO_USER_POOL_ID": "us-east-1_Test", "COGNITO_CLIENT_ID": "client"}
     )  # fmt: skip
     client = TestClient(create_app(settings, repo_factory=MemoryRepo, remote_scan=lambda: {}))
     assert client.post("/api/scan", json={}).status_code == 401

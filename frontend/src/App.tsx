@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, CalendarRange, Flag, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, Menu, Monitor, Moon, Plus, RefreshCw, Sun } from "lucide-react";
+import { CalendarDays, CalendarRange, Flag, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, LogOut, Menu, Monitor, Moon, Plus, RefreshCw, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api, errorText, timeAgo, type CalendarSyncResult, type ScanResult } from "./api";
+import { canSignOut, signOut } from "./auth";
 import { CampaignPicker } from "./campaign";
 import AddApplication from "./pages/AddApplication";
 import ApplicationPage from "./pages/ApplicationPage";
@@ -109,6 +110,11 @@ function Sidebar({ inbox, onNavigate }: { inbox: number; onNavigate?: () => void
       <div className="mt-auto space-y-3 px-1">
         <ScanButton />
         <ThemeSwitch />
+        {canSignOut() && (
+          <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => void signOut()}>
+            <LogOut /> Sign out
+          </Button>
+        )}
       </div>
     </div>
   );
