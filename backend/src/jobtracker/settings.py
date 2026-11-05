@@ -74,6 +74,11 @@ class Settings:
     followup_days: int
     # Base64 of the service account's JSON key (or the JSON). Never printed in a repr.
     google_service_account_key: str = field(default="", repr=False)
+    # Aurora DSQL (prod): when set, connections use IAM token auth instead of DATABASE_URL.
+    dsql_endpoint: str = ""
+    dsql_user: str = "admin"
+    # Prod: the API's scan button invokes this Lambda instead of reading mail in-process.
+    ingest_function_name: str = ""
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
@@ -101,6 +106,9 @@ class Settings:
             ghost_days=int(e.get("GHOST_DAYS", "14")),
             followup_days=int(e.get("FOLLOWUP_DAYS", "7")),
             google_service_account_key=e.get("GOOGLE_SERVICE_ACCOUNT_KEY", "").strip(),
+            dsql_endpoint=e.get("DSQL_ENDPOINT", "").strip(),
+            dsql_user=e.get("DSQL_USER", "admin").strip() or "admin",
+            ingest_function_name=e.get("INGEST_FUNCTION_NAME", "").strip(),
         )
         s.validate(in_lambda=bool(e.get("AWS_LAMBDA_FUNCTION_NAME")))
         return s

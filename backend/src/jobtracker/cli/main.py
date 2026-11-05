@@ -11,7 +11,8 @@ from pathlib import Path
 
 import typer
 
-from jobtracker.adapters.db.migrate import migrate
+from jobtracker.adapters.db.connect import ADMIN, DsqlTarget, connect_dsql, connect_url
+from jobtracker.adapters.db.migrate import migrate, migrate_connection
 from jobtracker.adapters.db.repo import PostgresRepo
 from jobtracker.core import campaigns, services, stats
 from jobtracker.core.clock import SystemClock
@@ -44,6 +45,8 @@ details_app = typer.Typer(
 eval_app.add_typer(details_app, name="details")
 calendar_app = typer.Typer(no_args_is_help=True, help="Google Calendar sync (read-only).")
 app.add_typer(calendar_app, name="calendar")
+aws_app = typer.Typer(no_args_is_help=True, help="AWS deployment helpers (touch your AWS account).")
+app.add_typer(aws_app, name="aws")
 DETAILS_DIR = Path("../eval/details")
 
 
@@ -64,7 +67,7 @@ def _settings() -> Settings:
 
 
 def _repo(settings: Settings) -> PostgresRepo:
-    return PostgresRepo.connect(settings.database_url)
+    return PostgresRepo.open(settings)
 
 
 def _pipeline(settings: Settings, repo: PostgresRepo, dry_run: bool) -> Pipeline:
@@ -124,11 +127,77 @@ def _show_outcome(email, out) -> None:
     )
 
 
+DSQL_OPT = typer.Option(
+    None, "--dsql", help="Aurora DSQL cluster endpoint (<id>.dsql.<region>.on.aws), as admin."
+)
+PROFILE_OPT = typer.Option("jobtracker", "--profile", help="AWS profile for the IAM token.")
+
+
+def _dsql(endpoint: str, profile: str):
+    return connect_dsql(DsqlTarget(endpoint, ADMIN, profile=profile))
+
+
 @db_app.command("migrate")
-def db_migrate() -> None:
-    """Apply pending migrations."""
-    applied = migrate(_settings().database_url)
+def db_migrate(dsql: str | None = DSQL_OPT, profile: str = PROFILE_OPT) -> None:
+    """Apply pending migrations (local Postgres, or Aurora DSQL with --dsql)."""
+    if dsql:
+        with _dsql(dsql, profile) as conn:
+            applied = migrate_connection(conn, dsql=True)
+    else:
+        applied = migrate(_settings().database_url)
     typer.echo(f"applied: {', '.join(applied) or 'nothing (up to date)'}")
+
+
+@db_app.command("grant-roles")
+def db_grant_roles(
+    dsql: str = typer.Option(..., "--dsql", help="Aurora DSQL cluster endpoint."),
+    role: list[str] = typer.Option(
+        ..., "--role", help="db_role=arn:aws:iam::…:role/… (repeat per Lambda)."
+    ),
+    profile: str = PROFILE_OPT,
+) -> None:
+    """DSQL only: a login role per Lambda, mapped to its IAM role, with DML on the app tables."""
+    from jobtracker.adapters.db.dsql_roles import ensure_app_roles
+
+    roles = dict(r.split("=", 1) for r in role)
+    with _dsql(dsql, profile) as conn:
+        ran = ensure_app_roles(conn, roles)
+    typer.echo("\n".join(ran) or "nothing to do")
+
+
+@db_app.command("copy-to-dsql")
+def db_copy_to_dsql(
+    dsql: str = typer.Option(..., "--dsql", help="Aurora DSQL cluster endpoint."),
+    profile: str = PROFILE_OPT,
+    overwrite: bool = typer.Option(
+        False, help="Update rows that already exist in DSQL from local (default: only add)."
+    ),
+    dry_run: bool = typer.Option(False, help="Read and count only; write nothing."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask for confirmation."),
+) -> None:
+    """Copy the local database (read-only) into Aurora DSQL, in batches. Includes the mail
+    checkpoint so the ingest Lambda continues where the local app stopped."""
+    from jobtracker.adapters.db.copy import CopyError, copy_all
+
+    settings = _settings()
+    if not (dry_run or yes):
+        typer.confirm(
+            f"Copy {settings.database_url.rsplit('@', 1)[-1]} into {dsql}"
+            f"{' (overwriting existing rows)' if overwrite else ''}?",
+            abort=True,
+        )
+    with connect_url(settings.database_url) as source, _dsql(dsql, profile) as target:
+        try:
+            report = copy_all(
+                source, target, overwrite=overwrite, dry_run=dry_run, progress=typer.echo
+            )
+        except CopyError as err:
+            raise typer.BadParameter(str(err)) from err
+    typer.echo(f"mail checkpoint in DSQL: {report.mail_sync_state}")
+    typer.echo(f"newest processed UID in DSQL: {report.max_processed_uid}")
+    if report.mismatched and not dry_run:
+        typer.echo(f"⚠ fewer rows in DSQL than locally: {', '.join(report.mismatched)}")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -655,3 +724,40 @@ def calendar_list() -> None:
             f"{when:%Y-%m-%d %H:%M}  {iv.status.value:<9} {iv.source.value:<8} {who:<24} "
             f"{iv.title or ''}"
         )
+
+
+@aws_app.command("push-secrets")
+def aws_push_secrets(
+    profile: str = PROFILE_OPT,
+    prefix: str = typer.Option("/jobtracker/prod/", help="SSM parameter name prefix."),
+    region: str = typer.Option("us-east-1"),
+    only: list[str] = typer.Option([], "--only", help="Push only these names."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask for confirmation."),
+) -> None:
+    """Write the secrets from your local .env into SSM SecureStrings (aws/ssm key). The values
+    never go through Terraform, a command line or the Lambda configuration."""
+    import os
+
+    import boto3
+
+    from jobtracker.adapters import ssm_secrets
+
+    load_dotenv()
+    names = list(only) or list(ssm_secrets.SECRET_NAMES)
+    unknown = set(names) - set(ssm_secrets.SECRET_NAMES)
+    if unknown:
+        raise typer.BadParameter(f"not a secret this app reads: {sorted(unknown)}")
+    values = {n: os.environ.get(n, "").strip() for n in names}
+    if "GMAIL_APP_PASSWORD" in values:
+        values["GMAIL_APP_PASSWORD"] = values["GMAIL_APP_PASSWORD"].replace(" ", "")
+    empty = [n for n, v in values.items() if not v]
+    if empty:
+        raise typer.BadParameter(f"empty in .env: {', '.join(empty)}")
+    if not yes:
+        typer.confirm(
+            f"Write {', '.join(prefix + n for n in values)} (profile {profile}, {region})?",
+            abort=True,
+        )
+    client = boto3.Session(profile_name=profile, region_name=region).client("ssm")
+    for name in ssm_secrets.push(client, prefix, values):
+        typer.echo(f"wrote {name}")

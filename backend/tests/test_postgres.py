@@ -43,7 +43,7 @@ def test_url():
 def pg(test_url):
     repo = PostgresRepo.connect(test_url)
     for table in ("process_steps", "interview_notes", "interviews", "calendar_sync_state", "events", "applications", "company_aliases", "companies",
-                  "processed_messages", "mail_sync_state", "oauth_credentials"):  # fmt: skip
+                  "processed_messages", "mail_sync_state", "oauth_credentials", "ingest_lease"):  # fmt: skip
         repo.conn.execute(f"DELETE FROM {table}")
     yield repo
     repo.close()
@@ -216,5 +216,25 @@ def test_scan_bookkeeping(pg, test_url):
         assert pg.try_ingest_lock() and not other.try_ingest_lock()
         pg.conn.execute("SELECT pg_advisory_unlock_all()")
         assert other.try_ingest_lock()
+    finally:
+        other.close()
+
+
+def test_ingest_lease(pg, test_url):
+    """What the ingest Lambda uses in DSQL instead of the advisory lock."""
+    other = PostgresRepo.connect(test_url)
+    try:
+        assert pg.acquire_lease("ingest", "run-a", 60)
+        assert not other.acquire_lease("ingest", "run-b", 60)  # held
+        assert pg.acquire_lease("ingest", "run-a", 60)  # the holder may renew
+        other.release_lease("ingest", "run-b")  # not b's to release
+        assert not other.acquire_lease("ingest", "run-b", 60)
+        pg.release_lease("ingest", "run-a")
+        assert other.acquire_lease("ingest", "run-b", 60)
+        # A lease left by a crashed run expires on its own.
+        pg.conn.execute("UPDATE ingest_lease SET expires_at = now() - interval '1 second'")
+        assert pg.acquire_lease("ingest", "run-c", 60)
+        other.release_lease("ingest", "run-b")  # expired and taken over: stays c's
+        assert not other.acquire_lease("ingest", "run-b", 60)
     finally:
         other.close()

@@ -6,10 +6,17 @@ import logging
 import uuid
 from collections.abc import Callable, Iterator
 
+import psycopg
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from jobtracker.adapters.db.repo import PostgresRepo
+from jobtracker.adapters.lambda_ingest import (
+    IngestBusy,
+    IngestFailed,
+    IngestStillRunning,
+    LambdaIngest,
+)
 from jobtracker.api import schemas as s
 from jobtracker.api.auth import AccessVerifier, User
 from jobtracker.core import campaigns, insights, interviews, paste, process, services, stats
@@ -29,6 +36,18 @@ from jobtracker.settings import Settings
 log = logging.getLogger(__name__)
 
 
+_EMPTY_SCAN = {
+    "seen": 0,
+    "job": 0,
+    "created": 0,
+    "unassigned": 0,
+    "errors": 0,
+    "started_fresh": False,
+    "llm_calls": 0,
+    "running": False,
+}
+
+
 def _uuid(value: str) -> uuid.UUID:
     try:
         return uuid.UUID(value)
@@ -42,12 +61,13 @@ def create_app(
     llm_factory: Callable[[], LLMClient] | None = None,
     scan_factory: Callable[[PostgresRepo], tuple[Pipeline, MailSource]] | None = None,
     calendar_factory: Callable[[PostgresRepo], CalendarSource | None] | None = None,
+    remote_scan: Callable[[], dict] | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     verifier = AccessVerifier(settings)
     clock = SystemClock()
     tz = settings.tz
-    make_repo = repo_factory or (lambda: PostgresRepo.connect(settings.database_url))
+    make_repo = repo_factory or (lambda: PostgresRepo.open(settings))
 
     def default_llm() -> LLMClient:
         from jobtracker.adapters.anthropic_llm import AnthropicLLM
@@ -81,18 +101,18 @@ def create_app(
         )
         return Pipeline(repo, llm, clock, cfg), source
 
-    # Local only for now: in AWS this will invoke the ingest Lambda instead (Phase 3).
+    # Locally the scan runs in this process, guarded by a Postgres advisory lock. Aurora DSQL has
+    # no advisory locks, so in AWS the API invokes the ingest Lambda, which takes a lease in DSQL.
     make_scan = scan_factory or (default_scan if settings.app_env == "local" else None)
+    if remote_scan is None and settings.app_env == "prod" and settings.ingest_function_name:
+        remote_scan = LambdaIngest(settings.ingest_function_name)
 
     def default_calendar(repo: PostgresRepo) -> CalendarSource | None:
-        """The service account if configured, else a stored Google login, else None."""
+        """The service account if configured, else (local only) a stored Google login, else None."""
         from jobtracker.adapters.google_calendar import PROVIDER, make_source
 
-        return make_source(
-            settings.google_service_account_key,
-            settings.google_calendar_id,
-            repo.get_oauth(PROVIDER),
-        )
+        oauth = repo.get_oauth(PROVIDER) if settings.app_env == "local" else None
+        return make_source(settings.google_service_account_key, settings.google_calendar_id, oauth)
 
     make_calendar = calendar_factory or default_calendar
 
@@ -117,6 +137,15 @@ def create_app(
     @app.exception_handler(services.InvalidInput)
     def _invalid(_req, exc):
         return JSONResponse({"detail": str(exc)}, status_code=422)
+
+    @app.exception_handler(psycopg.errors.SerializationFailure)
+    def _conflict(_req, _exc):
+        # Aurora DSQL's optimistic concurrency: another write (usually the ingest run) touched the
+        # same rows first. The transaction rolled back, so trying again is safe.
+        return JSONResponse(
+            {"detail": "Something else changed this at the same moment. Try again."},
+            status_code=409,
+        )
 
     @app.get("/api/health")
     def health():
@@ -571,13 +600,15 @@ def create_app(
     def scan_status(repo: PostgresRepo = Depends(get_repo)):
         last = repo.last_sync_at()
         return {
-            "available": make_scan is not None,
+            "available": make_scan is not None or remote_scan is not None,
             "last_scan_at": last.isoformat() if last else None,
         }
 
     @api.post("/scan")
     def scan(repo: PostgresRepo = Depends(get_repo)):
         """Check the inbox now: new mail since the last run (reads Gmail, paid LLM calls)."""
+        if remote_scan is not None:
+            return _remote_scan()
         if make_scan is None:
             raise HTTPException(501, "Scanning from the dashboard isn't available here yet")
         if not repo.try_ingest_lock():
@@ -597,6 +628,19 @@ def create_app(
             "started_fresh": report.started_fresh,
             "llm_calls": pipeline.llm.usage.calls if pipeline.llm else 0,
         }
+
+    def _remote_scan() -> dict:
+        try:
+            r = remote_scan()
+        except IngestBusy as err:
+            raise HTTPException(409, "A scan is already running") from err
+        except IngestStillRunning:
+            # The run goes on in the ingest Lambda; new mail shows up when it finishes.
+            return {**_EMPTY_SCAN, "running": True}
+        except IngestFailed as err:
+            raise HTTPException(502, f"The scan failed: {err}") from err
+        log.info("scan (lambda): seen=%s counts=%s", r.get("seen"), r.get("counts"))
+        return {k: r.get(k, v) for k, v in _EMPTY_SCAN.items()}
 
     @api.get("/dashboard")
     def dashboard(repo: PostgresRepo = Depends(get_repo)):

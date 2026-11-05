@@ -7,7 +7,7 @@ Design and decisions: [`docs/plan.md`](docs/plan.md).
 ```
 backend/    Python 3.12 package `jobtracker` (core domain + adapters + API + CLI), uv / ruff / pytest
 frontend/   React + TypeScript + Vite dashboard (Tailwind v4 + shadcn/ui)
-infra/      Terraform (Phase 3)
+infra/      Terraform: bootstrap (state bucket) + prod stack, build/deploy scripts
 ```
 
 ## Local development
@@ -32,7 +32,7 @@ Editing anything under `backend/src` reloads the API; editing `frontend/src` hot
 
 **Locally (DBeaver / DataGrip):** a new PostgreSQL connection with host `localhost`, port `5433`, database `jobtracker`, user `jobtracker`, password `jobtracker`.
 
-**In prod (Aurora DSQL, from Phase 3):** there are no passwords; you sign in with your AWS SSO profile.
+**In prod (Aurora DSQL):** there are no passwords; you sign in with your AWS SSO profile (`jobtracker`) as `admin`. The endpoint is `terraform output dsql_endpoint` in `infra/prod`.
 - DBeaver Community: *Help → Install New Software → Add* `https://awslabs.github.io/aurora-dsql-dbeaver-plugin/update-site/`, install "Aurora DSQL Connector for JDBC", restart. Then *New connection → Aurora DSQL*, endpoint = cluster endpoint, user `admin`, AWS profile `jobtracker`. Tokens are generated for you.
 - DataGrip: PostgreSQL driver, SSL required, and an auth token (`aws dsql generate-db-connect-admin-auth-token --hostname <endpoint> --profile jobtracker`) as the password. Tokens expire, so regenerate when needed.
 
@@ -41,11 +41,99 @@ Editing anything under `backend/src` reloads the API; editing `frontend/src` hot
 ```bash
 cd backend
 uv run pytest          # Postgres integration tests run when `docker compose up db` is running, else skip
+                       # (throwaway databases jobtracker_test / jobtracker_copy_*; never `jobtracker`)
 uv run ruff check . && uv run ruff format --check .
 cd ../frontend && npm run typecheck
 ```
 
 All tests use **fake fixture emails** (`backend/tests/fixtures/emails`). They never touch Gmail or the Anthropic API.
+
+## Deploying to AWS
+
+Everything lives in us-east-1, account 630773215521, through the AWS profile `jobtracker` (SSO session `personal`). Design and decisions: [`docs/plan.md` §18](docs/plan.md). Requirements: Terraform ≥ 1.10, AWS CLI v2, uv.
+
+⚠️ Each step below touches the AWS account. `terraform apply` only ever runs a plan file you've read.
+
+### 0. AWS profile (once)
+
+```bash
+aws configure sso --profile jobtracker
+#   SSO session name: personal          (reuses the existing session)
+#   account: 630773215521 · role: AdministratorAccess
+#   default region: us-east-1 · output: json
+aws sso login --sso-session personal
+aws sts get-caller-identity --profile jobtracker
+```
+
+### 1. State bucket (once)
+
+```bash
+cd infra/bootstrap
+terraform init
+terraform plan -out tfplan      # read it
+terraform apply tfplan
+```
+
+It creates `jobtracker-tfstate-630773215521`, versioned, encrypted and private. Prod's state uses S3's native lockfile (no DynamoDB table). The bootstrap's own state is the local `terraform.tfstate` here (gitignored, holds only the bucket). If it's lost, `terraform import aws_s3_bucket.state jobtracker-tfstate-630773215521`.
+
+### 2. Prod stack
+
+```bash
+infra/scripts/build-lambda.sh   # → infra/build/lambda.zip (no AWS access)
+cd infra/prod
+terraform init
+terraform plan -out tfplan      # read it
+terraform apply tfplan
+terraform output next_steps     # the commands for step 3, with the real endpoint and role ARNs
+```
+
+This creates the DSQL cluster (deletion protection on), both Lambdas, the ingest schedule (**disabled**), the Function URL (IAM auth), CloudFront + OAC, the private SPA bucket, the ACM certificate (pending until Phase 4 adds its DNS records: `terraform output acm_validation_records`), the $5 budget alert and 14-day log groups. Rebuild the zip and plan again to ship backend code.
+
+### 3. Database, secrets, data (from `backend/`)
+
+```bash
+uv run jobtracker db migrate --dsql <endpoint>          # as admin, waits for each index build
+uv run jobtracker db grant-roles --dsql <endpoint> \
+  --role jobtracker_api=<api role ARN> --role jobtracker_ingest=<ingest role ARN>
+uv run jobtracker aws push-secrets                      # .env → SSM SecureStrings (asks first)
+uv run jobtracker db copy-to-dsql --dsql <endpoint> --dry-run   # counts only
+uv run jobtracker db copy-to-dsql --dsql <endpoint>             # the copy (asks first)
+```
+
+- `push-secrets` writes `GMAIL_APP_PASSWORD`, `ANTHROPIC_API_KEY` and `GOOGLE_SERVICE_ACCOUNT_KEY` to `/jobtracker/prod/…` with the `aws/ssm` key. Terraform never sees them; re-run after rotating one (`--only NAME`). The Lambdas read them at cold start, so a new value takes effect on the next cold start (or redeploy).
+- `copy-to-dsql` only reads the local database. Re-running only adds missing rows; `--overwrite` updates existing ones from local. It brings the mail checkpoint (`processed_messages`, `mail_sync_state`) so the Lambda continues after the last mail the local app processed. The local Google OAuth login is never copied.
+- **After copying, pick one side.** If the local app keeps scanning, both pay for the same new mail and drift apart.
+
+### 4. Turn on the schedule
+
+First run it once by hand and read the report (it continues from the copied checkpoint):
+
+```bash
+aws lambda invoke --profile jobtracker --function-name jobtracker-ingest \
+  --cli-binary-format raw-in-base64-out --payload '{"trigger":"manual"}' \
+  --cli-read-timeout 700 /tmp/ingest-out.json && cat /tmp/ingest-out.json
+```
+
+Then the schedule. `ingest_schedule_enabled` defaults to `true` in `variables.tf` (a one-off `-var` would be undone by the next plan without it); to pause ingest, set it to `false` and apply:
+
+```bash
+cd infra/prod
+terraform plan -out tfplan && terraform apply tfplan
+```
+
+From then on the ingest Lambda reads the inbox every 15 minutes.
+
+### 5. Frontend
+
+```bash
+AWS_PROFILE=jobtracker infra/scripts/deploy-frontend.sh   # build, upload to S3, invalidate
+```
+
+Until Phase 4 (Cloudflare Access) the API answers **401 to every call**, which is correct: there's no login yet, and no bypass exists in AWS. The Function URL answers 403 to anything not signed by CloudFront.
+
+### Costs
+
+Everything is meant to stay in the free tiers (Lambda, DSQL's 100k DPU + 1 GB, CloudFront, S3, SSM Standard, Scheduler). The budget emails `alexysaguilar@gmail.com` when actual or forecasted monthly spend passes $5. Anthropic usage is billed separately by Anthropic.
 
 ## Getting the credentials
 
@@ -82,7 +170,7 @@ The app reads your calendar as a **service account** you share it with. There's 
 
 **To cut access**: unshare the calendar, or delete the key in Google Cloud. To rotate it: create a new key, run step 5 again, delete the old one.
 
-**In AWS (Phase 3)**: `GOOGLE_SERVICE_ACCOUNT_KEY` goes into SSM as a SecureString with the other secrets, and the ingest Lambda syncs the calendar after the mail. A calendar error is logged and never fails the mail run.
+**In AWS**: `GOOGLE_SERVICE_ACCOUNT_KEY` goes into SSM as a SecureString with the other secrets (`jobtracker aws push-secrets`), `GOOGLE_CALENDAR_ID` is your Gmail address, and only the service account is used (no OAuth fallback). The ingest Lambda syncs the calendar after the mail. A calendar error is logged and never fails the mail run.
 
 **Fallback, OAuth login** (`jobtracker calendar login`, local only): an OAuth *Desktop app* client (`client_secret*.json` in the repo root, gitignored) with the `calendar.readonly` scope, and your Gmail as a test user. While the consent screen is in *Testing*, Google expires the login after 7 days. Publishing it needs a public home page and privacy policy. The service account is used whenever it's configured. Revoke an old login at https://myaccount.google.com/permissions and run `jobtracker calendar logout`.
 
@@ -93,6 +181,10 @@ Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside
 | Command | What it does |
 |---|---|
 | `db migrate` | Apply migrations (compose runs this automatically) |
+| `db migrate --dsql ENDPOINT` | ⚠️ AWS: apply migrations to Aurora DSQL as `admin` (profile `jobtracker`) |
+| `db grant-roles --dsql ENDPOINT --role NAME=ARN …` | ⚠️ AWS: one DSQL login role per Lambda, mapped to its IAM role, DML only |
+| `db copy-to-dsql --dsql ENDPOINT [--dry-run] [--overwrite]` | ⚠️ AWS: copy the local data (read-only) into DSQL in batches, mail checkpoint included |
+| `aws push-secrets [--only NAME]` | ⚠️ AWS: write the secrets from `.env` into SSM SecureStrings |
 | `app add --company X --role Y [--applied-at 2026-08-01 --stage rejected]` | Add an application |
 | `app import file.csv` | Bulk import (`company,role,applied_at,stage,job_url,company_domain,source_channel,seniority,stack,location,notes`) |
 | `app fill-details [--only COMPANY] [--all] [--dry-run]` | ⚠️ Reads each application's own emails again (read-only) and fills its **empty** fields: stack, location, salary, benefits, the job post… One paid call per application, asks first. Never overwrites: what the emails say differently is listed as *kept*. By default only applications with no details yet |
@@ -128,7 +220,7 @@ The first `ingest` run (or **Scan inbox now**) continues right after the newest 
 - **Review** (dashboard or Applications header) walks through the applications created automatically from emails, one at a time: <kbd>Enter</kbd> looks right, <kbd>S</kbd> skip, <kbd>D</kbd> twice deletes (its emails go back to the inbox), <kbd>E</kbd> edits the role. Cards that need review also have a ✓ button on the board.
 - **Waiting on your reply** lists only open requests on active processes: closed or on-hold applications and requests the conversation already moved past are left out. **Done** clears one by hand.
 - **Where applications went** is a sankey of the campaign: each application through the stages it reached, ending where it stands today (also available as a table).
-- **Scan inbox now** (sidebar, local only for now) runs the same incremental ingest as `jobtracker ingest` and shows what it found. ⚠️ It reads your real inbox and makes paid LLM calls for job-like mail. In AWS the scheduled Lambda does this every 15 minutes; the button will be rewired then (Phase 3).
+- **Scan inbox now** (sidebar) runs the same incremental ingest as `jobtracker ingest` and shows what it found. ⚠️ It reads your real inbox and makes paid LLM calls for job-like mail. Locally it runs inside the API; in AWS it invokes the ingest Lambda (which the schedule runs every 15 minutes). If a run is already going it says so, and a long one finishes in the background.
 - **Salary** is typed as a range that formats while you type (`90k`, `90000` → `90,000`), with a currency and *per year / per month* switch. A preview shows exactly what is saved (always yearly; monthly × 12), and it warns when a figure looks like the wrong period.
 - Light, dark or system theme from the sidebar.
 

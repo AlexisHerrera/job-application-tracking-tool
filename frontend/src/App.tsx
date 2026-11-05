@@ -132,8 +132,8 @@ function calendarSummary(r: CalendarSyncResult): string | null {
 }
 
 // Runs the incremental ingest now (reads Gmail, paid LLM calls for job-like mail), then the
-// calendar sync if it's connected (read-only, free). Local only for now; in AWS the scheduled
-// Lambda does this every 15 minutes.
+// calendar sync if it's connected (read-only, free). Locally it runs in the API; in AWS the API
+// invokes the ingest Lambda (which the schedule also runs every 15 minutes).
 function ScanButton() {
   const { bump } = useRefresh();
   const status = useAsync(api.scanStatus).data;
@@ -146,7 +146,8 @@ function ScanButton() {
     const id = toast.loading("Checking your inbox…");
     try {
       const r = await api.scan();
-      if (r.errors) toast.warning(`${scanSummary(r)}. Stopped at an email that failed; the next scan retries it.`, { id });
+      if (r.running) toast.info("Still scanning in the background. New mail will show up when it's done.", { id });
+      else if (r.errors) toast.warning(`${scanSummary(r)}. Stopped at an email that failed; the next scan retries it.`, { id });
       else toast.success(scanSummary(r), { id });
     } catch (e) {
       toast.error(errorText(e), { id });

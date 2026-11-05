@@ -30,9 +30,18 @@ DSQL_FORBIDDEN = [
     (r"\bCREATE\s+TRIGGER\b", "triggers"),
     (r"\bSERIAL\b|\bBIGSERIAL\b", "serial columns"),
     (r"\w\[\]", "array columns"),
-    (r"\bON DELETE CASCADE\b", "cascades"),
+    (r"\bON DELETE CASCADE\b", "cascades"),  # supported, but child rows count toward 3,000/tx
     (r"\bLANGUAGE\s+plpgsql\b", "PL/pgSQL"),
+    (r"\bCREATE\s+(SEQUENCE|EXTENSION|TYPE)\b", "sequences, extensions and custom types"),
+    (r"\bCONCURRENTLY\b", "CONCURRENTLY (the runner makes indexes ASYNC on DSQL)"),
+    (r"\bTABLESPACE\b", "tablespaces"),
 ]
+# DSQL's ALTER TABLE ADD COLUMN takes a name and a type only (no DEFAULT, NOT NULL, REFERENCES,
+# UNIQUE, CHECK…), and constraints added later must be NOT VALID (docs, checked 2026-11-04).
+_ADD_COLUMN = re.compile(r"\bADD\s+COLUMN\b(.*)$", re.IGNORECASE | re.DOTALL)
+_COLUMN_EXTRAS = re.compile(
+    r"\b(DEFAULT|NOT\s+NULL|REFERENCES|UNIQUE|CHECK|PRIMARY|GENERATED|COLLATE)\b", re.IGNORECASE
+)
 
 
 def test_migrations_are_dsql_compatible():
@@ -42,6 +51,12 @@ def test_migrations_are_dsql_compatible():
                 assert not re.search(pattern, stmt, re.IGNORECASE), (
                     f"{name}: {what} not supported on DSQL"
                 )
+            if m := _ADD_COLUMN.search(stmt):
+                assert not _COLUMN_EXTRAS.search(m.group(1)), (
+                    f"{name}: DSQL's ADD COLUMN takes only a name and a type: {stmt[:70]}"
+                )
+            if re.search(r"\bADD\s+(CONSTRAINT|FOREIGN|CHECK)\b", stmt, re.IGNORECASE):
+                assert "NOT VALID" in stmt.upper(), f"{name}: DSQL needs ADD CONSTRAINT … NOT VALID"
             if stmt.upper().startswith(("CREATE", "ALTER TABLE")):
                 assert "IF NOT EXISTS" in stmt.upper(), (
                     f"{name}: DDL must be idempotent: {stmt[:60]}"

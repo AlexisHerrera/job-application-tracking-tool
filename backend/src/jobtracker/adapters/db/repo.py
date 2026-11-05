@@ -5,13 +5,13 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 
 import psycopg
-from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from jobtracker.adapters.db.connect import DsqlTarget, connect_dsql, connect_url
 from jobtracker.core.models import (
     AliasKind,
     Application,
@@ -33,6 +33,7 @@ from jobtracker.core.models import (
     StepLink,
 )
 from jobtracker.core.ports import SyncState, ThreadMatch
+from jobtracker.settings import Settings
 
 
 def _v(value):
@@ -223,7 +224,14 @@ class PostgresRepo:
 
     @classmethod
     def connect(cls, conninfo: str) -> PostgresRepo:
-        return cls(psycopg.connect(conninfo, autocommit=True, row_factory=dict_row))
+        return cls(connect_url(conninfo))
+
+    @classmethod
+    def open(cls, settings: Settings) -> PostgresRepo:
+        """Aurora DSQL with IAM auth when DSQL_ENDPOINT is set (prod), else DATABASE_URL."""
+        if settings.dsql_endpoint:
+            return cls(connect_dsql(DsqlTarget(settings.dsql_endpoint, settings.dsql_user)))
+        return cls.connect(settings.database_url)
 
     def close(self) -> None:
         self.conn.close()
@@ -283,9 +291,35 @@ class PostgresRepo:
     def try_ingest_lock(self) -> bool:
         """Session advisory lock so two local scans can't process the same mail at once; released
         when the connection closes. Local Postgres only: Aurora DSQL has no advisory locks, so in
-        AWS the ingest Lambda's reserved concurrency serializes runs instead (Phase 3)."""
+        AWS the ingest Lambda takes a lease instead (`acquire_lease`)."""
         r = self._one("SELECT pg_try_advisory_lock(%s) AS ok", (INGEST_LOCK_KEY,))
         return bool(r and r["ok"])
+
+    def acquire_lease(self, name: str, holder: str, seconds: float) -> bool:
+        """Take the named lease unless someone else holds an unexpired one. One statement (its own
+        transaction): on Postgres a second taker waits for the first and then sees its row; on
+        DSQL two takers write the same key and the loser's commit fails (OCC), which is a no."""
+        now = _now()
+        try:
+            r = self._one(
+                "INSERT INTO ingest_lease (name, holder, acquired_at, expires_at)"
+                " VALUES (%s, %s, %s, %s) ON CONFLICT (name) DO UPDATE SET"
+                " holder = EXCLUDED.holder, acquired_at = EXCLUDED.acquired_at,"
+                " expires_at = EXCLUDED.expires_at"
+                " WHERE ingest_lease.expires_at <= EXCLUDED.acquired_at"
+                " OR ingest_lease.holder = EXCLUDED.holder"
+                " RETURNING holder",
+                (name, holder, now, now + timedelta(seconds=seconds)),
+            )
+        except (psycopg.errors.SerializationFailure, psycopg.errors.UniqueViolation):
+            return False
+        return r is not None
+
+    def release_lease(self, name: str, holder: str) -> None:
+        """Only the holder's own lease: one that expired and was taken over stays put."""
+        self.conn.execute(
+            "DELETE FROM ingest_lease WHERE name = %s AND holder = %s", (name, holder)
+        )
 
     # companies
     def _provider_rows(self) -> dict[str, tuple[str, str]]:

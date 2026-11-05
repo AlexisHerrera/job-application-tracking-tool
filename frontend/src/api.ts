@@ -262,6 +262,7 @@ export interface ScanResult {
   errors: number;
   started_fresh: boolean;
   llm_calls: number;
+  running?: boolean; // AWS: we stopped waiting, the ingest run goes on and its results show up later
 }
 
 export type ChangeKind = "fill" | "change" | "append";
@@ -307,8 +308,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (body !== undefined) {
     payload = JSON.stringify(body);
     headers["Content-Type"] = "application/json";
-    // Required by CloudFront OAC in front of the Lambda Function URL for requests with a body.
-    headers["x-amz-content-sha256"] = await sha256Hex(payload);
+  }
+  if (method !== "GET" && method !== "HEAD") {
+    // CloudFront OAC signs requests to the Lambda Function URL, and Lambda doesn't accept unsigned
+    // payloads: every write carries the SHA-256 of its body (of "" when there is none).
+    headers["x-amz-content-sha256"] = await sha256Hex(payload ?? "");
   }
   const res = await fetch(`/api${path}`, { method, headers, body: payload, credentials: "same-origin" });
   if (!res.ok) {
