@@ -4,7 +4,7 @@ Updated 2026-11-12. The design and its history are in `docs/plan.md` §20. Read 
 
 ## Status
 
-**Phase (a) is done and committed** on branch `claude/job-tracker-ai-analysis-df6305` (worktree `.claude/worktrees/job-tracker-ai-analysis-df6305`). It isn't merged into `main` and isn't pushed.
+**Phase (a) is done and merged into `main`** (2026-11-12). The worktree and branch it was built on are gone.
 
 - Backend: migration `0011_discovery.sql`, `core/discovery.py`, `adapters/jsearch.py`, `adapters/remoteyeah.py`, the `/api/discover*` routes, the `jobtracker discover seed|searches|run` CLI, and tests (`tests/test_discovery.py`, plus discovery cases in `test_api.py` and `test_postgres.py`).
 - Frontend: `/discover` page (`frontend/src/pages/Discover.tsx`) with a "Criteria & searches" side panel, in the nav as **Discover**.
@@ -27,8 +27,8 @@ Updated 2026-11-12. The design and its history are in `docs/plan.md` §20. Read 
 
 ## Running it locally
 
-- From the worktree: `docker compose up --build`. **`--build` matters** whenever `pyproject.toml` changes: the dev image installs packages at build time, and the first run failed with `No module named 'defusedxml'` because compose reused the main checkout's image. The same applies when switching back to `main`.
-- `.env` in the worktree is a symlink to the main checkout's `.env` (gitignored). `JSEARCH_API_KEY` and `ANTHROPIC_API_KEY` are both set.
+- From the repo root: `docker compose up --build`. **`--build` matters** whenever `pyproject.toml` changes: the dev image installs packages at build time, and the first run failed with `No module named 'defusedxml'` because compose reused an image built before that package was added. Migration `0011` is already applied to the local `jobtracker` database.
+- `.env` has `JSEARCH_API_KEY` and `ANTHROPIC_API_KEY`.
 - CLI from `backend/`: `uv run jobtracker discover run [--dry-run] [--no-llm] [--source jsearch|remoteyeah] [--rescore]`. A dry run still spends JSearch requests and records its run row, but stores no postings and makes no LLM calls.
 
 ## Next: phase (b), AWS (not started)
