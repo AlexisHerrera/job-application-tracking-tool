@@ -18,6 +18,8 @@ from jobtracker.core.models import (
     Campaign,
     Company,
     CompanyAlias,
+    DiscoveryRun,
+    DiscoverySearch,
     Event,
     EventKind,
     EventType,
@@ -25,8 +27,10 @@ from jobtracker.core.models import (
     InterviewNote,
     InterviewSource,
     InterviewStatus,
+    JobPosting,
     MatchMethod,
     Origin,
+    PostingStatus,
     ProcessStep,
     Stage,
     StepKind,
@@ -67,6 +71,16 @@ INTERVIEW_COLUMNS = [
     "round", "interview_type", "location", "meeting_url", "organizer", "attendees", "calendar_id",
     "calendar_event_id", "ical_uid", "html_link", "event_id", "match_method", "assigned_by",
     "dismissed", "created_at", "updated_at", "general", "notes",
+]  # fmt: skip
+POSTING_COLUMNS = [
+    "id", "source", "source_id", "search_id", "url", "title", "company", "company_normalized",
+    "location", "employment_type", "salary_text", "salary_min", "salary_max", "salary_period",
+    "publisher", "posted_at", "description", "fetched_at", "drop_reason", "ai_verdict", "ai_score",
+    "ai_result", "ai_model", "prompt_version", "status", "application_id", "updated_at",
+]  # fmt: skip
+RUN_COLUMNS = [
+    "id", "started_at", "finished_at", "trigger", "jsearch_requests", "fetched", "new", "dropped",
+    "llm_calls", "errors", "notes",
 ]  # fmt: skip
 STEP_COLUMNS = [
     "id", "application_id", "position", "name", "kind", "optional", "link", "interview_id",
@@ -198,6 +212,24 @@ def _step_from(r: dict) -> ProcessStep:
     )
 
 
+def _posting_row(p: JobPosting) -> dict:
+    row = {c: _v(getattr(p, c)) for c in POSTING_COLUMNS}
+    row["ai_result"] = Jsonb(p.ai_result) if p.ai_result is not None else None
+    return row
+
+
+def _posting_from(r: dict) -> JobPosting:
+    data = {c: r[c] for c in POSTING_COLUMNS}
+    data["status"] = PostingStatus(r["status"])
+    return JobPosting(**data)
+
+
+def _run_from(r: dict) -> DiscoveryRun:
+    data = {c: r[c] for c in RUN_COLUMNS}
+    data["notes"] = [n for n in (r["notes"] or "").split("\n") if n]
+    return DiscoveryRun(**data)
+
+
 def _insert(table: str, row: dict) -> str:
     cols = ", ".join(row)
     vals = ", ".join(f"%({c})s" for c in row)
@@ -215,6 +247,7 @@ _APP_SELECT = (
 
 
 INGEST_LOCK_KEY = 0x6A6F6273  # arbitrary, constant across processes
+DISCOVERY_LOCK_KEY = 0x6A6F6274
 
 
 class PostgresRepo:
@@ -293,6 +326,11 @@ class PostgresRepo:
         when the connection closes. Local Postgres only: Aurora DSQL has no advisory locks, so in
         AWS the ingest Lambda takes a lease instead (`acquire_lease`)."""
         r = self._one("SELECT pg_try_advisory_lock(%s) AS ok", (INGEST_LOCK_KEY,))
+        return bool(r and r["ok"])
+
+    def try_discovery_lock(self) -> bool:
+        """Same idea for discovery runs started from the page (local only)."""
+        r = self._one("SELECT pg_try_advisory_lock(%s) AS ok", (DISCOVERY_LOCK_KEY,))
         return bool(r and r["ok"])
 
     def acquire_lease(self, name: str, holder: str, seconds: float) -> bool:
@@ -650,3 +688,126 @@ class PostgresRepo:
 
     def delete_oauth(self, provider: str) -> None:
         self.conn.execute("DELETE FROM oauth_credentials WHERE provider = %s", (provider,))
+
+    # job discovery (plan §20)
+    def posting_exists(self, source: str, source_id: str) -> bool:
+        return (
+            self._one(
+                "SELECT 1 FROM job_postings WHERE source = %s AND source_id = %s",
+                (source, source_id),
+            )
+            is not None
+        )
+
+    def add_posting(self, posting: JobPosting) -> None:
+        self.conn.execute(_insert("job_postings", _posting_row(posting)), _posting_row(posting))
+
+    def update_posting(self, posting: JobPosting) -> None:
+        row = _posting_row(posting)
+        self.conn.execute(_update("job_postings", row), row)
+
+    def get_posting(self, posting_id: uuid.UUID) -> JobPosting | None:
+        r = self._one("SELECT * FROM job_postings WHERE id = %s", (posting_id,))
+        return _posting_from(r) if r else None
+
+    def list_postings(self, since: datetime | None = None) -> list[JobPosting]:
+        if since is None:
+            rows = self._all("SELECT * FROM job_postings ORDER BY fetched_at DESC, id")
+        else:
+            rows = self._all(
+                "SELECT * FROM job_postings WHERE fetched_at >= %s ORDER BY fetched_at DESC, id",
+                (since,),
+            )
+        return [_posting_from(r) for r in rows]
+
+    def recent_posting_keys(self, since: datetime) -> list[tuple[str, str]]:
+        rows = self._all(
+            "SELECT company_normalized, title FROM job_postings WHERE fetched_at >= %s", (since,)
+        )
+        return [(r["company_normalized"], r["title"]) for r in rows]
+
+    def unscored_postings(self, limit: int) -> list[JobPosting]:
+        rows = self._all(
+            "SELECT * FROM job_postings WHERE drop_reason IS NULL AND ai_verdict IS NULL"
+            " AND status = %s ORDER BY fetched_at, id LIMIT %s",
+            (PostingStatus.NEW.value, limit),
+        )
+        return [_posting_from(r) for r in rows]
+
+    def reset_scores(self, statuses: tuple[PostingStatus, ...], since: datetime) -> int:
+        # Only scored rows change. A scored row hidden as a consultancy was hidden by the LLM (the
+        # rule hides before scoring), so it gets a second chance too.
+        marks = ", ".join(["%s"] * len(statuses))
+        return self.conn.execute(
+            "UPDATE job_postings SET ai_verdict = NULL, ai_score = NULL, ai_result = NULL,"
+            " ai_model = NULL, prompt_version = NULL,"
+            " drop_reason = CASE WHEN drop_reason = 'consultancy' THEN NULL ELSE drop_reason END"
+            f" WHERE status IN ({marks}) AND fetched_at >= %s AND ai_verdict IS NOT NULL",
+            (*[st.value for st in statuses], since),
+        ).rowcount
+
+    def list_searches(self) -> list[DiscoverySearch]:
+        rows = self._all("SELECT * FROM discovery_searches ORDER BY created_at, id")
+        return [
+            DiscoverySearch(
+                id=r["id"],
+                source=r["source"],
+                label=r["label"],
+                params=dict(r["params"] or {}),
+                enabled=r["enabled"],
+                created_at=r["created_at"],
+            )
+            for r in rows
+        ]
+
+    def get_search(self, search_id: uuid.UUID) -> DiscoverySearch | None:
+        return next((x for x in self.list_searches() if x.id == search_id), None)
+
+    def save_search(self, search: DiscoverySearch) -> None:
+        row = {
+            "id": search.id,
+            "source": search.source,
+            "label": search.label,
+            "params": Jsonb(search.params),
+            "enabled": search.enabled,
+            "created_at": search.created_at or _now(),
+        }
+        sets = ", ".join(f"{c} = EXCLUDED.{c}" for c in row if c not in {"id", "created_at"})
+        self.conn.execute(
+            f"{_insert('discovery_searches', row)} ON CONFLICT (id) DO UPDATE SET {sets}", row
+        )
+
+    def delete_search(self, search_id: uuid.UUID) -> None:
+        self.conn.execute("DELETE FROM discovery_searches WHERE id = %s", (search_id,))
+
+    def get_discovery_setting(self, key: str) -> object | None:
+        r = self._one("SELECT value FROM discovery_settings WHERE key = %s", (key,))
+        return r["value"] if r else None
+
+    def set_discovery_setting(self, key: str, value: object) -> None:
+        self.conn.execute(
+            "INSERT INTO discovery_settings (key, value, updated_at) VALUES (%s, %s, %s)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value,"
+            " updated_at = EXCLUDED.updated_at",
+            (key, Jsonb(value), _now()),
+        )
+
+    def save_run(self, run: DiscoveryRun) -> None:
+        row = {c: getattr(run, c) for c in RUN_COLUMNS}
+        row["notes"] = "\n".join(run.notes) or None
+        sets = ", ".join(f"{c} = EXCLUDED.{c}" for c in row if c not in {"id", "started_at"})
+        self.conn.execute(
+            f"{_insert('discovery_runs', row)} ON CONFLICT (id) DO UPDATE SET {sets}", row
+        )
+
+    def last_run(self) -> DiscoveryRun | None:
+        r = self._one("SELECT * FROM discovery_runs ORDER BY started_at DESC LIMIT 1")
+        return _run_from(r) if r else None
+
+    def jsearch_requests_since(self, since: datetime) -> int:
+        r = self._one(
+            "SELECT coalesce(sum(jsearch_requests), 0) AS n FROM discovery_runs"
+            " WHERE started_at >= %s",
+            (since,),
+        )
+        return int(r["n"]) if r else 0

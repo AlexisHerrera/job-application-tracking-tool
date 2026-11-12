@@ -322,3 +322,72 @@ class ProcessStep:
     done_at: datetime | None = None  # marked done by hand
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+# Job discovery (plan §20)
+
+
+class PostingStatus(StrEnum):
+    NEW = "new"
+    INTERESTED = "interested"
+    DISMISSED = "dismissed"
+    APPLIED = "applied"
+
+
+@dataclass(slots=True)
+class JobPosting:
+    """An open position collected from a job source. Everything in it comes from the web, so it's
+    untrusted text: shown as text, given to the LLM as data, never followed or executed."""
+
+    source: str  # "jsearch" | "remoteyeah"
+    source_id: str
+    url: str
+    title: str
+    company: str
+    description: str = ""
+    location: str | None = None
+    employment_type: str | None = None
+    salary_text: str | None = None
+    salary_min: int | None = None
+    salary_max: int | None = None
+    salary_period: str | None = None  # "YEAR" | "MONTH" | "HOUR" …, as the source says
+    publisher: str | None = None
+    posted_at: datetime | None = None
+    id: uuid.UUID = field(default_factory=new_id)
+    search_id: uuid.UUID | None = None
+    company_normalized: str = ""
+    fetched_at: datetime | None = None
+    drop_reason: str | None = None  # set by the rules (or "consultancy" by the LLM): hidden
+    ai_verdict: str | None = None  # "match" | "maybe" | "no"; None = not scored yet
+    ai_score: int | None = None
+    ai_result: dict | None = None
+    ai_model: str | None = None
+    prompt_version: str | None = None
+    status: PostingStatus = PostingStatus.NEW
+    application_id: uuid.UUID | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class DiscoverySearch:
+    source: str
+    label: str
+    params: dict
+    id: uuid.UUID = field(default_factory=new_id)
+    enabled: bool = True
+    created_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class DiscoveryRun:
+    started_at: datetime
+    trigger: str
+    id: uuid.UUID = field(default_factory=new_id)
+    finished_at: datetime | None = None
+    jsearch_requests: int = 0
+    fetched: int = 0
+    new: int = 0
+    dropped: int = 0
+    llm_calls: int = 0
+    errors: int = 0
+    notes: list[str] = field(default_factory=list)

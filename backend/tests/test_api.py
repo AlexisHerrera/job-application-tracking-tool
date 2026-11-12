@@ -201,3 +201,80 @@ def test_interviews_and_notes_per_interview(repo):
 def test_calendar_not_connected(client):
     assert client.get("/api/calendar").json()["connected"] is False
     assert client.post("/api/calendar/sync").status_code == 409
+
+
+def test_discover_page_flow(repo):
+    from datetime import UTC, datetime
+
+    from jobtracker.core import discovery
+    from tests.fakes import FakeLLM, FakeSource, posting, verdict
+
+    settings = Settings.from_env(
+        {"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com",
+         "JSEARCH_API_KEY": "k"}
+    )  # fmt: skip
+    now = datetime.now(UTC)
+    source = FakeSource([
+        posting(source_id="1", company="Northwind Pay", title="Senior Backend Engineer", posted_at=now),
+        posting(source_id="2", company="Contoso", title="Full Stack Engineer", posted_at=now),
+        posting(source_id="3", company="Toptal", title="Senior React Developer", posted_at=now),
+    ])  # fmt: skip
+    llm = FakeLLM(discover={"Northwind": verdict(verdict="match", score=88),
+                            "Contoso": verdict(verdict="no", score=20)})  # fmt: skip
+    client = TestClient(
+        create_app(settings, repo_factory=lambda: repo,
+                   discovery_factory=lambda: ({"jsearch": source}, llm))
+    )  # fmt: skip
+
+    state = client.post("/api/discover/seed").json()
+    assert state["added"]["searches"] == len(discovery.DEFAULT_SEARCHES)
+    assert state["jsearch_configured"] and state["can_run"]
+    # only one search on, so the fake source answers once
+    for x in state["searches"][1:]:
+        assert client.patch(f"/api/discover/searches/{x['id']}", json={"enabled": False}).status_code == 200  # fmt: skip
+
+    run = client.post("/api/discover/run", json={}).json()
+    assert (run["new"], run["dropped"], run["llm_calls"]) == (3, 1, 2)
+
+    page = client.get("/api/discover").json()
+    assert [p["company"] for p in page["postings"]] == ["Northwind Pay", "Contoso"]  # by score
+    assert page["counts"] == {"total": 3, "hidden": 1, "unscored": 0}
+    assert page["postings"][0]["search_label"] == state["searches"][0]["label"]
+    hidden = client.get("/api/discover", params={"hidden": True}).json()["postings"]
+    assert [(p["company"], p["drop_reason"]) for p in hidden] == [("Toptal", "agency")]
+    assert [p["company"] for p in client.get("/api/discover", params={"verdict": "match"}).json()["postings"]] == ["Northwind Pay"]  # fmt: skip
+
+    top = page["postings"][0]
+    r = client.post(f"/api/discover/{top['id']}/apply")
+    assert r.status_code == 201, r.text
+    assert r.json()["application"]["source_channel"] == "discover"
+    after = client.get("/api/discover").json()["postings"]
+    assert after[0]["status"] == "applied" and after[0]["in_tracker"]
+    contoso = after[1]
+    assert client.patch(f"/api/discover/{contoso['id']}", json={"status": "dismissed"}).json()["status"] == "dismissed"  # fmt: skip
+    assert client.patch(f"/api/discover/{contoso['id']}", json={"status": "bogus"}).status_code == 422  # fmt: skip
+
+
+def test_discover_settings_and_searches(client):
+    r = client.put("/api/discover/settings", json={"criteria": "  Lives in BA  ", "rules": {"max_age_days": 10, "agencies": ["Acme Talent"]}})  # fmt: skip
+    body = r.json()
+    assert body["criteria"] == "Lives in BA"
+    assert body["rules"]["max_age_days"] == 10 and body["rules"]["agencies"] == ["Acme Talent"]
+    assert body["rules"]["title_exclude"]  # defaults kept for keys not sent
+    assert client.put("/api/discover/settings", json={"criteria": " "}).status_code == 422
+
+    r = client.post("/api/discover/searches", json={"source": "jsearch", "label": "BR", "params": {"query": "backend", "country": "BR"}})  # fmt: skip
+    assert r.status_code == 201 and r.json()["params"] == {"query": "backend", "country": "br"}
+    sid = r.json()["id"]
+    bad = client.post("/api/discover/searches", json={"source": "remoteyeah", "label": "x", "params": {"feed": "https://evil.test/a.xml"}})  # fmt: skip
+    assert bad.status_code == 422 and "remoteyeah.com" in bad.json()["detail"]
+    assert client.patch(f"/api/discover/searches/{sid}", json={"params": {"query": ""}}).status_code == 422  # fmt: skip
+    assert client.delete(f"/api/discover/searches/{sid}").status_code == 204
+    assert client.get("/api/discover/settings").json()["searches"] == []
+
+
+def test_discover_run_is_local_only(repo):
+    settings = Settings.from_env({"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com"})  # fmt: skip
+    client = TestClient(create_app(settings, repo_factory=lambda: repo))
+    assert client.get("/api/discover/settings").json()["can_run"] is True
+    assert client.get("/api/discover/settings").json()["jsearch_configured"] is False

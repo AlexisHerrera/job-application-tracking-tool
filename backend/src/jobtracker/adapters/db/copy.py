@@ -43,6 +43,10 @@ TABLES: list[tuple[str, tuple[str, ...]]] = [
     ("processed_messages", ("message_id",)),
     ("mail_sync_state", ("mailbox",)),
     ("calendar_sync_state", ("calendar_id",)),
+    ("discovery_searches", ("id",)),
+    ("discovery_settings", ("key",)),
+    ("job_postings", ("id",)),
+    ("discovery_runs", ("id",)),  # the month's JSearch request count lives here
 ]
 NOT_COPIED = {"oauth_credentials", "schema_migrations", "ingest_lease"}  # local-only or runtime
 

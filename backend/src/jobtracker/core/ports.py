@@ -16,10 +16,14 @@ from jobtracker.core.models import (
     Campaign,
     Company,
     CompanyAlias,
+    DiscoveryRun,
+    DiscoverySearch,
     EmailMessage,
     Event,
     Interview,
     InterviewNote,
+    JobPosting,
+    PostingStatus,
     ProcessStep,
 )
 
@@ -217,3 +221,54 @@ class Repository(Protocol):
 
     def set_calendar_sync(self, calendar_id: str, sync_token: str | None) -> None: ...
     def last_calendar_sync_at(self) -> datetime | None: ...
+
+
+# Job discovery (plan §20)
+
+
+@dataclass
+class FetchResult:
+    postings: list[JobPosting]
+    requests: int = 0  # paid API requests this fetch used (JSearch: one per page)
+
+
+class SourceError(Exception):
+    """A job source failed (HTTP error, bad payload). The run notes it and goes on. `requests`
+    is what the failed call still cost (JSearch bills some errors)."""
+
+    def __init__(self, message: str, requests: int = 0):
+        super().__init__(message)
+        self.requests = requests
+
+
+class JobSource(Protocol):
+    def fetch(self, params: dict) -> FetchResult: ...
+
+
+class DiscoveryRepo(Repository, Protocol):
+    def posting_exists(self, source: str, source_id: str) -> bool: ...
+    def add_posting(self, posting: JobPosting) -> None: ...
+    def update_posting(self, posting: JobPosting) -> None: ...
+    def get_posting(self, posting_id: uuid.UUID) -> JobPosting | None: ...
+    def list_postings(self, since: datetime | None = None) -> list[JobPosting]:
+        """Newest first. `since` filters on fetched_at."""
+        ...
+
+    def recent_posting_keys(self, since: datetime) -> list[tuple[str, str]]:
+        """(company_normalized, title) of postings fetched since then, for the duplicate check."""
+        ...
+
+    def unscored_postings(self, limit: int) -> list[JobPosting]:
+        """Not dropped, not scored yet, status new: oldest first."""
+        ...
+
+    def reset_scores(self, statuses: tuple[PostingStatus, ...], since: datetime) -> int: ...
+    def list_searches(self) -> list[DiscoverySearch]: ...
+    def get_search(self, search_id: uuid.UUID) -> DiscoverySearch | None: ...
+    def save_search(self, search: DiscoverySearch) -> None: ...
+    def delete_search(self, search_id: uuid.UUID) -> None: ...
+    def get_discovery_setting(self, key: str) -> object | None: ...
+    def set_discovery_setting(self, key: str, value: object) -> None: ...
+    def save_run(self, run: DiscoveryRun) -> None: ...
+    def last_run(self) -> DiscoveryRun | None: ...
+    def jsearch_requests_since(self, since: datetime) -> int: ...

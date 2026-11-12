@@ -9,9 +9,13 @@ from pydantic import BaseModel, Field
 
 from jobtracker.core.models import (
     Application,
+    DiscoveryRun,
+    DiscoverySearch,
     Event,
     Interview,
     InterviewNote,
+    JobPosting,
+    PostingStatus,
     ProcessStep,
     Stage,
     StepKind,
@@ -340,3 +344,95 @@ class StepPatch(BaseModel):
     interview_id: uuid.UUID | None = None
     done_at: datetime | None = None
     position: int | None = Field(default=None, ge=0, le=50)
+
+
+# Job discovery (plan §20)
+
+
+def posting_json(p: JobPosting, *, in_tracker: bool, search_label: str | None) -> dict:
+    ai = p.ai_result or {}
+    return {
+        "id": str(p.id),
+        "source": p.source,
+        "search_label": search_label,
+        "url": p.url,
+        "title": p.title,
+        "company": p.company,
+        "location": p.location,
+        "employment_type": p.employment_type,
+        "salary_text": p.salary_text,
+        "salary_min": p.salary_min,
+        "salary_max": p.salary_max,
+        "salary_period": p.salary_period,
+        "publisher": p.publisher,
+        "posted_at": _iso(p.posted_at),
+        "fetched_at": _iso(p.fetched_at),
+        "description": p.description,
+        "drop_reason": p.drop_reason,
+        "verdict": p.ai_verdict,
+        "score": p.ai_score,
+        "reasons": ai.get("reasons") or [],
+        "location_fit": ai.get("location_fit"),
+        "seniority": ai.get("seniority"),
+        "years_required": ai.get("years_required"),
+        "employer_kind": ai.get("employer_kind"),
+        "ai_related": bool(ai.get("ai_related")),
+        "stack_overlap": ai.get("stack_overlap") or [],
+        "status": p.status.value,
+        "application_id": str(p.application_id) if p.application_id else None,
+        "in_tracker": in_tracker,
+    }
+
+
+def search_json(x: DiscoverySearch) -> dict:
+    return {
+        "id": str(x.id),
+        "source": x.source,
+        "label": x.label,
+        "params": x.params,
+        "enabled": x.enabled,
+    }
+
+
+def run_json(r: DiscoveryRun | None) -> dict | None:
+    if r is None:
+        return None
+    return {
+        "id": str(r.id),
+        "started_at": _iso(r.started_at),
+        "finished_at": _iso(r.finished_at),
+        "trigger": r.trigger,
+        "jsearch_requests": r.jsearch_requests,
+        "fetched": r.fetched,
+        "new": r.new,
+        "dropped": r.dropped,
+        "llm_calls": r.llm_calls,
+        "errors": r.errors,
+        "notes": r.notes,
+    }
+
+
+class PostingPatch(BaseModel):
+    status: PostingStatus
+
+
+class DiscoverySettingsIn(BaseModel):
+    criteria: str | None = Field(None, max_length=6000)
+    rules: dict | None = None
+
+
+class SearchIn(BaseModel):
+    source: str = Field(pattern="^(jsearch|remoteyeah)$")
+    label: str = Field(min_length=1, max_length=120)
+    params: dict
+    enabled: bool = True
+
+
+class SearchPatch(BaseModel):
+    label: str | None = Field(None, min_length=1, max_length=120)
+    params: dict | None = None
+    enabled: bool | None = None
+
+
+class DiscoverRunIn(BaseModel):
+    rescore: bool = False

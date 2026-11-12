@@ -299,6 +299,86 @@ export class ApiError extends Error {
   }
 }
 
+// Job discovery (plan §20)
+export type Verdict = "match" | "maybe" | "no";
+export type PostingStatus = "new" | "interested" | "dismissed" | "applied";
+
+export interface Posting {
+  id: string;
+  source: "jsearch" | "remoteyeah";
+  search_label: string | null;
+  url: string;
+  title: string;
+  company: string;
+  location: string | null;
+  employment_type: string | null;
+  salary_text: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_period: string | null;
+  publisher: string | null;
+  posted_at: string | null;
+  fetched_at: string | null;
+  description: string;
+  drop_reason: string | null;
+  verdict: Verdict | null;
+  score: number | null;
+  reasons: string[];
+  location_fit: "yes" | "no" | "unclear" | null;
+  seniority: string | null;
+  years_required: number | null;
+  employer_kind: string | null;
+  ai_related: boolean;
+  stack_overlap: string[];
+  status: PostingStatus;
+  application_id: string | null;
+  in_tracker: boolean;
+}
+
+export interface DiscoveryRules {
+  seniority_exclude: string[];
+  title_exclude: string[];
+  agencies: string[];
+  consultancies: string[];
+  location_allow: string[];
+  max_age_days: number;
+  salary_floor_usd: number | null;
+  jsearch_monthly_cap: number;
+}
+
+export interface DiscoverySearch {
+  id: string;
+  source: "jsearch" | "remoteyeah";
+  label: string;
+  params: Record<string, string | number | boolean>;
+  enabled: boolean;
+}
+
+export interface DiscoveryRun {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  trigger: string;
+  jsearch_requests: number;
+  fetched: number;
+  new: number;
+  dropped: number;
+  llm_calls: number;
+  errors: number;
+  notes: string[];
+}
+
+export interface DiscoveryState {
+  criteria: string;
+  rules: DiscoveryRules;
+  searches: DiscoverySearch[];
+  last_run: DiscoveryRun | null;
+  jsearch_used_this_month: number;
+  jsearch_configured: boolean;
+  llm_configured: boolean;
+  can_run: boolean;
+}
+
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -406,6 +486,23 @@ export const api = {
   markGeneral: (id: string) => request<Interview>("POST", `/interviews/${id}/general`, {}),
   calendarStatus: () => request<{ connected: boolean; calendar_id: string; last_sync_at: string | null }>("GET", "/calendar"),
   syncCalendar: () => request<CalendarSyncResult>("POST", "/calendar/sync", {}),
+  postings: (params: Record<string, string> = {}) =>
+    request<{ postings: Posting[]; counts: { total: number; hidden: number; unscored: number } }>(
+      "GET",
+      `/discover?${new URLSearchParams(params)}`,
+    ),
+  setPostingStatus: (id: string, status: PostingStatus) =>
+    request<{ id: string; status: PostingStatus }>("PATCH", `/discover/${id}`, { status }),
+  applyPosting: (id: string) => request<{ posting_id: string; application: Application }>("POST", `/discover/${id}/apply`, {}),
+  discoverySettings: () => request<DiscoveryState>("GET", "/discover/settings"),
+  saveDiscoverySettings: (data: { criteria?: string; rules?: Partial<DiscoveryRules> }) =>
+    request<DiscoveryState>("PUT", "/discover/settings", data),
+  seedDiscovery: () => request<DiscoveryState>("POST", "/discover/seed", {}),
+  addSearch: (data: Omit<DiscoverySearch, "id">) => request<DiscoverySearch>("POST", "/discover/searches", data),
+  updateSearch: (id: string, data: Partial<Omit<DiscoverySearch, "id" | "source">>) =>
+    request<DiscoverySearch>("PATCH", `/discover/searches/${id}`, data),
+  deleteSearch: (id: string) => request<void>("DELETE", `/discover/searches/${id}`),
+  runDiscovery: (rescore = false) => request<DiscoveryRun>("POST", "/discover/run", { rescore }),
 };
 
 const TZ = "America/Buenos_Aires";

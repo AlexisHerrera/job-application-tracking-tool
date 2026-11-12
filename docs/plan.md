@@ -361,3 +361,112 @@ Branch `phase-3`. Nothing has been applied to AWS yet: every `terraform apply` w
 
 **Gaps**: there's no self-service reset for a lost authenticator (use an app that backs up its codes). The SPA shell is public, as before; it holds no data.
 
+
+## 20. Job discovery page (2026-11-11)
+
+Status: **approved 2026-11-11** (consultancies hidden, marketplaces dropped). **Phase (a) built 2026-11-11, reviewed and committed 2026-11-12** (see "Phase (a) as built" at the end). Next steps: `docs/handoff-job-discovery.md`.
+
+A **Discover** page that lists new open positions from a few sources, filtered first by cheap rules and then by one Haiku call per new posting, sorted by fit. Small on purpose: no eval framework, no tracing tables, no MCP or RAG (rejected 2026-11-11 as overengineering for this little data).
+
+### Sources (checked 2026-11-11)
+
+**JSearch** (OpenWebNinja, Google for Jobs: LinkedIn, Indeed, Glassdoor, JobLeads, BeBee…). Verified with two real calls:
+- `GET https://api.openwebninja.com/jsearch/search-v2` with header `x-api-key: $JSEARCH_API_KEY`. Params: `query`, `cursor` (from `data.cursor`), `num_pages` (1–20, **each page of up to 10 jobs is one request**), `country` (ISO code, **defaults to `us`**), `language`, `date_posted` (`all|today|3days|week|month`), `work_from_home`, `employment_types` (`FULLTIME,CONTRACTOR,PARTTIME,INTERN`), `job_requirements`, `radius`, `exclude_job_publishers`, `fields`. The response header `x-rapidapi-billing: Queries=1; Requests=1` reports what a call cost.
+- Response: `data.jobs[]` with `job_uid` (short, e.g. `WNJ2-ewtTS8bMOHoAAAAAA==`; `job_id` is a ~400-char token), `job_title`, `employer_name`, `employer_website`, `job_publisher`, `job_location`, `job_city`, `job_country`, `job_is_remote`, `job_employment_type`, `job_posted_at` (text), `job_posted_at_datetime_utc`, `job_min_salary`/`job_max_salary`/`job_salary_period`/`job_salary_string`, `job_description` (seen up to 5,500 chars, often a ~480-char snippet), `job_apply_link`, `apply_options[]`.
+- **Argentina quirks** (`country=ar`): `language` must stay the default `es`; `language=en` returned **0 jobs**. Then `job_posted_at` is Spanish text (`hace 4 días`) and `job_posted_at_datetime_utc` is null, `job_employment_type` is Spanish (`Tiempo completo`), `job_is_remote` was `false` even for titles that say "Remote LATAM", and no salary came back. So the parser reads `hace N horas/días/semanas` (and the English forms), ignores `job_is_remote`, and leaves remote/location judgment to the LLM.
+- The first `ar` page was 10 real but noisy results: mostly reposts through JobLeads/BeBee/Expertini, several from nearshore consultancies (AgileEngine, Stefanini, Softgic, Truelogic) and recruiters (Pragmatike, Hire Hangar).
+- **Quota**: the user's plan has **200 free requests a month**; 2 were used for this check. Paid usage is $0.003/request (from OpenWebNinja's pricing manifest).
+- Not used: `job-details` (one request per id even when batched) and the salary endpoints.
+
+**remoteyeah.com** RSS (free, `robots.txt` allows all). Per-category feeds from `https://remoteyeah.com/rss-feeds`; items have `guid` (stable slug), `title`, `company`, `location`, `tags`, ISO `pubDate`, `link` (strip `utm_*`/`ref`), and a CDATA HTML `description`. `location` is clean enough to filter on for free: the full-stack feed today had "United States" ×7, "Worldwide" ×2, "Europe", "Latin America, Brazil", "Europe, Latin America", "Mexico", "India", empty… Behind Cloudflare: a fetch from Lambda is untested (phase b).
+
+### What the filter looks for
+
+Kept as **editable text** in the database (the page has an editor), so the criteria change without a deploy. Initial version, from the user's answers on 2026-11-11:
+
+- **Candidate**: Buenos Aires, Argentina. ~4 years of experience: Senior Software Engineer at a security startup (Python API + React: phishing / fake-app detection, a GitHub App for npm supply-chain scanning), 3 years full stack at a litigation-funding fintech (React, TypeScript, Express, Next.js; an internal financial platform with $25M+ volume and bank reconciliation; Python scraping pipelines over 2M+ cases, MySQL/MongoDB), earlier .NET APIs. Informatics Engineering, UBA. English for work, Spanish native, a little Portuguese (not enough to work in it).
+- **Roles**: software / full stack / backend engineer; also AI-flavoured roles (AI product engineer, AI engineer, forward deployed engineer, product / founding engineer). **Never drop a posting because it's about AI**; the user tailors the CV for those.
+- **Seniority**: semi senior or senior. Requires **up to 5 years** → fine; 6+ → no. Junior / intern → no. Staff / principal / lead → maybe.
+- **Stack**: TypeScript, React, Node.js, Next.js, Python, SQL (MySQL, Postgres), AWS. Mainly Java, .NET, PHP, Ruby, native mobile, DevOps/SRE, data science or QA roles → no.
+- **Location (the main check)**: can they hire someone living in Buenos Aires?
+  - yes: hires in Argentina, LATAM, the Americas or worldwide; remote, hybrid or onsite anywhere in the Buenos Aires area; any contract (employee, contractor, EOR) and any currency, ARS included.
+  - Brazil-friendly → usually Argentina too, so maybe; **no** if it's onsite in Brazil or needs working Portuguese.
+  - no: US-only, US work authorization, onsite outside Buenos Aires, Europe/India/elsewhere only.
+  - A salary above ~$100k/year with no LATAM mention signals a US-local role → lean no (location signal, not a salary rule).
+- **Salary**: no salary filter for now. Most LATAM roles pay $40–90k/year. The rule list has a salary floor field, empty to start.
+- **Employer**: recruiting agencies and talent marketplaces (Turing, Toptal, Crossover, and recruiters posting for unnamed clients) → dropped: they add noise. Nearshore consultancies (BairesDev, Globant, Stefanini, AgileEngine…) rarely hire → **hidden** (stored, shown only with "show hidden").
+- Fintech first, but anything that fits the experience counts.
+
+### Pipeline (one run)
+
+1. **Collect** each enabled saved search (`discovery_searches`): JSearch → 1 page, `date_posted=3days` (overlaps the previous day, so nothing slips between runs); remoteyeah → the whole feed. Sources are adapters behind a port, `JobSource.fetch(search) -> list[Posting]`, outside `core/`.
+2. **Rules, no LLM** (`core/discovery.py`, pure; the lists are editable on the page):
+   - skip what's already stored: unique `(source, source_id)` (JSearch `job_uid`, remoteyeah `guid`);
+   - skip cross-source and repost duplicates: same normalized company (`normalize_company`) + title (`rapidfuzz` ≥ 90) seen in the last 30 days;
+   - drop titles matching the exclude words, matched on word boundaries (`\bjava\b` doesn't hit "JavaScript"): junior, jr, intern, trainee, java, .net, c#, php, ruby, ios, android, devops, sre, qa, data scientist…;
+   - drop companies on the agency/marketplace list; hide companies on the consultancy list (`drop_reason = consultancy`), both editable;
+   - drop remoteyeah items whose `location` names only places outside {Argentina, LATAM/Latin America, South America, Americas, Brazil, Worldwide/Anywhere}; an empty location passes;
+   - drop postings older than 21 days;
+   - flag companies that already have an application in the tracker (shown as a badge, not dropped).
+3. **LLM** (Haiku 5.5, low effort, through `LLMClient.complete_json` with a JSON schema), only for postings that pass the rules. System prompt = the criteria text; user message = the posting (title, company, location, salary, publisher, description up to 4,000 chars). Output:
+   - `verdict` `match|maybe|no`, `score` 0–100, `reasons` (≤3 short lines);
+   - `location_fit` `yes|no|unclear`, `seniority`, `years_required` (int or null), `employer_kind` `direct|consultancy|agency|unclear`, `ai_related` (bool), `stack_overlap` (≤8 skills).
+   - The posting text is **untrusted input**, same as emails: no tools, enums validated and unknown values mapped to `unclear`, strings cut, nothing from the model ever runs or is followed as a link. The page only renders `http(s)` links, `rel="noopener noreferrer"`.
+   - `employer_kind = agency` → verdict `no`; `consultancy` → hidden like the rule above (catches consultancies not on the list).
+   - The model and a `prompt_version` are stored per posting. Changing the criteria doesn't re-score old postings unless you press "re-score" (re-runs the LLM on the `new` ones).
+4. **Store** every collected posting, the rule-dropped ones included (`drop_reason`), so a wrong rule can be noticed and fixed. The page hides them by default.
+
+### Data (migrations `0011`–`0013`, DSQL rules as usual)
+
+- `job_postings`: `id uuid PK`, `source`, `source_id`, `search_id`, `url`, `title`, `company`, `company_normalized`, `location`, `employment_type`, `salary_text`, `salary_min`, `salary_max`, `salary_period`, `publisher`, `posted_at`, `description` (≤8,000 chars), `fetched_at`, `drop_reason`, `ai_verdict`, `ai_score`, `ai_result jsonb`, `ai_model`, `prompt_version`, `status` (`new|interested|dismissed|applied`), `application_id` (FK, nullable), `updated_at`. Unique `(source, source_id)`; indexes on `fetched_at` and `company_normalized`.
+- `discovery_searches`: `id`, `source` (`jsearch|remoteyeah`), `label`, `params jsonb` (JSearch: query/country/language/work_from_home/date_posted; remoteyeah: feed URL), `enabled`, `created_at`.
+- `discovery_settings`: `key text PK`, `value jsonb`, `updated_at`. Keys: `criteria` (the text above), `rules` (title excludes, agency list, consultancy list, location allowlist, max age, salary floor), `jsearch_monthly_cap` (default **190**).
+- `discovery_runs`: `id`, `started_at`, `finished_at`, `trigger`, `jsearch_requests`, `fetched`, `new`, `dropped`, `llm_calls`, `error`. The monthly JSearch count is a `sum(jsearch_requests)` for the month. A run skips JSearch (remoteyeah still runs) once the count reaches the cap.
+
+### Starting searches (to tune after the first week)
+
+JSearch, 6 a day × 30 = **~180 of the 200 free requests**:
+- `country=ar`: "senior full stack engineer", "senior backend engineer", "software engineer fintech", "ai engineer". No "remote" in the query: hybrid in Buenos Aires works too.
+- `country=us`, `work_from_home=true`: "software engineer latam", "forward deployed engineer".
+- No `country=br` search: Brazil-local postings are mostly Portuguese-speaking roles; Brazil-friendly remote roles still show up through remoteyeah and the US "latam" search.
+
+remoteyeah (free): `remote-full-stack-engineer-jobs.xml`, `remote-backend-engineer-jobs.xml`, `remote-software-engineer-jobs.xml`, `remote-ai-native-engineer-jobs.xml`, `remote-artificial-intelligence-engineer-jobs.xml`, `remote-solutions-engineer-jobs.xml` (where forward-deployed roles tend to land).
+
+### Code, API and page
+
+- `core/discovery.py`: `Posting`, rules, Spanish/English relative-date parsing, the prompt and the result parser. `adapters/jsearch.py` (httpx, 20 s timeout, the key never logged), `adapters/remoteyeah.py` (httpx + `defusedxml`, since the feed is untrusted XML). `services.run_discovery(repo, llm, sources, clock)`.
+- CLI: `jobtracker discover run [--source jsearch|remoteyeah] [--no-llm] [--dry-run]` (`--dry-run` prints what it would store and makes no LLM calls), `jobtracker discover searches` (list / add / disable), `jobtracker discover seed` (the starting searches and criteria above).
+- API: `GET /api/discover` (filters: verdict, status, source, include dropped), `PATCH /api/discover/{id}` (status), `POST /api/discover/{id}/apply` (creates the application through `services.create_application` with company, role, `job_url`, `job_description`, `location`, salary when known, `source_channel = "discover"`, and links it), `GET/PUT /api/discover/settings`, `GET/POST/PATCH /api/discover/searches`, `POST /api/discover/run` (local only at first).
+- Page `/discover` (route and nav item next to the others): a list sorted by score, with verdict and status filters. Each row shows title, company, location, salary, posted date, source/publisher, the reasons, badges (AI, "already in tracker"), and the link. Buttons **Interested / Not for me / Applied**. A side panel edits the criteria text, the rule lists and the searches, and shows the last run and this month's JSearch count.
+
+### Cost
+
+- JSearch: within the free 200/month, with a hard cap at 190. Paid would be ~$0.54/month at this volume.
+- LLM: Haiku 5.5 is $0.10 / $0.50 per million input/output tokens. A posting is ~2k tokens in and ~300 out, about **$0.0004**. Even at 100 new postings a day that's ~$1.20/month. Measure it after the first run.
+- Lambda (phase b): one short daily run, nothing noticeable.
+
+### Phases
+
+- **(a) Local**: migrations, sources, rules, LLM filter, CLI and the page, against local Postgres; tests use recorded JSearch/remoteyeah fixtures (no network). Then **one real run after the user's OK** (≤6 JSearch requests plus a few cents of Haiku), into the local database. Stop for review.
+- **(b) AWS**: `ingest` handler gets `{"trigger": "discover"}` with its own lease name; a second daily schedule in `infra/prod/scheduler.tf` (09:00 Buenos Aires); `JSEARCH_API_KEY` added to `ssm_secrets.SECRET_NAMES` and `local.secrets` in `infra/prod/lambdas.tf`, pushed with `jobtracker aws push-secrets`. Check that remoteyeah answers from Lambda; if Cloudflare blocks it, that source runs from the laptop with `jobtracker discover run --source remoteyeah --dsql`. The user runs the apply.
+- **(c) Later**: more boards, LinkedIn job-alert emails as a source (they're dropped by the funnel today), public ATS boards (Greenhouse/Lever/Ashby JSON) for a watchlist of fintechs, and a browser scraper only for a site that really needs one.
+
+### Open questions
+
+- Whether `job_uid` stays the same across days: verified after the first two real runs. The title + company dedupe covers it if not.
+
+### Phase (a) as built (2026-11-11)
+
+- **Code**: migration `0011_discovery.sql` (all four tables in one file); `core/discovery.py` (rules, relative dates, prompt + schema + validation, `run_discovery`, `seed`, `apply_to`, `clean_search_params`); `adapters/jsearch.py`, `adapters/remoteyeah.py`; `DiscoveryRepo` / `JobSource` ports, implemented by `PostgresRepo` and the test fakes; `jobtracker discover seed|searches|run`; `/api/discover*` routes; the `/discover` page (nav: Discover).
+- **Changes from the design above**:
+  - `jsearch_monthly_cap` lives inside the `rules` setting.
+  - Seniority words (`junior`, `intern`…) are a list separate from stack words, because titles about AI skip the stack words only (the user tailors the CV for AI roles).
+  - The location rule applies to remoteyeah only: JSearch locations aren't reliable.
+  - The LLM's `employer_kind = consultancy` hides a posting too, and re-scoring gives it a second chance.
+  - Postings that fail to score stay unscored, and the next run scores them (up to 150 a run, stopping after 3 LLM failures).
+  - Page runs take a separate advisory lock, local only. In prod, `POST /api/discover/run` answers 501 until phase (b).
+- **remoteyeah's feeds aren't well-formed XML** (bare `&` in titles and URLs): they're escaped before parsing with `defusedxml` (new dependency). Titles come as "Remote … at Company", and both ends are stripped.
+- **Applied** creates the application with `source_channel = "discover"` and the AI's stack overlap. The boards that postings link to (JobLeads, BeBee, Expertini, remoteyeah, ZipRecruiter…) were added to `JOB_BOARD_DOMAINS`, so a LinkedIn or JobLeads link never becomes a company's email domain.
+- **Live check, no DB** (2026-11-11): the six remoteyeah feeds had 145 items. The rules hid 103 for location, 20 for title words and 1 as an agency; 21 would go to the LLM.
+- **First real run** (2026-11-12, local): 241 fetched, 239 new, 189 hidden, 62 Haiku calls, 6 JSearch requests, 0 errors; 1 match, 18 maybe, 31 no. `JSEARCH_API_KEY` isn't in `ssm_secrets.SECRET_NAMES` yet (phase b).
+

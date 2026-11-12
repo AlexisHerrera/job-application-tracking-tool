@@ -89,6 +89,7 @@ def _union_params(schema: dict) -> int:
 
 def test_llm_schemas_respect_structured_output_limits():
     # The API rejects schemas with more than 16 union-typed parameters (found in production).
+    from jobtracker.core.discovery import DISCOVERY_SCHEMA
     from jobtracker.core.extraction import EXTRACTION_SCHEMA, GATE_SCHEMA
     from jobtracker.core.paste import PASTE_SCHEMA
 
@@ -96,6 +97,7 @@ def test_llm_schemas_respect_structured_output_limits():
         "gate": GATE_SCHEMA,
         "extraction": EXTRACTION_SCHEMA,
         "paste": PASTE_SCHEMA,
+        "discovery": DISCOVERY_SCHEMA,
     }.items():
         assert _union_params(schema) <= 16, name
         assert (

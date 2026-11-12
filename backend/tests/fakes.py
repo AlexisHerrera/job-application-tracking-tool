@@ -12,9 +12,13 @@ from jobtracker.core.models import (
     Application,
     Company,
     CompanyAlias,
+    DiscoveryRun,
+    DiscoverySearch,
     Event,
     Interview,
     InterviewNote,
+    JobPosting,
+    PostingStatus,
     ProcessStep,
 )
 from jobtracker.core.ports import LLMError, LLMUsage, SyncState, ThreadMatch
@@ -48,6 +52,10 @@ class MemoryRepo:
         self.steps: dict[uuid.UUID, ProcessStep] = {}
         self.calendar_sync: dict[str, tuple[str | None, datetime]] = {}
         self.oauth: dict[str, dict] = {}
+        self.postings: dict[uuid.UUID, JobPosting] = {}
+        self.searches: dict[uuid.UUID, DiscoverySearch] = {}
+        self.discovery_settings: dict[str, object] = {}
+        self.runs: dict[uuid.UUID, DiscoveryRun] = {}
 
     @contextmanager
     def transaction(self):
@@ -320,6 +328,95 @@ class MemoryRepo:
     def get_oauth(self, provider):
         return self.oauth.get(provider)
 
+    # job discovery
+    def try_discovery_lock(self):
+        return True
+
+    def posting_exists(self, source, source_id):
+        return any(p.source == source and p.source_id == source_id for p in self.postings.values())
+
+    def add_posting(self, posting):
+        assert not self.posting_exists(posting.source, posting.source_id), "unique (source, id)"
+        self.postings[posting.id] = copy.deepcopy(posting)
+
+    def update_posting(self, posting):
+        self.postings[posting.id] = copy.deepcopy(posting)
+
+    def get_posting(self, posting_id):
+        p = self.postings.get(posting_id)
+        return copy.deepcopy(p) if p else None
+
+    def list_postings(self, since=None):
+        rows = [p for p in self.postings.values() if since is None or p.fetched_at >= since]
+        return [copy.deepcopy(p) for p in sorted(rows, key=lambda p: p.fetched_at, reverse=True)]
+
+    def recent_posting_keys(self, since):
+        return [
+            (p.company_normalized, p.title) for p in self.postings.values() if p.fetched_at >= since
+        ]
+
+    def unscored_postings(self, limit):
+        rows = [p for p in self.postings.values() if p.drop_reason is None and p.ai_verdict is None
+                and p.status == PostingStatus.NEW]  # fmt: skip
+        return [copy.deepcopy(p) for p in sorted(rows, key=lambda p: p.fetched_at)][:limit]
+
+    def reset_scores(self, statuses, since):
+        n = 0
+        for p in self.postings.values():
+            if p.status in statuses and p.fetched_at >= since and p.ai_verdict is not None:
+                p.ai_verdict = p.ai_score = p.ai_result = p.ai_model = p.prompt_version = None
+                if p.drop_reason == "consultancy":
+                    p.drop_reason = None
+                n += 1
+        return n
+
+    def list_searches(self):
+        return [copy.deepcopy(x) for x in self.searches.values()]
+
+    def get_search(self, search_id):
+        x = self.searches.get(search_id)
+        return copy.deepcopy(x) if x else None
+
+    def save_search(self, search):
+        search.created_at = search.created_at or datetime.now(UTC)
+        self.searches[search.id] = copy.deepcopy(search)
+
+    def delete_search(self, search_id):
+        self.searches.pop(search_id, None)
+
+    def get_discovery_setting(self, key):
+        return copy.deepcopy(self.discovery_settings.get(key))
+
+    def set_discovery_setting(self, key, value):
+        self.discovery_settings[key] = copy.deepcopy(value)
+
+    def save_run(self, run):
+        self.runs[run.id] = copy.deepcopy(run)
+
+    def last_run(self):
+        return max(self.runs.values(), key=lambda r: r.started_at, default=None)
+
+    def jsearch_requests_since(self, since):
+        return sum(r.jsearch_requests for r in self.runs.values() if r.started_at >= since)
+
+
+class FakeSource:
+    """A job source returning scripted postings per search `query`/`feed`."""
+
+    def __init__(self, postings=(), requests_per_fetch=1, fail=False):
+        self.postings = list(postings)
+        self.requests_per_fetch = requests_per_fetch
+        self.fail = fail
+        self.calls: list[dict] = []
+
+    def fetch(self, params):
+        from jobtracker.core.ports import FetchResult, SourceError
+
+        self.calls.append(params)
+        if self.fail:
+            raise SourceError("HTTP 500")
+        return FetchResult([copy.deepcopy(p) for p in self.postings], self.requests_per_fetch)
+
 
 class FakeCalendar:
     """Scripted calendar: a full sync returns `items`; an incremental one returns `changes`."""
@@ -346,9 +443,15 @@ class FakeLLM:
 
     model = "fake-model"
 
-    def __init__(self, gate: dict[str, bool] | None = None, extract: dict[str, dict] | None = None):
+    def __init__(
+        self,
+        gate: dict[str, bool] | None = None,
+        extract: dict[str, dict] | None = None,
+        discover: dict[str, dict] | None = None,
+    ):
         self.gate = gate or {}
         self.extract = extract or {}
+        self.discover = discover or {}
         self.calls: list[str] = []
         self.usage = LLMUsage()
         self.fail_with: Exception | None = None
@@ -357,6 +460,13 @@ class FakeLLM:
     def complete_json(self, *, system, user, schema, max_tokens):
         if self.fail_with:
             raise self.fail_with
+        if "verdict" in schema["properties"]:
+            self.calls.append("discover")
+            self.usage.add(LLMUsage(1, len(user) // 4, 100))
+            for key, value in self.discover.items():
+                if key in user:
+                    return value
+            return verdict()
         if "applications" in schema["properties"]:
             self.calls.append("paste")
             self.usage.add(LLMUsage(1, len(user) // 4, 200))
@@ -396,3 +506,31 @@ def paste_record(**overrides) -> dict:
     base = {k: 0 if k.startswith("salary_m") else "" for k in RECORD_PROPERTIES}
     base.update({"stack": [], "process_steps": [], "evidence": "scripted"})
     return {**base, **overrides}
+
+
+def verdict(**overrides) -> dict:
+    base = {
+        "verdict": "maybe",
+        "score": 55,
+        "reasons": ["scripted"],
+        "location_fit": "unclear",
+        "seniority": "senior",
+        "years_required": None,
+        "employer_kind": "direct",
+        "ai_related": False,
+        "stack_overlap": [],
+    }
+    return {**base, **overrides}
+
+
+def posting(**overrides) -> JobPosting:
+    base = {
+        "source": "jsearch",
+        "source_id": overrides.pop("source_id", str(uuid.uuid4())),
+        "url": "https://jobs.example.test/1",
+        "title": "Senior Full Stack Engineer",
+        "company": "Northwind Pay",
+        "description": "TypeScript, React, Node.js. Remote from LATAM.",
+        "location": "Argentina",
+    }
+    return JobPosting(**{**base, **overrides})

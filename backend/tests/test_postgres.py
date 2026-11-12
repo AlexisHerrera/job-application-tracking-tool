@@ -43,7 +43,8 @@ def test_url():
 def pg(test_url):
     repo = PostgresRepo.connect(test_url)
     for table in ("process_steps", "interview_notes", "interviews", "calendar_sync_state", "events", "applications", "company_aliases", "companies",
-                  "processed_messages", "mail_sync_state", "oauth_credentials", "ingest_lease"):  # fmt: skip
+                  "processed_messages", "mail_sync_state", "oauth_credentials", "ingest_lease",
+                  "job_postings", "discovery_searches", "discovery_settings", "discovery_runs"):  # fmt: skip
         repo.conn.execute(f"DELETE FROM {table}")
     yield repo
     repo.close()
@@ -238,3 +239,47 @@ def test_ingest_lease(pg, test_url):
         assert not other.acquire_lease("ingest", "run-b", 60)
     finally:
         other.close()
+
+
+def test_discovery_roundtrip(pg, clock):
+    from datetime import timedelta
+
+    from jobtracker.core import discovery
+    from jobtracker.core.models import DiscoveryRun, PostingStatus
+    from tests.fakes import FakeSource, posting, verdict
+
+    discovery.seed(pg, clock)
+    assert len(pg.list_searches()) == len(discovery.DEFAULT_SEARCHES)
+    assert discovery.load_settings(pg)[1] == discovery.Rules()
+    pg.set_discovery_setting("rules", {**discovery.Rules().to_dict(), "max_age_days": 7})
+    assert discovery.load_settings(pg)[1].max_age_days == 7
+
+    for x in pg.list_searches():
+        x.enabled = x.label == "AR · fintech"
+        pg.save_search(x)
+    good = posting(source="jsearch", source_id="a1", company="Northwind Pay", salary_min=50000,
+                   salary_max=60000, salary_period="YEAR", posted_at=clock.now())  # fmt: skip
+    agency = posting(source="jsearch", source_id="a2", company="Turing")
+    llm = FakeLLM(discover={"Northwind": verdict(verdict="match", score=80, stack_overlap=["React"])})  # fmt: skip
+    result = discovery.run_discovery(pg, {"jsearch": FakeSource([good, agency])}, llm, clock)
+    assert (result.run.new, result.run.dropped, result.run.llm_calls) == (2, 1, 1)
+    assert pg.posting_exists("jsearch", "a1") and not pg.posting_exists("jsearch", "zz")
+
+    stored = {p.source_id: p for p in pg.list_postings()}
+    assert stored["a1"].ai_verdict == "match" and stored["a1"].ai_result["stack_overlap"] == [
+        "React"
+    ]
+    assert stored["a2"].drop_reason == "agency"
+    assert pg.unscored_postings(10) == []
+    assert pg.recent_posting_keys(clock.now() - timedelta(days=1))
+    assert pg.jsearch_requests_since(discovery.month_start(clock.now())) == 1
+    last = pg.last_run()
+    assert isinstance(last, DiscoveryRun) and last.llm_calls == 1
+
+    assert pg.reset_scores((PostingStatus.NEW,), clock.now() - timedelta(days=1)) == 1
+    assert [p.source_id for p in pg.unscored_postings(10)] == ["a1"]
+
+    with pg.transaction():
+        p, app = discovery.apply_to(pg, clock, stored["a1"].id)
+    assert pg.get_posting(p.id).status == PostingStatus.APPLIED
+    assert pg.get_application(app.id).salary_max == 60000

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable, Iterator
+from datetime import timedelta
 
 import psycopg
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
@@ -19,13 +20,24 @@ from jobtracker.adapters.lambda_ingest import (
 )
 from jobtracker.api import schemas as s
 from jobtracker.api.auth import TokenVerifier, User, cognito_issuer
-from jobtracker.core import campaigns, insights, interviews, paste, process, services, stats
+from jobtracker.core import (
+    campaigns,
+    discovery,
+    insights,
+    interviews,
+    paste,
+    process,
+    services,
+    stats,
+)
 from jobtracker.core.clock import SystemClock
-from jobtracker.core.models import Campaign, InterviewNote, Origin
+from jobtracker.core.matching import normalize_company
+from jobtracker.core.models import Campaign, DiscoverySearch, InterviewNote, Origin
 from jobtracker.core.pipeline import Pipeline, PipelineConfig, run_incremental
 from jobtracker.core.ports import (
     CalendarAuthError,
     CalendarSource,
+    JobSource,
     LLMClient,
     LLMError,
     MailSource,
@@ -62,6 +74,7 @@ def create_app(
     scan_factory: Callable[[PostgresRepo], tuple[Pipeline, MailSource]] | None = None,
     calendar_factory: Callable[[PostgresRepo], CalendarSource | None] | None = None,
     remote_scan: Callable[[], dict] | None = None,
+    discovery_factory: Callable[[], tuple[dict[str, JobSource], LLMClient | None]] | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     verifier = TokenVerifier(settings)
@@ -115,6 +128,26 @@ def create_app(
         return make_source(settings.google_service_account_key, settings.google_calendar_id, oauth)
 
     make_calendar = calendar_factory or default_calendar
+
+    def default_discovery() -> tuple[dict[str, JobSource], LLMClient | None]:
+        from jobtracker.adapters.anthropic_llm import AnthropicLLM
+        from jobtracker.adapters.jsearch import JSearchSource
+        from jobtracker.adapters.remoteyeah import RemoteYeahSource
+
+        sources: dict[str, JobSource] = {"remoteyeah": RemoteYeahSource()}
+        if settings.jsearch_api_key:
+            sources["jsearch"] = JSearchSource(settings.jsearch_api_key, clock=clock)
+        llm = (
+            AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
+            if settings.anthropic_api_key
+            else None
+        )
+        return sources, llm
+
+    # Local only for now: in AWS the daily schedule runs it (plan §20, phase b).
+    make_discovery = discovery_factory or (
+        default_discovery if settings.app_env == "local" else None
+    )
 
     def get_repo() -> Iterator[PostgresRepo]:
         repo = make_repo()
@@ -728,6 +761,154 @@ def create_app(
         # Only the date range goes away; applications are untouched.
         with repo.transaction():
             repo.delete_campaign(_uuid(campaign_id))
+
+    # job discovery (plan §20)
+    @api.get("/discover")
+    def list_postings(
+        verdict: str | None = Query(None),
+        status: str | None = Query(None),
+        source: str | None = Query(None),
+        hidden: bool = Query(False),
+        days: int = Query(30, ge=1, le=365),
+        repo: PostgresRepo = Depends(get_repo),
+    ):
+        postings = repo.list_postings(since=clock.now() - timedelta(days=days))
+        labels = {x.id: x.label for x in repo.list_searches()}
+        tracked = {normalize_company(a.company_name) for a in repo.list_applications()}
+        counts = {"total": len(postings), "hidden": 0, "unscored": 0}
+        rows = []
+        for p in postings:
+            if p.drop_reason:
+                counts["hidden"] += 1
+            elif p.ai_verdict is None:
+                counts["unscored"] += 1
+            if bool(p.drop_reason) != hidden:
+                continue
+            if verdict and (p.ai_verdict or "unscored") not in verdict.split(","):
+                continue
+            if status and p.status.value not in status.split(","):
+                continue
+            if source and p.source != source:
+                continue
+            rows.append(
+                s.posting_json(
+                    p,
+                    in_tracker=p.company_normalized in tracked,
+                    search_label=labels.get(p.search_id) if p.search_id else None,
+                )
+            )
+        # Best score first (unscored last); newest first within the same score.
+        rows.sort(key=lambda r: r["posted_at"] or r["fetched_at"] or "", reverse=True)
+        rows.sort(key=lambda r: -1 if r["score"] is None else r["score"], reverse=True)
+        return {"postings": rows, "counts": counts}
+
+    @api.patch("/discover/{posting_id}")
+    def patch_posting(
+        posting_id: str, body: s.PostingPatch, repo: PostgresRepo = Depends(get_repo)
+    ):
+        with repo.transaction():
+            p = repo.get_posting(_uuid(posting_id))
+            if p is None:
+                raise services.NotFound(posting_id)
+            p.status = body.status
+            p.updated_at = clock.now()
+            repo.update_posting(p)
+        return {"id": str(p.id), "status": p.status.value}
+
+    @api.post("/discover/{posting_id}/apply", status_code=201)
+    def apply_posting(posting_id: str, repo: PostgresRepo = Depends(get_repo)):
+        with repo.transaction():
+            p, a = discovery.apply_to(repo, clock, _uuid(posting_id))
+            a = repo.get_application(a.id)
+        return {"posting_id": str(p.id), "application": app_json(a)}
+
+    def discovery_state(repo) -> dict:
+        criteria, rules = discovery.load_settings(repo)
+        return {
+            "criteria": criteria,
+            "rules": rules.to_dict(),
+            "searches": [s.search_json(x) for x in repo.list_searches()],
+            "last_run": s.run_json(repo.last_run()),
+            "jsearch_used_this_month": repo.jsearch_requests_since(
+                discovery.month_start(clock.now())
+            ),
+            "jsearch_configured": bool(settings.jsearch_api_key),
+            "llm_configured": bool(settings.anthropic_api_key),
+            "can_run": make_discovery is not None,
+        }
+
+    @api.get("/discover/settings")
+    def get_discovery_settings(repo: PostgresRepo = Depends(get_repo)):
+        return discovery_state(repo)
+
+    @api.put("/discover/settings")
+    def put_discovery_settings(body: s.DiscoverySettingsIn, repo: PostgresRepo = Depends(get_repo)):
+        with repo.transaction():
+            if body.criteria is not None:
+                if not body.criteria.strip():
+                    raise services.InvalidInput("the criteria can't be empty")
+                repo.set_discovery_setting("criteria", body.criteria.strip())
+            if body.rules is not None:
+                repo.set_discovery_setting("rules", discovery.Rules.from_dict(body.rules).to_dict())
+        return discovery_state(repo)
+
+    @api.post("/discover/seed")
+    def seed_discovery(repo: PostgresRepo = Depends(get_repo)):
+        added = discovery.seed(repo, clock)
+        return {**discovery_state(repo), "added": added}
+
+    def _clean_params(source: str, params: dict) -> dict:
+        try:
+            return discovery.clean_search_params(source, params)
+        except ValueError as err:
+            raise services.InvalidInput(str(err)) from err
+
+    @api.post("/discover/searches", status_code=201)
+    def create_search(body: s.SearchIn, repo: PostgresRepo = Depends(get_repo)):
+        x = DiscoverySearch(
+            source=body.source,
+            label=body.label.strip(),
+            params=_clean_params(body.source, body.params),
+            enabled=body.enabled,
+            created_at=clock.now(),
+        )
+        with repo.transaction():
+            repo.save_search(x)
+        return s.search_json(x)
+
+    @api.patch("/discover/searches/{search_id}")
+    def patch_search(search_id: str, body: s.SearchPatch, repo: PostgresRepo = Depends(get_repo)):
+        with repo.transaction():
+            x = repo.get_search(_uuid(search_id))
+            if x is None:
+                raise services.NotFound(search_id)
+            if body.label is not None:
+                x.label = body.label.strip()
+            if body.params is not None:
+                x.params = _clean_params(x.source, body.params)
+            if body.enabled is not None:
+                x.enabled = body.enabled
+            repo.save_search(x)
+        return s.search_json(x)
+
+    @api.delete("/discover/searches/{search_id}", status_code=204)
+    def delete_search(search_id: str, repo: PostgresRepo = Depends(get_repo)):
+        with repo.transaction():
+            repo.delete_search(_uuid(search_id))
+
+    @api.post("/discover/run")
+    def run_discovery(body: s.DiscoverRunIn, repo: PostgresRepo = Depends(get_repo)):
+        """Collect now: JSearch requests (free quota) and paid LLM calls for new postings."""
+        if make_discovery is None:
+            raise HTTPException(501, "Discovery runs on its schedule here")
+        if not repo.try_discovery_lock():
+            raise HTTPException(409, "A discovery run is already going")
+        sources, llm = make_discovery()
+        result = discovery.run_discovery(
+            repo, sources, llm, clock, trigger="page", rescore=body.rescore
+        )
+        log.info("discover: %s", s.run_json(result.run))
+        return s.run_json(result.run)
 
     app.include_router(api)
     return app

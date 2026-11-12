@@ -1,0 +1,188 @@
+{
+ "status": "OK",
+ "request_id": "test",
+ "parameters": {
+  "query": "senior full stack engineer remote",
+  "num_pages": 1,
+  "date_posted": "week",
+  "country": "ar",
+  "language": "es"
+ },
+ "data": {
+  "jobs": [
+   {
+    "job_id": "V05KMi1ld3RUUzhiTU9Ib0FBQUFBQT09OkVzd0JD",
+    "job_title": "Senior Full-Stack Engineer — Remote Latam (React/Ts, Ai)",
+    "employer_name": "Pragmatike",
+    "employer_website": "https://www.pragmatike.com",
+    "job_publisher": "JobLeads",
+    "job_employment_type": "Tiempo completo",
+    "job_employment_types": [
+     "FULLTIME"
+    ],
+    "job_apply_link": "https://www.jobleads.com/ar/job/senior-full-stack-engineer-remote-latam-react-ts-ai--la-pampa--ef60fa4a25f7dedd5017312d99b3348fc",
+    "job_apply_is_direct": false,
+    "apply_options": [
+     {
+      "apply_link": "https://www.jobleads.com/ar/job/senior-full-stack-engineer-remote-latam-react-ts-ai--la-pampa--ef60fa4a25f7dedd5017312d99b3348fc",
+      "is_direct": false,
+      "publisher": "JobLeads"
+     }
+    ],
+    "job_description": "Disclaimer – Lectura obligatoria: Compromiso y dedicación Este rol requiere dedicación full-time, con prioridad clara sobre los proyectos de Darwoft durante el horario laboral establecido. No es compatible con otros compromisos profesionales full-time. Cualquier actividad profesional adicional deberá ser informada previamente y no deberá interferir con las responsabilidades del rol.\n\nSobre Darwoft\n\nEn Darwoft desarrollamos soluciones de software que generan impacto real. Somos una empresa de desarrollo de software a medida y staff augmentation IT, con presencia en Estados Unidos, Argentina y Colombia. Trabajamos junto a clientes internacionales diseñando y construyendo soluciones digitales de alta calidad, generando relaciones de largo plazo basadas en la confianza, la excelencia técnica y una mentalidad people-first. Nuestro crecimiento está impulsado por la ejecución sólida, conexiones significativas y un profundo entendimiento de los desafíos de negocio de nuestros clientes.\n\nDataOps / Data Platform Engineer Senior | Contractor LATAM\n\nInformación General\n\n• Ubicación: Argentina\n\n• Tipo de contrato: Relación de Dependencia\n\n• Industria / Proyecto: Servicios Financieros / Transformación de Plataforma de Datos & AI\n\nSobre el Rol / About the Role\n\nEstamos acompañando a una destacada compañía de escala masiva que se encuentra rediseñando su plataforma de datos y AI para potenciar su impacto en millones de usuarios. El contexto del proyecto combina la convivencia con una platafo",
+    "job_is_remote": false,
+    "job_posted_at": "hace 4 días",
+    "job_posted_at_timestamp": null,
+    "job_posted_at_datetime_utc": null,
+    "job_location": "La Pampa     •  a través de JobLeads",
+    "job_city": null,
+    "job_state": "La Pampa",
+    "job_country": "AR",
+    "job_latitude": -37.8956594,
+    "job_longitude": -65.0957792,
+    "job_benefits": null,
+    "job_benefits_strings": null,
+    "job_google_link": "https://www.google.com/search?q=jobs&gl=ar&hl=es&udm=8#vhid=vt%3D20/docid%3DWNJ2-ewtTS8bMOHoAAAAAA%3D%3D&vssid=jobs-detail-viewer",
+    "job_salary": null,
+    "job_salary_string": null,
+    "job_min_salary": null,
+    "job_max_salary": null,
+    "job_salary_period": null,
+    "job_highlights": {},
+    "job_onet_soc": null,
+    "job_onet_job_zone": null,
+    "job_uid": "WNJ2-ewtTS8bMOHoAAAAAA=="
+   },
+   {
+    "job_id": "R0NnalVraDlILWZpRU1ja0FBQUFBQT09OkVzd0JD",
+    "job_title": "1978 - Senior Full Stack Software Engineer (Python | React | AWS)",
+    "employer_name": "Softgic",
+    "employer_website": null,
+    "job_publisher": "LinkedIn",
+    "job_employment_type": "Tiempo completo",
+    "job_employment_types": [
+     "FULLTIME"
+    ],
+    "job_apply_link": "https://ar.linkedin.com/jobs/view/1978-senior-full-stack-software-engineer-python-react-aws-at-softgic-4487337752",
+    "job_apply_is_direct": false,
+    "apply_options": [
+     {
+      "apply_link": "https://ar.linkedin.com/jobs/view/1978-senior-full-stack-software-engineer-python-react-aws-at-softgic-4487337752",
+      "is_direct": false,
+      "publisher": "LinkedIn"
+     }
+    ],
+    "job_description": "We are looking for a Senior Full Stack Software Engineer with 5+ years of experience building scalable, production-grade applications. The ideal candidate has strong backend expertise in Python, frontend experience with React and TypeScript, and hands-on knowledge of AWS cloud-native architectures.\n\nThis role requires technical ownership, strong problem-solving skills, and the ability to collaborate with Product and Data teams in dynamic environments.\n\nRequisitos\n\n• 5+ years of professional software engineering experience.\n\n• Strong proficiency in Python, preferably FastAPI.\n\n• Experience developing cloud-native applications on AWS, including ECS Fargate, Aurora PostgreSQL, and Redis.\n\n• Solid knowledge of PostgreSQL, database design, query optimization, and performance tuning.\n\n• Experience with React and TypeScript for frontend development.\n\n• Infrastructure as Code (IaC) experience using AWS CDK (preferred) or Terraform.\n\n• Familiarity with AI-assisted development tools such as Cursor, GitHub Copilot, or similar.\n\n• Experience designing, deploying, and maintaining scalable applications.\n\n• Strong ownership, analytical thinking, communication, and cross-functional collaboration skills.\n\n• Ability to work independently in ambiguous or fast-changing environments.\n\n• Bachelor's degree in Computer Science, Software Engineering, or equivalent practical experience.\n\nResponsibilities\n\n• Design, develop, and maintain scalable backend services using Python and FastAPI.\n\n• Build and ",
+    "job_is_remote": false,
+    "job_posted_at": "hace 6 días",
+    "job_posted_at_timestamp": null,
+    "job_posted_at_datetime_utc": null,
+    "job_location": "Argentina     •  a través de LinkedIn",
+    "job_city": null,
+    "job_state": null,
+    "job_country": null,
+    "job_latitude": null,
+    "job_longitude": null,
+    "job_benefits": null,
+    "job_benefits_strings": null,
+    "job_google_link": "https://www.google.com/search?q=jobs&gl=ar&hl=es&udm=8#vhid=vt%3D20/docid%3DGCgjUkh9H-fiEMckAAAAAA%3D%3D&vssid=jobs-detail-viewer",
+    "job_salary": null,
+    "job_salary_string": null,
+    "job_min_salary": null,
+    "job_max_salary": null,
+    "job_salary_period": null,
+    "job_highlights": {},
+    "job_onet_soc": null,
+    "job_onet_job_zone": null,
+    "job_uid": "GCgjUkh9H-fiEMckAAAAAA=="
+   },
+   {
+    "job_id": "aFNDS05vNE5nX21VNUdtZUFBQUFBQT09OkVzd0JD",
+    "job_title": "Remote Full-Stack Engineer: NodeJS, TS & DB",
+    "employer_name": "Black Dragon Capital",
+    "employer_website": "https://blackdragoncap.com",
+    "job_publisher": "JobLeads",
+    "job_employment_type": "Tiempo completo",
+    "job_employment_types": [
+     "FULLTIME"
+    ],
+    "job_apply_link": "https://www.jobleads.com/ar/job/remote-full-stack-engineer-nodejs-ts-db--argentina--ec9f40f503bfec104f50c5d42c780e5e6",
+    "job_apply_is_direct": false,
+    "apply_options": [
+     {
+      "apply_link": "https://www.jobleads.com/ar/job/remote-full-stack-engineer-nodejs-ts-db--argentina--ec9f40f503bfec104f50c5d42c780e5e6",
+      "is_direct": false,
+      "publisher": "JobLeads"
+     }
+    ],
+    "job_description": "Black Dragon Capital is seeking a highly skilled Full Stack Developer with strong database expertise to build and optimize frontend and backend systems. This role will focus on frontend and backend development, APIs and database management, ensuring scalability and reliability across services.\n\nYou will collaborate with product and design teams to deliver cohesive, high-quality software aligned with business goals and operational needs.",
+    "job_is_remote": false,
+    "job_posted_at": "hace 2 días",
+    "job_posted_at_timestamp": null,
+    "job_posted_at_datetime_utc": null,
+    "job_location": "Argentina     •  a través de JobLeads",
+    "job_city": null,
+    "job_state": null,
+    "job_country": null,
+    "job_latitude": null,
+    "job_longitude": null,
+    "job_benefits": null,
+    "job_benefits_strings": null,
+    "job_google_link": "https://www.google.com/search?q=jobs&gl=ar&hl=es&udm=8#vhid=vt%3D20/docid%3DhSCKNo4Ng_mU5GmeAAAAAA%3D%3D&vssid=jobs-detail-viewer",
+    "job_salary": null,
+    "job_salary_string": null,
+    "job_min_salary": null,
+    "job_max_salary": null,
+    "job_salary_period": null,
+    "job_highlights": {},
+    "job_onet_soc": null,
+    "job_onet_job_zone": null,
+    "job_uid": "hSCKNo4Ng_mU5GmeAAAAAA=="
+   },
+   {
+    "job_id": "a0ZRTTBOX0xXWHlQdkNhTkFBQUFBQT09OkVzd0JD",
+    "job_title": "Senior Remote Latam Full-Stack Laravel + React Engineer (Mendoza)",
+    "employer_name": "Bluelight",
+    "employer_website": null,
+    "job_publisher": "JobLeads",
+    "job_employment_type": "Tiempo completo",
+    "job_employment_types": [
+     "FULLTIME"
+    ],
+    "job_apply_link": "https://www.jobleads.com/ar/job/senior-remote-latam-full-stack-laravel-react-engineer-mendoza--neuquen--eff5e1326908cb9bc2b1f53fac2c7db97",
+    "job_apply_is_direct": false,
+    "apply_options": [
+     {
+      "apply_link": "https://www.jobleads.com/ar/job/senior-remote-latam-full-stack-laravel-react-engineer-mendoza--neuquen--eff5e1326908cb9bc2b1f53fac2c7db97",
+      "is_direct": false,
+      "publisher": "JobLeads"
+     }
+    ],
+    "job_description": "Buenos Aires, Argentina\nFull time\nR\n\nDescripción General del Rol\n\nBrinda un aporte oportuno y de alta calidad al desarrollo de soluciones para proyectos orientados a service delivery, managed services o implementación para clientes.\nLas asignaciones suelen requerir análisis básico y resolución de problemas, con énfasis en cumplir los compromisos de entrega y servicio de IQVIA hacia los clientes. Contribuye al logro de los objetivos de satisfacción del cliente.\n\nFunciones Esenciales\n\n• Asiste en la revisión y análisis de los requerimientos o problemáticas de los clientes.\n\n• Desarrolla documentación y especificaciones detalladas.\n\n• Realiza análisis cuantitativos o cualitativos básicos para identificar problemas y proponer soluciones de BI.\n\n• Desarrolla modelos de bases de datos y cubos tabulares que se conecten a tableros desarrollados en Power BI.\n\n• Desarrolla un conocimiento básico de los servicios, metodologías de consultoría y de la industria farmacéutica / healthcare / life sciences.\n\n• Comienza a desarrollar conciencia y entendimiento de las soluciones tecnológicas de IQVIA.\n\n• Las responsabilidades asociadas a los proyectos son asignadas y gestionadas de cerca por Consultores, Engagement Managers o Principals.\n\nRequisitos / Calificaciones\n\n• Título universitario (requerido).\n\n• 1 a 3 años de experiencia laboral relacionada (requerido).\n\n• Conocimiento avanzado en SQL Server : armado de modelos, cubos tabulares y ETLs (requerido).\n\n• Conocimiento avanzado en PowerBI (",
+    "job_is_remote": false,
+    "job_posted_at": "hace 6 días",
+    "job_posted_at_timestamp": null,
+    "job_posted_at_datetime_utc": null,
+    "job_location": "Neuquén     •  a través de JobLeads",
+    "job_city": "Neuquén",
+    "job_state": "Neuquén",
+    "job_country": "AR",
+    "job_latitude": -38.9516784,
+    "job_longitude": -68.0591888,
+    "job_benefits": null,
+    "job_benefits_strings": null,
+    "job_google_link": "https://www.google.com/search?q=jobs&gl=ar&hl=es&udm=8#vhid=vt%3D20/docid%3DkFQM0N_LWXyPvCaNAAAAAA%3D%3D&vssid=jobs-detail-viewer",
+    "job_salary": null,
+    "job_salary_string": null,
+    "job_min_salary": null,
+    "job_max_salary": null,
+    "job_salary_period": null,
+    "job_highlights": {},
+    "job_onet_soc": null,
+    "job_onet_job_zone": null,
+    "job_uid": "kFQM0N_LWXyPvCaNAAAAAA=="
+   }
+  ],
+  "cursor": "CURSOR"
+ }
+}

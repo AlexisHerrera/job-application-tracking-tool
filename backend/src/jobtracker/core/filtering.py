@@ -83,6 +83,22 @@ JOB_BOARD_DOMAINS = {
     "bumeran.com.ar",
     "zonajobs.com.ar",
     "google.com",
+    # where discovery postings link to (plan §20)
+    "remoteyeah.com",
+    "jobleads.com",
+    "bebee.com",
+    "expertini.com",
+    "ziprecruiter.com",
+    "talent.com",
+    "jooble.org",
+    "simplyhired.com",
+    "monster.com",
+    "builtin.com",
+    "jobgether.com",
+    "himalayas.app",
+    "workingnomads.com",
+    "careerjet.com",
+    "dice.com",
 }
 
 FREEMAIL_DOMAINS = {

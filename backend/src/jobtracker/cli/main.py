@@ -47,6 +47,10 @@ calendar_app = typer.Typer(no_args_is_help=True, help="Google Calendar sync (rea
 app.add_typer(calendar_app, name="calendar")
 aws_app = typer.Typer(no_args_is_help=True, help="AWS deployment helpers (touch your AWS account).")
 app.add_typer(aws_app, name="aws")
+discover_app = typer.Typer(
+    no_args_is_help=True, help="Job discovery: collect new postings and score them (plan §20)."
+)
+app.add_typer(discover_app, name="discover")
 DETAILS_DIR = Path("../eval/details")
 
 
@@ -761,3 +765,70 @@ def aws_push_secrets(
     client = boto3.Session(profile_name=profile, region_name=region).client("ssm")
     for name in ssm_secrets.push(client, prefix, values):
         typer.echo(f"wrote {name}")
+
+
+@discover_app.command("seed")
+def discover_seed() -> None:
+    """Write the default criteria, rules and searches (keeps what already exists)."""
+    from jobtracker.core import discovery
+
+    repo = _repo(_settings())
+    added = discovery.seed(repo, SystemClock())
+    typer.echo(f"added: {added}")
+
+
+@discover_app.command("searches")
+def discover_searches() -> None:
+    """List the saved searches."""
+    for x in _repo(_settings()).list_searches():
+        flag = " " if x.enabled else "x"
+        typer.echo(f"[{flag}] {x.id}  {x.source:<10} {x.label}  {json.dumps(x.params)}")
+
+
+@discover_app.command("run")
+def discover_run(
+    source: str | None = typer.Option(None, help="Only this source: jsearch or remoteyeah."),
+    no_llm: bool = typer.Option(False, "--no-llm", help="Collect and store, score later."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print what would be stored. Stores nothing, no LLM calls."
+    ),
+    rescore: bool = typer.Option(False, help="Score the recent new postings again."),
+) -> None:
+    """Collect every enabled search (JSearch requests count against the month's quota), store
+    the new postings, then score the ones that pass the rules (paid Haiku calls)."""
+    from jobtracker.adapters.anthropic_llm import AnthropicLLM
+    from jobtracker.adapters.jsearch import JSearchSource
+    from jobtracker.adapters.remoteyeah import RemoteYeahSource
+    from jobtracker.core import discovery
+
+    settings = _settings()
+    clock = SystemClock()
+    sources: dict = {"remoteyeah": RemoteYeahSource()}
+    if settings.jsearch_api_key:
+        sources["jsearch"] = JSearchSource(settings.jsearch_api_key, clock=clock)
+    llm = None
+    if not (no_llm or dry_run):
+        if not settings.anthropic_api_key:
+            raise typer.BadParameter("ANTHROPIC_API_KEY is empty (or pass --no-llm)")
+        llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
+    repo = _repo(settings)
+    if not repo.list_searches():
+        raise typer.BadParameter("no saved searches yet: run `jobtracker discover seed` first")
+    result = discovery.run_discovery(
+        repo, sources, llm, clock, trigger="cli", only_source=source, dry_run=dry_run,
+        rescore=rescore,
+    )  # fmt: skip
+    r = result.run
+    if dry_run:
+        for p in result.new:
+            mark = f"hidden: {p.drop_reason}" if p.drop_reason else "→ LLM"
+            typer.echo(f"{mark:<22} {p.source:<10} {p.company} / {p.title} ({p.location or '?'})")
+    typer.echo(
+        f"fetched {r.fetched}, new {r.new}, hidden {r.dropped}, LLM calls {r.llm_calls}, "
+        f"errors {r.errors}, JSearch requests {r.jsearch_requests}"
+    )
+    for note in r.notes:
+        typer.echo(f"  note: {note}")
+    if llm is not None:
+        u = llm.usage
+        typer.echo(f"LLM tokens: {u.input_tokens} in, {u.output_tokens} out")

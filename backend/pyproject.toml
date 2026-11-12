@@ -10,6 +10,7 @@ dependencies = [
     "anthropic>=1.15.0",
     "boto3>=1.43.123",
     "certifi>=2026.10.18",
+    "defusedxml>=0.7.1",
     "fastapi>=0.149.0",
     "google-auth>=2.62.0",
     "google-auth-oauthlib>=1.5.0",
