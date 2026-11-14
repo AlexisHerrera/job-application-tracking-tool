@@ -1,16 +1,18 @@
 // Job discovery (plan §20): new openings from the saved searches, scored by the LLM against the
 // criteria. Everything in a posting comes from the web: rendered as text, links only if http(s).
-import { useEffect, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ExternalLink, Play, Plus, Settings2, Sparkles, Star, Telescope, ThumbsDown, Trash2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Circle, ExternalLink, Loader2, Play, Plus, RefreshCw, Search, Settings2, Sparkles, Star, Telescope, ThumbsDown, Trash2, X } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -21,11 +23,14 @@ import {
   errorText,
   label,
   timeAgo,
+  type DiscoveryProgress,
   type DiscoveryRules,
   type DiscoveryRun,
   type DiscoverySearch,
   type DiscoveryState,
+  type Facet,
   type Posting,
+  type PostingPage,
   type PostingStatus,
 } from "../api";
 import { Empty, Loading, PageHeader } from "../components/common";
@@ -35,39 +40,159 @@ type View = "match" | "maybe" | "no" | "unscored" | "all" | "hidden";
 type StatusFilter = "open" | "interested" | "applied" | "dismissed" | "any";
 
 const VIEWS: { value: View; label: string }[] = [
+  { value: "all", label: "All" },
   { value: "match", label: "Matches" },
   { value: "maybe", label: "Maybe" },
   { value: "no", label: "No" },
   { value: "unscored", label: "Not scored" },
-  { value: "all", label: "All" },
   { value: "hidden", label: "Hidden" },
 ];
 
-function queryFor(view: View, status: StatusFilter, source: string): Record<string, string> {
+const PAGE_SIZE = 50;
+// URL param → API param. The filters live in the URL, so they survive opening an application
+// and coming back.
+const FILTER_PARAMS: Record<string, string> = {
+  source: "source",
+  q: "q",
+  loc: "location",
+  pub: "publisher",
+  sen: "seniority",
+  size: "company_size",
+  sector: "sector",
+  mode: "work_mode",
+  fit: "location_fit",
+  emp: "employer_kind",
+  tech: "tech",
+  salary: "salary_min",
+  posted: "posted_days",
+};
+
+const SENIORITY: Record<string, string> = { junior: "Junior", mid: "Mid", semi_senior: "Semi senior", senior: "Senior", staff_plus: "Staff+", unclear: "Unclear" };
+const COMPANY_SIZE: Record<string, string> = {
+  startup: "Startup (<50)",
+  small: "Small (50–250)",
+  medium: "Medium (250–1k)",
+  large: "Large (1k+)",
+  unclear: "Unclear",
+};
+const SECTOR: Record<string, string> = {
+  fintech: "Fintech",
+  ai: "AI",
+  security: "Security",
+  devtools: "Dev tools",
+  saas: "SaaS / business software",
+  ecommerce: "E-commerce",
+  health: "Health",
+  education: "Education",
+  crypto: "Crypto",
+  media: "Media",
+  gaming: "Gaming",
+  logistics: "Logistics & travel",
+  hr: "HR & recruiting",
+  government: "Government & non-profit",
+  consulting: "Consulting",
+  other: "Other",
+  unclear: "Unclear",
+};
+const WORK_MODE: Record<string, string> = { remote: "Remote", hybrid: "Hybrid", onsite: "On-site", unclear: "Unclear" };
+const LOCATION_FIT: Record<string, string> = { yes: "Location fits", no: "Location doesn't fit", unclear: "Location unclear" };
+const EMPLOYER: Record<string, string> = { direct: "Hiring directly", agency: "Agency", consultancy: "Consultancy", unclear: "Unclear" };
+const POSTED = [
+  { value: "", label: "Posted any time" },
+  { value: "1", label: "Last 24 hours" },
+  { value: "3", label: "Last 3 days" },
+  { value: "7", label: "Last week" },
+  { value: "14", label: "Last 2 weeks" },
+  { value: "30", label: "Last month" },
+];
+
+function queryFor(params: URLSearchParams): Record<string, string> {
+  const view = (params.get("view") ?? "all") as View;
+  const status = (params.get("status") ?? "open") as StatusFilter;
   const q: Record<string, string> = {};
   if (view === "hidden") q.hidden = "true";
   else if (view !== "all") q.verdict = view;
   if (status === "open") q.status = "new,interested";
   else if (status !== "any") q.status = status;
-  if (source) q.source = source;
+  for (const [key, apiKey] of Object.entries(FILTER_PARAMS)) {
+    const v = params.get(key);
+    if (v) q[apiKey] = v;
+  }
+  if (params.get("ai") === "1") q.ai = "true";
+  q.sort = params.get("sort") ?? "score";
+  q.limit = String(PAGE_SIZE);
+  q.offset = String(pageOf(params) * PAGE_SIZE);
   return q;
 }
+
+const pageOf = (params: URLSearchParams) => Math.max(0, Number(params.get("page") ?? "0") || 0);
+const techsOf = (params: URLSearchParams) => (params.get("tech") ?? "").split(",").filter(Boolean);
 
 const safeUrl = (url: string) => (/^https?:\/\//i.test(url) ? url : null);
 
 export default function Discover() {
-  const [view, setView] = useState<View>("match");
-  const [status, setStatus] = useState<StatusFilter>("open");
-  const [source, setSource] = useState("");
+  const [params, setParams] = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const state = useAsync(api.discoverySettings);
-  const list = useAsync(() => api.postings(queryFor(view, status, source)), [view, status, source]);
+  const list = useAsync(() => api.postings(queryFor(params)), [params.toString()]);
+
+  const view = (params.get("view") ?? "all") as View;
+  const status = (params.get("status") ?? "open") as StatusFilter;
+  const page = pageOf(params);
+  // One setParams call per change: several in a row would each start from the same old params.
+  const update = (changes: Record<string, string | null>) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [key, value] of Object.entries(changes)) {
+          if (value) next.set(key, value);
+          else next.delete(key);
+        }
+        if (!("page" in changes)) next.delete("page");
+        return next;
+      },
+      { replace: true },
+    );
+  const set = (key: string, value: string | null) => update({ [key]: value });
+  const addTech = (t: string) => {
+    const techs = techsOf(params);
+    if (!techs.some((x) => x.toLowerCase() === t.toLowerCase())) set("tech", [...techs, t].join(","));
+  };
 
   const reloadAll = () => {
     void state.reload();
     void list.reload();
   };
   const s = state.data;
+  const data = list.data;
+
+  // Runs and re-scores wait for one long request; meanwhile the progress endpoint says where it is.
+  const [job, setJob] = useState<Job | null>(null);
+  const [progress, setProgress] = useDiscoveryProgress(job !== null);
+  const working = job !== null || progress?.running === true;
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    // A run this page didn't start (it was reloaded mid-run): refresh when it ends.
+    if (wasRunning.current && !progress?.running && job === null) reloadAll();
+    wasRunning.current = progress?.running === true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress?.running]);
+
+  async function start(next: Job) {
+    if (working) return;
+    setProgress(null);
+    setJob(next);
+    try {
+      const r = next.kind === "run" ? await api.runDiscovery() : await api.rescorePostings(next.includeHidden);
+      const msg = next.kind === "run" ? `${r.new} new · ${r.dropped} hidden · ${r.llm_calls} scored` : `${r.llm_calls} postings scored`;
+      if (r.errors) toast.warning(`${msg}. ${r.notes.join(" · ")}`);
+      else toast.success(msg);
+      reloadAll();
+    } catch (e) {
+      toast.error(errorText(e));
+    }
+    setJob(null);
+  }
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -77,7 +202,7 @@ export default function Discover() {
         actions={
           s && (
             <>
-              <RunButton state={s} onDone={reloadAll} />
+              <RunButton state={s} working={working} onRun={() => void start({ kind: "run" })} />
               <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
                 <Settings2 /> Criteria & searches
               </Button>
@@ -86,7 +211,11 @@ export default function Discover() {
         }
       />
 
-      {s && <LastRun run={s.last_run} used={s.jsearch_used_this_month} cap={s.rules.jsearch_monthly_cap} />}
+      {working ? (
+        <ProgressPanel p={progress} kind={job?.kind ?? progress?.kind ?? "run"} />
+      ) : (
+        s && <LastRun run={s.last_run} used={s.jsearch_used_this_month} cap={s.rules.jsearch_monthly_cap} />
+      )}
 
       {s && s.searches.length === 0 ? (
         <Empty icon={<Telescope className="size-8" />}>
@@ -109,74 +238,366 @@ export default function Discover() {
         </Empty>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(v) => v && setView(v as View)} aria-label="Verdict">
+
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(v) => v && set("view", v === "all" ? null : v)} aria-label="Verdict">
               {VIEWS.map((v) => (
                 <ToggleGroupItem key={v.value} value={v.value}>
                   {v.label}
-                  {v.value === "hidden" && list.data ? ` · ${list.data.counts.hidden}` : ""}
-                  {v.value === "unscored" && list.data && list.data.counts.unscored ? ` · ${list.data.counts.unscored}` : ""}
+                  {v.value === "hidden" && data ? ` · ${data.counts.hidden}` : ""}
+                  {v.value === "unscored" && data && data.counts.unscored ? ` · ${data.counts.unscored}` : ""}
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
-            <NativeSelect size="sm" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} aria-label="Status">
+            <NativeSelect size="sm" value={status} onChange={(e) => set("status", e.target.value === "open" ? null : e.target.value)} aria-label="Status">
               <NativeSelectOption value="open">To look at</NativeSelectOption>
               <NativeSelectOption value="interested">Interested</NativeSelectOption>
               <NativeSelectOption value="applied">Applied</NativeSelectOption>
               <NativeSelectOption value="dismissed">Not for me</NativeSelectOption>
               <NativeSelectOption value="any">Any status</NativeSelectOption>
             </NativeSelect>
-            <NativeSelect size="sm" value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source">
-              <NativeSelectOption value="">All sources</NativeSelectOption>
-              <NativeSelectOption value="jsearch">JSearch</NativeSelectOption>
-              <NativeSelectOption value="remoteyeah">remoteyeah</NativeSelectOption>
+            <NativeSelect size="sm" value={params.get("sort") ?? "score"} onChange={(e) => set("sort", e.target.value === "score" ? null : e.target.value)} aria-label="Sort">
+              <NativeSelectOption value="score">Best fit first</NativeSelectOption>
+              <NativeSelectOption value="posted">Newest first</NativeSelectOption>
+              <NativeSelectOption value="salary">Best paid first</NativeSelectOption>
             </NativeSelect>
           </div>
 
-          {!list.data ? (
+          <Filters params={params} set={set} update={update} facets={data?.facets} />
+
+          {!data ? (
             <Loading error={list.error} loading={list.loading} />
-          ) : list.data.postings.length === 0 ? (
+          ) : data.postings.length === 0 ? (
             <Empty icon={<Telescope className="size-8" />}>
-              {list.data.counts.total === 0 ? "Nothing collected yet. Run the searches to fill this page." : "Nothing here with these filters."}
+              {data.counts.total === 0 ? "Nothing collected yet. Run the searches to fill this page." : "Nothing here with these filters."}
             </Empty>
           ) : (
-            <div className="space-y-3">
-              {list.data.postings.map((p) => (
-                <PostingCard key={p.id} p={p} onChange={() => void list.reload()} />
+            <div className={cn("space-y-3 transition-opacity", list.loading && "opacity-60")}>
+              <p className="text-xs text-muted-foreground">
+                {data.total} posting{data.total === 1 ? "" : "s"}
+                {data.total > PAGE_SIZE && ` · showing ${page * PAGE_SIZE + 1}–${Math.min(data.total, (page + 1) * PAGE_SIZE)}`}
+              </p>
+              {data.postings.map((p) => (
+                <PostingCard key={p.id} p={p} onChange={() => void list.reload()} onTech={addTech} />
               ))}
+              {data.total > PAGE_SIZE && (
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <Button variant="outline" size="sm" disabled={page === 0} onClick={() => set("page", page > 1 ? String(page - 1) : null)}>
+                    <ChevronLeft /> Previous
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= data.total} onClick={() => set("page", String(page + 1))}>
+                    Next <ChevronRight />
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </>
       )}
 
-      {s && <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} state={s} onSaved={reloadAll} />}
+      {s && (
+        <SettingsSheet
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          state={s}
+          onSaved={reloadAll}
+          working={working}
+          onRescore={(includeHidden) => {
+            setSettingsOpen(false);
+            void start({ kind: "rescore", includeHidden });
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function RunButton({ state, onDone }: { state: DiscoveryState; onDone: () => void }) {
-  const [busy, setBusy] = useState(false);
+// ---------------------------------------------------------------------------------------------
+// Search and filters
+
+function Filters({
+  params,
+  set,
+  update,
+  facets,
+}: {
+  params: URLSearchParams;
+  set: (key: string, value: string | null) => void;
+  update: (changes: Record<string, string | null>) => void;
+  facets: PostingPage["facets"] | undefined;
+}) {
+  const active = Object.keys(FILTER_PARAMS).filter((k) => params.get(k)).length + (params.get("ai") === "1" ? 1 : 0);
+  const facet = (key: string, all: string, options: Facet | undefined, names: Record<string, string>) => (
+    <FacetSelect value={params.get(key) ?? ""} onChange={(v) => set(key, v || null)} all={all} options={options ?? []} names={names} />
+  );
+  const clear = () => update(Object.fromEntries([...Object.keys(FILTER_PARAMS), "ai"].map((k) => [k, null])));
+
+  return (
+    <div className="mb-4 space-y-2 rounded-lg border bg-card p-3">
+      <div className="flex flex-wrap gap-2">
+        <TextFilter value={params.get("q") ?? ""} onChange={(v) => set("q", v || null)} placeholder="Title or company" className="min-w-48 flex-[2]" icon />
+        <TextFilter value={params.get("loc") ?? ""} onChange={(v) => set("loc", v || null)} placeholder="Location, e.g. Buenos Aires" className="min-w-44 flex-1" />
+        <TextFilter
+          value={params.get("salary") ?? ""}
+          onChange={(v) => set("salary", v.replace(/\D/g, "") || null)}
+          placeholder="Min salary, USD/yr"
+          className="w-40"
+          inputMode="numeric"
+          title="Only postings that state a salary (in USD, or converted to a year) with a top of at least this"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <FacetSelect value={params.get("pub") ?? ""} onChange={(v) => set("pub", v || null)} all="Any job board" options={facets?.publisher ?? []} />
+        <NativeSelect size="sm" value={params.get("source") ?? ""} onChange={(e) => set("source", e.target.value || null)} aria-label="Source" className={cn(params.get("source") && "[&_select]:border-primary")}>
+          <NativeSelectOption value="">All sources</NativeSelectOption>
+          <NativeSelectOption value="jsearch">JSearch</NativeSelectOption>
+          <NativeSelectOption value="remoteyeah">remoteyeah</NativeSelectOption>
+        </NativeSelect>
+        {facet("sen", "Any seniority", facets?.seniority, SENIORITY)}
+        <TechPicker selected={techsOf(params)} options={facets?.technologies ?? []} onChange={(t) => set("tech", t.join(",") || null)} />
+        {facet("size", "Any company size", facets?.company_size, COMPANY_SIZE)}
+        {facet("sector", "Any sector", facets?.sector, SECTOR)}
+        {facet("mode", "Remote, hybrid or on-site", facets?.work_mode, WORK_MODE)}
+        {facet("fit", "Any location fit", facets?.location_fit, LOCATION_FIT)}
+        {facet("emp", "Any employer", facets?.employer_kind, EMPLOYER)}
+        <NativeSelect size="sm" value={params.get("posted") ?? ""} onChange={(e) => set("posted", e.target.value || null)} aria-label="Posted" className={cn(params.get("posted") && "[&_select]:border-primary")}>
+          {POSTED.map((o) => (
+            <NativeSelectOption key={o.value} value={o.value}>{o.label}</NativeSelectOption>
+          ))}
+        </NativeSelect>
+        <label className="flex items-center gap-1.5 text-sm">
+          <Checkbox checked={params.get("ai") === "1"} onCheckedChange={(c) => set("ai", c === true ? "1" : null)} /> AI roles
+        </label>
+        {active > 0 && (
+          <Button variant="ghost" size="sm" onClick={clear} className="text-muted-foreground">
+            <X /> Clear {active} filter{active === 1 ? "" : "s"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A text box that updates its filter 300 ms after the last keystroke. */
+function TextFilter({ value, onChange, placeholder, className, icon, inputMode, title }: { value: string; onChange: (v: string) => void; placeholder: string; className?: string; icon?: boolean; inputMode?: "numeric"; title?: string }) {
+  const [text, setText] = useState(value);
+  const sent = useRef(value);
+  // Follow the URL only when something else changed it ("Clear filters"), never while typing.
+  useEffect(() => {
+    if (value !== sent.current) {
+      sent.current = value;
+      setText(value);
+    }
+  }, [value]);
+  useEffect(() => {
+    if (text === sent.current) return;
+    const t = setTimeout(() => {
+      sent.current = text;
+      onChange(text);
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+  return (
+    <div className={cn("relative", className)}>
+      {icon && <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />}
+      <Input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        inputMode={inputMode}
+        title={title}
+        className={cn("h-8", icon && "pl-8", value && "border-primary")}
+      />
+    </div>
+  );
+}
+
+function FacetSelect({ value, onChange, all, options, names }: { value: string; onChange: (v: string) => void; all: string; options: Facet; names?: Record<string, string> }) {
+  // Keep the chosen value listed even when no posting in this view has it.
+  const opts: Facet = value && !options.some(([v]) => v === value) ? [...options, [value, 0]] : options;
+  return (
+    <NativeSelect size="sm" value={value} onChange={(e) => onChange(e.target.value)} aria-label={all} className={cn(value && "[&_select]:border-primary")}>
+      <NativeSelectOption value="">{all}</NativeSelectOption>
+      {opts.map(([v, n]) => (
+        <NativeSelectOption key={v} value={v}>
+          {names?.[v] ?? label(v)} ({n})
+        </NativeSelectOption>
+      ))}
+    </NativeSelect>
+  );
+}
+
+function TechPicker({ selected, options, onChange }: { selected: string[]; options: Facet; onChange: (techs: string[]) => void }) {
+  const isOn = (t: string) => selected.some((x) => x.toLowerCase() === t.toLowerCase());
+  const missing: Facet = selected.filter((t) => !options.some(([v]) => v.toLowerCase() === t.toLowerCase())).map((t) => [t, 0]);
+  const toggle = (t: string) => onChange(isOn(t) ? selected.filter((x) => x.toLowerCase() !== t.toLowerCase()) : [...selected, t]);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className={cn("max-w-72 font-normal", selected.length > 0 && "border-primary")}>
+          <span className="truncate">{selected.length ? selected.join(" + ") : "Any technology"}</span> <ChevronDown className="text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="TypeScript, Python…" />
+          <CommandList>
+            <CommandEmpty>No posting lists that one.</CommandEmpty>
+            <CommandGroup heading={selected.length > 1 ? "Postings that ask for all of these" : "Postings that ask for"}>
+              {[...missing, ...options].map(([t, n]) => (
+                <CommandItem key={t} value={t} onSelect={() => toggle(t)} data-checked={isOn(t)}>
+                  <span className="truncate">{t}</span>
+                  <span className="ml-auto text-xs text-muted-foreground tabular-nums">{n}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function RunButton({ state, working, onRun }: { state: DiscoveryState; working: boolean; onRun: () => void }) {
   if (!state.can_run) return null;
   const enabled = state.searches.filter((x) => x.enabled);
   const jsearch = state.jsearch_configured ? enabled.filter((x) => x.source === "jsearch").length : 0;
-  async function run() {
-    setBusy(true);
-    const id = toast.loading("Collecting new openings…");
-    try {
-      const r = await api.runDiscovery();
-      const msg = `${r.new} new · ${r.dropped} hidden · ${r.llm_calls} scored`;
-      if (r.errors) toast.warning(`${msg}. ${r.notes.join(" · ")}`, { id });
-      else toast.success(msg, { id });
-      onDone();
-    } catch (e) {
-      toast.error(errorText(e), { id });
-    }
-    setBusy(false);
-  }
   return (
-    <Button size="sm" disabled={busy || enabled.length === 0} onClick={run} title={`Uses about ${jsearch} JSearch request${jsearch === 1 ? "" : "s"}, plus AI scoring of new postings`}>
-      <Play className={cn(busy && "animate-pulse")} /> {busy ? "Running…" : "Run now"}
+    <Button size="sm" disabled={working || enabled.length === 0} onClick={onRun} title={`Uses about ${jsearch} JSearch request${jsearch === 1 ? "" : "s"}, plus AI scoring of new postings`}>
+      <Play className={cn(working && "animate-pulse")} /> {working ? "Running…" : "Run now"}
     </Button>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Progress of a run or a re-score
+
+type Job = { kind: "run" } | { kind: "rescore"; includeHidden: boolean };
+
+/** Asks the server every second while `active` (or while it reports a run going). */
+function useDiscoveryProgress(active: boolean) {
+  const [progress, setProgress] = useState<DiscoveryProgress | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      let running = false;
+      try {
+        const r = await api.discoveryProgress();
+        if (stopped) return;
+        setProgress(r);
+        running = r.running;
+      } catch {
+        // keep the last answer; try again
+      }
+      if (!stopped && (active || running)) timer = setTimeout(tick, 1000);
+    };
+    // When a job just started, give the request a moment to reach the server first.
+    timer = setTimeout(tick, active ? 400 : 0);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [active]);
+  return [progress, setProgress] as const;
+}
+
+function duration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/** "about 40s left", from how long the finished units took. */
+function eta(elapsed: number | null | undefined, done: number, total: number): string | null {
+  if (!elapsed || done < 1 || done >= total) return null;
+  const left = (elapsed / done) * (total - done);
+  return left < 10 ? "a few seconds left" : `about ${duration(left)} left`;
+}
+
+function Bar({ done, total }: { done: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
+  return (
+    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={total}>
+      <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+type StepState = "pending" | "active" | "done";
+
+function Step({ state, title, children }: { state: StepState; title: string; children?: ReactNode }) {
+  return (
+    <li className="flex gap-2.5">
+      <span className="mt-0.5 shrink-0">
+        {state === "done" ? (
+          <Check className="size-4 text-emerald-600 dark:text-emerald-400" />
+        ) : state === "active" ? (
+          <Loader2 className="size-4 animate-spin text-primary" />
+        ) : (
+          <Circle className="size-4 text-muted-foreground/50" />
+        )}
+      </span>
+      <div className={cn("min-w-0 flex-1", state === "pending" && "text-muted-foreground")}>
+        <div className={cn("text-sm", state === "active" && "font-medium")}>{title}</div>
+        {children && <div className="text-xs text-muted-foreground">{children}</div>}
+      </div>
+    </li>
+  );
+}
+
+function ProgressPanel({ p, kind }: { p: DiscoveryProgress | null; kind: "run" | "rescore" }) {
+  const live = p?.kind ? p : null; // {running: false} alone: nothing reported yet
+  const phase = live?.phase;
+  const total = live?.searches_total ?? 0;
+  const done = live?.searches_done ?? 0;
+  const toScore = live?.to_score ?? 0;
+  const scored = live?.scored ?? 0;
+  const collectState: StepState = !live ? "pending" : phase === "collecting" ? "active" : "done";
+  const scoreState: StepState = phase === "scoring" ? "active" : phase === "done" ? "done" : "pending";
+  const errors = live?.errors ?? 0;
+
+  return (
+    <div className="mb-4 rounded-lg border bg-card p-3" aria-live="polite">
+      <div className="mb-2.5 flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-medium">{kind === "run" ? "Finding new openings" : "Re-scoring postings"}</h2>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {live?.elapsed_s != null ? duration(live.elapsed_s) : "starting…"}
+        </span>
+      </div>
+      <ol className="space-y-2.5">
+        {kind === "run" && (
+          <Step state={collectState} title={total ? `Collect from your searches (${Math.min(done, total)} of ${total})` : "Collect from your searches"}>
+            {collectState === "active" && live?.current && (
+              <>
+                Fetching “{live.current}”{eta(live.phase_elapsed_s, done, total) && ` · ${eta(live.phase_elapsed_s, done, total)}`}
+                <Bar done={done} total={total} />
+              </>
+            )}
+            {live && (live.fetched ?? 0) > 0 && (
+              <div className="mt-1">
+                {live.fetched} found · {live.new} new · {live.hidden} hidden by the rules
+              </div>
+            )}
+          </Step>
+        )}
+        <Step state={scoreState} title={scoreState === "pending" || !toScore ? "Score with AI" : `Score with AI (${scored} of ${toScore})`}>
+          {scoreState === "active" && (
+            toScore === 0 ? (
+              "Nothing to score"
+            ) : (
+              <>
+                6 at a time{eta(live?.phase_elapsed_s, scored, toScore) ? ` · ${eta(live?.phase_elapsed_s, scored, toScore)}` : scored === 0 ? " · waiting for the first answers" : ""}
+                <Bar done={scored} total={toScore} />
+              </>
+            )
+          )}
+        </Step>
+      </ol>
+      {errors > 0 && <p className="mt-2 text-xs text-destructive">{errors} error{errors === 1 ? "" : "s"} so far; the rest keeps going.</p>}
+      <p className="mt-2.5 text-xs text-muted-foreground">You can leave this page: the run keeps going, and the list refreshes when it ends.</p>
+    </div>
   );
 }
 
@@ -232,11 +653,20 @@ const DROP_LABEL: Record<string, string> = {
   duplicate: "duplicate",
 };
 
-function PostingCard({ p, onChange }: { p: Posting; onChange: () => void }) {
+function usdSalary(p: Posting): string | null {
+  if (!p.salary_usd_max) return null;
+  const k = (v: number) => `${Math.round(v / 1000)}k`;
+  const lo = p.salary_usd_min ?? p.salary_usd_max;
+  return `≈ USD ${lo === p.salary_usd_max ? k(lo) : `${k(lo)}–${k(p.salary_usd_max)}`} / yr`;
+}
+
+function PostingCard({ p, onChange, onTech }: { p: Posting; onChange: () => void; onTech: (tech: string) => void }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const url = safeUrl(p.url);
-  const salary = salaryOf(p);
+  const salary = salaryOf(p) ?? usdSalary(p);
+  const overlap = new Set(p.stack_overlap.map((t) => t.toLowerCase()));
+  const techs = p.technologies.length ? p.technologies : p.stack_overlap;
   const meta = [p.location, salary, p.employment_type, p.posted_at ? `posted ${daysAgo(p.posted_at)}` : null, p.publisher ? `via ${p.publisher}` : null].filter(Boolean);
 
   async function setStatus(next: PostingStatus) {
@@ -296,6 +726,9 @@ function PostingCard({ p, onChange }: { p: Posting; onChange: () => void }) {
           {p.seniority && p.seniority !== "unclear" && <Chip>{label(p.seniority)}</Chip>}
           {p.years_required != null && <Chip>{p.years_required}+ years</Chip>}
           {p.employer_kind && p.employer_kind !== "direct" && p.employer_kind !== "unclear" && <Chip>{p.employer_kind}</Chip>}
+          {p.work_mode && p.work_mode !== "unclear" && <Chip>{WORK_MODE[p.work_mode] ?? p.work_mode}</Chip>}
+          {p.company_size && p.company_size !== "unclear" && <Chip>{COMPANY_SIZE[p.company_size] ?? p.company_size}</Chip>}
+          {p.sector && p.sector !== "unclear" && <Chip>{SECTOR[p.sector] ?? p.sector}</Chip>}
         </div>
 
         {p.reasons.length > 0 && (
@@ -303,9 +736,19 @@ function PostingCard({ p, onChange }: { p: Posting; onChange: () => void }) {
             {p.reasons.map((r, i) => <li key={i}>{r}</li>)}
           </ul>
         )}
-        {p.stack_overlap.length > 0 && (
+        {techs.length > 0 && (
           <div className="flex flex-wrap gap-1">
-            {p.stack_overlap.map((t) => <span key={t} className="rounded bg-muted px-1.5 py-0.5 text-xs">{t}</span>)}
+            {techs.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => onTech(t)}
+                title={`Only postings that ask for ${t}${overlap.has(t.toLowerCase()) ? " (on your CV)" : ""}`}
+                className={cn("rounded px-1.5 py-0.5 text-xs hover:ring-1 hover:ring-ring", overlap.has(t.toLowerCase()) ? "bg-primary/15 font-medium" : "bg-muted")}
+              >
+                {t}
+              </button>
+            ))}
           </div>
         )}
 
@@ -357,11 +800,26 @@ const LIST_FIELDS: { key: keyof DiscoveryRules; label: string; hint: string }[] 
   { key: "location_allow", label: "remoteyeah locations", hint: "A remoteyeah job is hidden unless its location mentions one of these (empty = kept)." },
 ];
 
-function SettingsSheet({ open, onOpenChange, state, onSaved }: { open: boolean; onOpenChange: (o: boolean) => void; state: DiscoveryState; onSaved: () => void }) {
+function SettingsSheet({
+  open,
+  onOpenChange,
+  state,
+  onSaved,
+  working,
+  onRescore,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  state: DiscoveryState;
+  onSaved: () => void;
+  working: boolean;
+  onRescore: (includeHidden: boolean) => void;
+}) {
   const [criteria, setCriteria] = useState(state.criteria);
   const [rules, setRules] = useState<DiscoveryRules>(state.rules);
   const [lists, setLists] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [withHidden, setWithHidden] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -381,17 +839,6 @@ function SettingsSheet({ open, onOpenChange, state, onSaved }: { open: boolean; 
       toast.error(errorText(e));
     }
     setSaving(false);
-  }
-
-  async function rescore() {
-    const id = toast.loading("Collecting and re-scoring…");
-    try {
-      const r = await api.runDiscovery(true);
-      toast.success(`${r.new} new · ${r.llm_calls} scored`, { id });
-      onSaved();
-    } catch (e) {
-      toast.error(errorText(e), { id });
-    }
   }
 
   return (
@@ -423,12 +870,17 @@ function SettingsSheet({ open, onOpenChange, state, onSaved }: { open: boolean; 
             ))}
           </section>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save criteria & rules"}</Button>
             {state.can_run && (
-              <Button size="sm" variant="outline" onClick={rescore} title="Runs the searches too (JSearch requests), then scores the recent postings again (paid AI calls)">
-                Run and re-score recent
-              </Button>
+              <>
+                <Button size="sm" variant="outline" disabled={working} onClick={() => onRescore(withHidden)} title="Scores the postings from the last 3 weeks again with the saved criteria (paid AI calls, about $0.0005 each). Doesn't run the searches, so no JSearch requests.">
+                  <RefreshCw /> Re-score recent
+                </Button>
+                <label className="flex items-center gap-1.5 text-xs" title="Also score the postings the rules hid (not duplicates). They stay hidden, but you'll see their verdict and can filter them.">
+                  <Checkbox checked={withHidden} onCheckedChange={(c) => setWithHidden(c === true)} /> hidden ones too
+                </label>
+              </>
             )}
           </div>
 

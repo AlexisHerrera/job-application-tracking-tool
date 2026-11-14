@@ -7,6 +7,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
+from jobtracker.core.discovery import Progress
 from jobtracker.core.models import (
     Application,
     DiscoveryRun,
@@ -372,12 +373,21 @@ def posting_json(p: JobPosting, *, in_tracker: bool, search_label: str | None) -
         "verdict": p.ai_verdict,
         "score": p.ai_score,
         "reasons": ai.get("reasons") or [],
-        "location_fit": ai.get("location_fit"),
-        "seniority": ai.get("seniority"),
-        "years_required": ai.get("years_required"),
-        "employer_kind": ai.get("employer_kind"),
-        "ai_related": bool(ai.get("ai_related")),
+        # Postings scored before the search fields existed have them only in ai_result.
+        "location_fit": p.location_fit or ai.get("location_fit"),
+        "seniority": p.seniority or ai.get("seniority"),
+        "years_required": p.years_required
+        if p.years_required is not None
+        else ai.get("years_required"),
+        "employer_kind": p.employer_kind or ai.get("employer_kind"),
+        "ai_related": bool(p.ai_related if p.ai_related is not None else ai.get("ai_related")),
         "stack_overlap": ai.get("stack_overlap") or [],
+        "technologies": p.technologies,
+        "work_mode": p.work_mode,
+        "company_size": p.company_size,
+        "sector": p.sector,
+        "salary_usd_min": p.salary_usd_min,
+        "salary_usd_max": p.salary_usd_max,
         "status": p.status.value,
         "application_id": str(p.application_id) if p.application_id else None,
         "in_tracker": in_tracker,
@@ -412,6 +422,33 @@ def run_json(r: DiscoveryRun | None) -> dict | None:
     }
 
 
+def progress_json(p: Progress | None, now: datetime) -> dict:
+    """`running` is false when nothing has run since the API started, or the last run ended."""
+    if p is None:
+        return {"running": False}
+
+    def seconds(since: datetime | None) -> float | None:
+        end = p.finished_at or now
+        return round((end - since).total_seconds(), 1) if since else None
+
+    return {
+        "running": p.phase != "done",
+        "kind": p.kind,
+        "phase": p.phase,
+        "elapsed_s": seconds(p.started_at),
+        "phase_elapsed_s": seconds(p.phase_started_at),
+        "searches_total": p.searches_total,
+        "searches_done": p.searches_done,
+        "current": p.current,
+        "fetched": p.fetched,
+        "new": p.new,
+        "hidden": p.hidden,
+        "to_score": p.to_score,
+        "scored": p.scored,
+        "errors": p.errors,
+    }
+
+
 class PostingPatch(BaseModel):
     status: PostingStatus
 
@@ -436,3 +473,7 @@ class SearchPatch(BaseModel):
 
 class DiscoverRunIn(BaseModel):
     rescore: bool = False
+
+
+class DiscoverRescoreIn(BaseModel):
+    include_hidden: bool = False

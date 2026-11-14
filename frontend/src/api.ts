@@ -330,9 +330,52 @@ export interface Posting {
   employer_kind: string | null;
   ai_related: boolean;
   stack_overlap: string[];
+  technologies: string[];
+  work_mode: string | null;
+  company_size: string | null;
+  sector: string | null;
+  salary_usd_min: number | null;
+  salary_usd_max: number | null;
   status: PostingStatus;
   application_id: string | null;
   in_tracker: boolean;
+}
+
+/** Where the run or re-score started from the page is (GET /discover/progress). */
+export interface DiscoveryProgress {
+  running: boolean;
+  kind?: "run" | "rescore";
+  phase?: "collecting" | "scoring" | "done";
+  elapsed_s?: number;
+  phase_elapsed_s?: number | null;
+  searches_total?: number;
+  searches_done?: number;
+  current?: string | null;
+  fetched?: number;
+  new?: number;
+  hidden?: number;
+  to_score?: number;
+  scored?: number;
+  errors?: number;
+}
+
+/** [value, how many postings in the view have it], most common first. */
+export type Facet = [string, number][];
+
+export interface PostingPage {
+  postings: Posting[];
+  total: number;
+  counts: { total: number; hidden: number; unscored: number };
+  facets: {
+    publisher: Facet;
+    seniority: Facet;
+    company_size: Facet;
+    sector: Facet;
+    work_mode: Facet;
+    location_fit: Facet;
+    employer_kind: Facet;
+    technologies: Facet;
+  };
 }
 
 export interface DiscoveryRules {
@@ -486,11 +529,7 @@ export const api = {
   markGeneral: (id: string) => request<Interview>("POST", `/interviews/${id}/general`, {}),
   calendarStatus: () => request<{ connected: boolean; calendar_id: string; last_sync_at: string | null }>("GET", "/calendar"),
   syncCalendar: () => request<CalendarSyncResult>("POST", "/calendar/sync", {}),
-  postings: (params: Record<string, string> = {}) =>
-    request<{ postings: Posting[]; counts: { total: number; hidden: number; unscored: number } }>(
-      "GET",
-      `/discover?${new URLSearchParams(params)}`,
-    ),
+  postings: (params: Record<string, string> = {}) => request<PostingPage>("GET", `/discover?${new URLSearchParams(params)}`),
   setPostingStatus: (id: string, status: PostingStatus) =>
     request<{ id: string; status: PostingStatus }>("PATCH", `/discover/${id}`, { status }),
   applyPosting: (id: string) => request<{ posting_id: string; application: Application }>("POST", `/discover/${id}/apply`, {}),
@@ -503,6 +542,9 @@ export const api = {
     request<DiscoverySearch>("PATCH", `/discover/searches/${id}`, data),
   deleteSearch: (id: string) => request<void>("DELETE", `/discover/searches/${id}`),
   runDiscovery: (rescore = false) => request<DiscoveryRun>("POST", "/discover/run", { rescore }),
+  discoveryProgress: () => request<DiscoveryProgress>("GET", "/discover/progress"),
+  /** Scores recent postings again (paid AI calls) without running the searches. */
+  rescorePostings: (includeHidden = false) => request<DiscoveryRun>("POST", "/discover/rescore", { include_hidden: includeHidden }),
 };
 
 const TZ = "America/Buenos_Aires";

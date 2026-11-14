@@ -366,6 +366,44 @@ class JobPosting:
     status: PostingStatus = PostingStatus.NEW
     application_id: uuid.UUID | None = None
     updated_at: datetime | None = None
+    # Search fields (migration 0012): copied from ai_result by discovery.sync_search_fields.
+    seniority: str | None = None
+    years_required: int | None = None
+    location_fit: str | None = None
+    work_mode: str | None = None
+    employer_kind: str | None = None
+    company_size: str | None = None
+    sector: str | None = None
+    technologies: list[str] = field(default_factory=list)
+    ai_related: bool | None = None
+    salary_usd_min: int | None = None  # yearly, from the source's salary or the LLM's reading
+    salary_usd_max: int | None = None
+
+
+@dataclass
+class PostingQuery:
+    """The Discover page's filters (discovery.matches says what each one means)."""
+
+    hidden: bool = False  # False: only what the rules let through; True: only the hidden ones
+    verdicts: tuple[str, ...] = ()  # "match" | "maybe" | "no" | "unscored"; empty = any
+    statuses: tuple[str, ...] = ()
+    source: str | None = None
+    publisher: str | None = None  # the board: "LinkedIn", "Indeed Argentina", "remoteyeah"…
+    text: str | None = None  # in the title or the company
+    location: str | None = None  # in the location as the source wrote it
+    location_fit: tuple[str, ...] = ()
+    work_mode: tuple[str, ...] = ()
+    seniority: tuple[str, ...] = ()
+    company_size: tuple[str, ...] = ()
+    sector: tuple[str, ...] = ()
+    employer_kind: tuple[str, ...] = ()
+    technologies: tuple[str, ...] = ()  # all of them, any case
+    ai_only: bool = False
+    salary_min_usd: int | None = None  # the range's top reaches it; postings without one fail
+    posted_since: datetime | None = None  # posted_at, or fetched_at when the date is unknown
+    sort: str = "score"
+    limit: int = 50
+    offset: int = 0
 
 
 @dataclass(slots=True)

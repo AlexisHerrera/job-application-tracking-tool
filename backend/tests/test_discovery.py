@@ -392,3 +392,147 @@ def test_apply_creates_the_application_once(drepo):
     _, again = discovery.apply_to(drepo, clock, p.id)
     assert again.id == app.id and len(drepo.apps) == 1
     assert normalize_company(app.company_name) == p.company_normalized
+
+
+# --- search fields and filters -------------------------------------------------------------------
+
+
+def test_search_fields_come_from_the_verdict():
+    p = prepared(salary_min=None, salary_max=None)
+    raw = verdict(
+        technologies=["typescript", "NodeJS", "Node.js", "Postgres", "Rust|Go", " React "],
+        work_mode="remote", company_size="startup", sector="fintech", seniority="semi_senior",
+        salary_min=30, salary_max=40, salary_currency="usd", salary_period="hour", ai_related=True,
+    )  # fmt: skip
+    discovery.apply_verdict(p, discovery.parse_verdict(raw), "m", NOW)
+    assert p.technologies == ["TypeScript", "Node.js", "PostgreSQL", "Rust Go", "React"]
+    assert (p.work_mode, p.company_size, p.sector, p.seniority) == ("remote", "startup", "fintech", "semi_senior")  # fmt: skip
+    assert (p.salary_usd_min, p.salary_usd_max) == (62_400, 83_200)  # hourly → yearly
+    assert p.ai_related is True
+
+
+def test_unknown_values_and_other_currencies():
+    out = discovery.parse_verdict(
+        verdict(sector="banking", company_size="huge", salary_currency="dollars", salary_min=True)
+    )
+    assert (out["sector"], out["company_size"]) == ("unclear", "unclear")
+    assert out["salary_currency"] is None and out["salary_min"] is None
+    p = prepared()
+    discovery.apply_verdict(p, discovery.parse_verdict(verdict(salary_min=2_000_000, salary_currency="ARS", salary_period="month")), "m", NOW)  # fmt: skip
+    assert p.salary_usd_max is None  # pesos aren't turned into dollars
+
+
+def test_source_salary_is_used_when_the_llm_finds_none():
+    p = prepared(salary_min=90_000, salary_max=130_000, salary_period="YEAR")
+    assert (p.salary_usd_min, p.salary_usd_max) == (90_000, 130_000)  # before any LLM call
+    discovery.apply_verdict(p, discovery.parse_verdict(verdict()), "m", NOW)
+    assert p.salary_usd_max == 130_000
+    assert discovery.yearly_usd(30, 50, "HOUR") == (62_400, 104_000)
+    assert discovery.yearly_usd(5, 5, "YEAR") is None and discovery.yearly_usd(1, 2, None) is None
+
+
+def _searchable():
+    rows = []
+    for i, (title, company, publisher, techs, sector, salary, days, score) in enumerate([
+        ("Senior Full Stack Engineer", "Northwind Pay", "LinkedIn", ["TypeScript", "React"], "fintech", 80_000, 1, 82),
+        ("Backend Engineer", "Contoso", "JobLeads", ["Python", "PostgreSQL"], "saas", None, 3, 40),
+        ("AI Engineer", "Fabrikam", "LinkedIn", ["Python", "React"], "ai", 120_000, 10, None),
+    ]):  # fmt: skip
+        p = prepared(source_id=str(i), title=title, company=company, publisher=publisher,
+                     posted_at=NOW - timedelta(days=days))  # fmt: skip
+        p.technologies, p.sector, p.salary_usd_max, p.ai_score = techs, sector, salary, score
+        p.ai_verdict = None if score is None else ("match" if score > 70 else "no")
+        p.prompt_version = None if score is None else discovery.PROMPT_VERSION
+        rows.append(p)
+    return rows
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (discovery.PostingQuery(), ["Northwind Pay", "Contoso", "Fabrikam"]),
+        (discovery.PostingQuery(text="engineer", publisher="LinkedIn"), ["Northwind Pay", "Fabrikam"]),
+        (discovery.PostingQuery(text="contoso"), ["Contoso"]),
+        (discovery.PostingQuery(technologies=("react", "PYTHON")), ["Fabrikam"]),
+        (discovery.PostingQuery(sector=("fintech", "ai")), ["Northwind Pay", "Fabrikam"]),
+        (discovery.PostingQuery(salary_min_usd=100_000), ["Fabrikam"]),
+        (discovery.PostingQuery(posted_since=NOW - timedelta(days=5)), ["Northwind Pay", "Contoso"]),
+        (discovery.PostingQuery(verdicts=("unscored", "match")), ["Northwind Pay", "Fabrikam"]),
+        (discovery.PostingQuery(sort="posted"), ["Northwind Pay", "Contoso", "Fabrikam"]),
+        (discovery.PostingQuery(sort="salary"), ["Fabrikam", "Northwind Pay", "Contoso"]),
+        (discovery.PostingQuery(hidden=True), []),
+    ],
+)  # fmt: skip
+def test_posting_queries(query, expected):
+    repo = MemoryRepo()
+    for p in _searchable():
+        repo.add_posting(p)
+    rows, total = repo.search_postings(query)
+    assert [p.company for p in rows] == expected and total == len(expected)
+
+
+def test_facets_follow_the_other_filters():
+    rows = _searchable()
+    rows[1].drop_reason = "location"
+    rows[2].status = PostingStatus.APPLIED
+    out = discovery.facets(rows, discovery.PostingQuery())
+    assert out["counts"] == {"total": 3, "hidden": 1, "unscored": 1}
+    assert out["publisher"] == [("LinkedIn", 2)]
+    assert out["technologies"] == [("React", 2), ("Python", 1), ("TypeScript", 1)]
+
+    # What "To look at" shows: the applied AI posting no longer counts anywhere.
+    out = discovery.facets(rows, discovery.PostingQuery(statuses=("new", "interested")))
+    assert out["sector"] == [("fintech", 1)] and out["publisher"] == [("LinkedIn", 1)]
+    # A dropdown's own choice doesn't hide its other values; the other filters still apply.
+    out = discovery.facets(rows, discovery.PostingQuery(sector=("ai",), publisher="LinkedIn"))
+    assert out["sector"] == [("ai", 1), ("fintech", 1)]
+    assert out["publisher"] == [("LinkedIn", 1)]
+    assert out["technologies"] == [("Python", 1), ("React", 1)]
+
+
+def test_rescore_skips_jsearch_and_can_score_hidden_postings(drepo):
+    sources = _sources()
+    discovery.run_discovery(drepo, sources, FakeLLM(), FixedClock(NOW))
+    scored = sum(1 for p in drepo.postings.values() if p.ai_verdict)
+    later = FixedClock(NOW + timedelta(hours=1))
+
+    llm = FakeLLM(discover={"onX": verdict(verdict="match", score=91)})
+    run = discovery.rescore(drepo, llm, later)
+    assert run.llm_calls == scored and run.trigger == "rescore" and run.jsearch_requests == 0
+    assert len(sources["jsearch"].calls) == 1  # nothing collected
+
+    run = discovery.rescore(drepo, llm, later, include_hidden=True)
+    on_x = next(p for p in drepo.postings.values() if p.company == "onX")
+    assert on_x.ai_verdict == "match" and on_x.drop_reason == "location"  # scored, still hidden
+    assert run.llm_calls == len(drepo.postings)  # no duplicates in this fixture
+    assert all(p.prompt_version == discovery.PROMPT_VERSION for p in drepo.postings.values())
+
+
+def test_three_failures_stop_the_scoring(drepo):
+    llm = FakeLLM()
+    llm.fail_with = LLMError("overloaded")
+    for i in range(8):
+        drepo.add_posting(prepared(source_id=f"x{i}", company=f"Co {i}"))
+    run = discovery.rescore(drepo, llm, FixedClock(NOW))
+    assert run.errors >= 3 and any("3 LLM failures" in n for n in run.notes)
+    assert not any(p.ai_verdict for p in drepo.postings.values())
+
+
+def test_progress_follows_the_run(drepo):
+    seen: list[discovery.Progress] = []
+    discovery.run_discovery(drepo, _sources(), FakeLLM(), FixedClock(NOW), on_progress=seen.append)
+    assert seen[0].phase == "collecting" and seen[-1].phase == "done"
+    collecting = [p for p in seen if p.phase == "collecting"]
+    assert collecting[1].current == "AR · full stack" and collecting[1].searches_done == 0
+    assert collecting[-1].searches_done == collecting[-1].searches_total == 2
+    assert collecting[-1].new == 9 and collecting[-1].hidden == 7
+    scoring = [p for p in seen if p.phase == "scoring"]
+    assert scoring[0].to_score == 2 and [p.scored for p in scoring] == [0, 1, 2]
+    assert seen[-1].finished_at == NOW
+
+    seen.clear()
+    discovery.rescore(
+        drepo, FakeLLM(), FixedClock(NOW), include_hidden=True, on_progress=seen.append
+    )
+    assert seen[0].kind == "rescore" and seen[0].searches_total == 0
+    assert seen[-1].phase == "done" and seen[-1].scored == seen[-1].to_score == 9

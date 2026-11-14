@@ -355,10 +355,26 @@ class MemoryRepo:
             (p.company_normalized, p.title) for p in self.postings.values() if p.fetched_at >= since
         ]
 
-    def unscored_postings(self, limit):
-        rows = [p for p in self.postings.values() if p.drop_reason is None and p.ai_verdict is None
-                and p.status == PostingStatus.NEW]  # fmt: skip
-        return [copy.deepcopy(p) for p in sorted(rows, key=lambda p: p.fetched_at)][:limit]
+    def unscored_postings(self, limit, *, include_hidden=False, any_status=False):
+        rows = [
+            p for p in self.postings.values()
+            if p.ai_verdict is None
+            and (p.drop_reason is None or (include_hidden and p.drop_reason != "duplicate"))
+            and (any_status or p.status == PostingStatus.NEW)
+        ]  # fmt: skip
+        rows.sort(key=lambda p: (p.fetched_at, str(p.id)))
+        return [copy.deepcopy(p) for p in rows][:limit]
+
+    def search_postings(self, query):
+        from jobtracker.core import discovery
+
+        rows = [p for p in self.postings.values() if discovery.matches(p, query)]
+        rows = discovery.sort_postings(rows, query.sort)
+        page = rows[query.offset : query.offset + query.limit]
+        return [copy.deepcopy(p) for p in page], len(rows)
+
+    def facet_postings(self):
+        return [copy.deepcopy(p) for p in self.postings.values()]
 
     def reset_scores(self, statuses, since):
         n = 0
@@ -519,6 +535,14 @@ def verdict(**overrides) -> dict:
         "employer_kind": "direct",
         "ai_related": False,
         "stack_overlap": [],
+        "technologies": [],
+        "work_mode": "unclear",
+        "company_size": "unclear",
+        "sector": "unclear",
+        "salary_min": None,
+        "salary_max": None,
+        "salary_currency": None,
+        "salary_period": "unclear",
     }
     return {**base, **overrides}
 

@@ -1,6 +1,6 @@
 # Handoff: job discovery page
 
-Updated 2026-11-12. The design and its history are in `docs/plan.md` §20. Read that first; this file covers only what's done, what's next, and the traps.
+Updated 2026-11-14. The design and its history are in `docs/plan.md` §20. Read that first; this file covers only what's done, what's next, and the traps.
 
 ## Status
 
@@ -17,6 +17,31 @@ Updated 2026-11-12. The design and its history are in `docs/plan.md` §20. Read 
   - by the LLM: 12 more consultancies.
 - Visible 50, which the LLM rated 1 match, 18 maybe, 31 no. The user applied to 1 and dismissed 2.
 - **Only one "match"**, so the criteria may be too strict, or the searches too broad. The first thing to look at with the user is which "no" and hidden postings they would actually want.
+
+## Search and filters (2026-11-14, on `main`)
+
+Committed and pushed; reviewed by the user. They asked for it before tuning the criteria, to see what's OK and what isn't. The design is in `docs/plan.md` §20, "Search and filters".
+- Migration `0012_posting_search.sql` is applied to the local DB (`docker compose up` runs the `migrate` service). It isn't on DSQL yet: phase (b) runs `db migrate --dsql` before copying.
+- Runs and re-scores show live progress on the page (steps, bars, time left) from `GET /api/discover/progress`.
+- The user re-scored the 62 visible postings with the new prompt. The 177 rule-hidden ones have never been scored, so the new filters can't see them. "Re-score recent" in the Criteria & searches panel, with "hidden ones too" ticked, covers them for about $0.12. **The user presses that button**; Claude doesn't run it.
+
+## Next: new sources (the user's next request, in a new session)
+
+This is phase (c) in `docs/plan.md` §20: more boards, LinkedIn job-alert emails, and public Greenhouse/Lever/Ashby boards for a fintech watchlist. Sources are adapters behind `JobSource.fetch(params) -> FetchResult` (see `adapters/jsearch.py`, `adapters/remoteyeah.py`). Each new source needs:
+- its name in `discovery.SOURCES` and `clean_search_params`;
+- the `SearchIn.source` pattern in `api/schemas.py`;
+- an entry in `default_discovery()` (`api/app.py`) and in the CLI;
+- the page's source select (`Filters` and `Searches` in `Discover.tsx`).
+
+Ask before any call that reads the real inbox or spends paid requests.
+
+## Later: tune the criteria
+
+Feedback from 2026-11-14, not acted on yet:
+- **Staffing intermediaries are fine.** "G2i - Senior/Staff Software Engineer | AI Task Creation" via Silver.dev got "no · 25" partly for being posted through an intermediary. The user was hired through Silver.dev before. Two things cause this: the criteria text says recruiters for an unnamed client aren't wanted, and `apply_verdict` forces `verdict = "no"` whenever `employer_kind == "agency"`. Both need changing. Talent marketplaces (Turing, Toptal…) may still be unwanted: ask.
+- **Gig-style per-task AI-training contracts** (task creation, not product building) should rank lower, but not be a "no" when everything else fits.
+- **A Buenos Aires location** (e.g. "Cdad. Autónoma de Buenos Aires") means the user can certainly apply: extra points.
+- **Fake-looking postings**: "Javascript Engineer - Remote, Latin America" (Remote Quest Jobs) went through redirect sites (remotejobs.dedyn.io, victorytuitions.in) to talents.vaia.com / **Bluelight Consulting**. The user thinks Bluelight posts fake openings. Ideas: a "hide this company" action from the card (adds it to a block list in the rules), and dropping postings whose apply link goes through known redirect or aggregator domains.
 
 ## Quota and cost
 

@@ -283,3 +283,77 @@ def test_discovery_roundtrip(pg, clock):
         p, app = discovery.apply_to(pg, clock, stored["a1"].id)
     assert pg.get_posting(p.id).status == PostingStatus.APPLIED
     assert pg.get_application(app.id).salary_max == 60000
+
+
+def test_posting_search_sql_agrees_with_matches(pg, clock):
+    """PostgresRepo.search_postings (SQL) and discovery.matches / sort_postings (Python, used by
+    the test repo) are the same filter written twice: check them against each other."""
+    from datetime import timedelta
+
+    from jobtracker.core import discovery
+    from jobtracker.core.models import PostingQuery, PostingStatus
+    from tests.fakes import posting
+
+    now = clock.now()
+    specs = [
+        # title, company, publisher, location, techs, sector, size, salary, days, score, drop, status
+        ("Senior Full Stack Engineer", "Northwind Pay", "LinkedIn", "Cdad. Autónoma de Buenos Aires", ["TypeScript", "React"], "fintech", "startup", 80_000, 1, 82, None, "new"),
+        ("Backend Engineer 100%", "Contoso", "JobLeads", "Argentina", ["Python", "PostgreSQL"], "saas", "large", None, 3, 40, None, "dismissed"),
+        ("AI Engineer", "Fabrikam", "LinkedIn", "Anywhere", ["Python", "React"], "ai", None, 120_000, 10, None, None, "new"),
+        ("Java Developer", "Globex", "remoteyeah", "United States", ["Java"], None, None, 150_000, 2, 82, "location", "new"),
+        ("Data_Engineer", "Initech", None, None, [], None, None, None, 0, 82, "duplicate", "interested"),
+    ]  # fmt: skip
+    for i, (title, company, pub, loc, techs, sector, size, salary, days, score, drop, status) in enumerate(specs):  # fmt: skip
+        p = discovery.prepare(
+            posting(source_id=f"s{i}", title=title, company=company, publisher=pub, location=loc,
+                    posted_at=None if days == 0 else now - timedelta(days=days)),
+            now - timedelta(hours=i),
+        )  # fmt: skip
+        p.technologies, p.sector, p.company_size, p.salary_usd_max = techs, sector, size, salary
+        p.ai_score, p.ai_verdict = score, None if score is None else "match"
+        p.drop_reason, p.status = drop, PostingStatus(status)
+        p.ai_related = company == "Fabrikam"
+        pg.add_posting(p)
+
+    stored = {p.id: p for p in pg.list_postings()}
+    assert stored and all(isinstance(p.technologies, list) for p in stored.values())
+    queries = [
+        PostingQuery(),
+        PostingQuery(hidden=True),
+        PostingQuery(text="ENGINEER"),
+        PostingQuery(text="100%"),  # LIKE wildcards in the text are literal
+        PostingQuery(text="_", hidden=True),
+        PostingQuery(location="buenos aires"),
+        PostingQuery(technologies=("react",)),
+        PostingQuery(technologies=("react", "python")),
+        PostingQuery(technologies=("reac",)),  # whole names only
+        PostingQuery(sector=("fintech", "ai"), company_size=("startup",)),
+        PostingQuery(publisher="LinkedIn", ai_only=True),
+        PostingQuery(salary_min_usd=100_000, hidden=True),
+        PostingQuery(posted_since=now - timedelta(days=5)),
+        PostingQuery(verdicts=("unscored",)),
+        PostingQuery(verdicts=("match", "unscored"), statuses=("new",)),
+        PostingQuery(sort="posted"),
+        PostingQuery(sort="salary"),
+        PostingQuery(sort="salary", hidden=True),
+        PostingQuery(limit=1, offset=1),
+    ]
+    for q in queries:
+        expected = discovery.sort_postings([p for p in stored.values() if discovery.matches(p, q)], q.sort)  # fmt: skip
+        rows, total = pg.search_postings(q)
+        assert [p.id for p in rows] == [p.id for p in expected[q.offset : q.offset + q.limit]], q
+        assert total == len(expected), q
+
+    light = pg.facet_postings()
+    assert len(light) == len(specs) and all(p.description == "" for p in light)
+    assert discovery.facets(light, PostingQuery())["publisher"] == [
+        ("LinkedIn", 2),
+        ("JobLeads", 1),
+    ]
+
+    for p in stored.values():
+        p.ai_verdict = None
+        pg.update_posting(p)
+    assert len(pg.unscored_postings(10)) == 2  # visible + new
+    assert len(pg.unscored_postings(10, any_status=True)) == 3
+    assert len(pg.unscored_postings(10, include_hidden=True, any_status=True)) == 4  # no duplicate

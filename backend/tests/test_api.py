@@ -219,13 +219,16 @@ def test_discover_page_flow(repo):
         posting(source_id="2", company="Contoso", title="Full Stack Engineer", posted_at=now),
         posting(source_id="3", company="Toptal", title="Senior React Developer", posted_at=now),
     ])  # fmt: skip
-    llm = FakeLLM(discover={"Northwind": verdict(verdict="match", score=88),
-                            "Contoso": verdict(verdict="no", score=20)})  # fmt: skip
+    llm = FakeLLM(discover={"Northwind": verdict(verdict="match", score=88, sector="fintech",
+                                                 technologies=["TypeScript", "React"]),
+                            "Contoso": verdict(verdict="no", score=20, salary_min=90000,
+                                               salary_currency="USD", salary_period="year")})  # fmt: skip
     client = TestClient(
         create_app(settings, repo_factory=lambda: repo,
                    discovery_factory=lambda: ({"jsearch": source}, llm))
     )  # fmt: skip
 
+    assert client.get("/api/discover/progress").json() == {"running": False}
     state = client.post("/api/discover/seed").json()
     assert state["added"]["searches"] == len(discovery.DEFAULT_SEARCHES)
     assert state["jsearch_configured"] and state["can_run"]
@@ -235,6 +238,9 @@ def test_discover_page_flow(repo):
 
     run = client.post("/api/discover/run", json={}).json()
     assert (run["new"], run["dropped"], run["llm_calls"]) == (3, 1, 2)
+    progress = client.get("/api/discover/progress").json()
+    assert progress["running"] is False and (progress["kind"], progress["phase"]) == ("run", "done")
+    assert (progress["searches_done"], progress["new"], progress["scored"]) == (1, 3, 2)
 
     page = client.get("/api/discover").json()
     assert [p["company"] for p in page["postings"]] == ["Northwind Pay", "Contoso"]  # by score
@@ -243,6 +249,24 @@ def test_discover_page_flow(repo):
     hidden = client.get("/api/discover", params={"hidden": True}).json()["postings"]
     assert [(p["company"], p["drop_reason"]) for p in hidden] == [("Toptal", "agency")]
     assert [p["company"] for p in client.get("/api/discover", params={"verdict": "match"}).json()["postings"]] == ["Northwind Pay"]  # fmt: skip
+
+    def companies(**params):
+        return [p["company"] for p in client.get("/api/discover", params=params).json()["postings"]]
+
+    assert companies(q="backend") == ["Northwind Pay"]
+    assert companies(tech="react,typescript", sector="fintech") == ["Northwind Pay"]
+    assert companies(salary_min=80000) == ["Contoso"]
+    assert companies(sort="salary") == ["Contoso", "Northwind Pay"]
+    assert companies(posted_days=1) == ["Northwind Pay", "Contoso"]
+    paged = client.get("/api/discover", params={"limit": 1, "offset": 1}).json()
+    assert [p["company"] for p in paged["postings"]] == ["Contoso"] and paged["total"] == 2
+    assert page["facets"]["technologies"] == [["React", 1], ["TypeScript", 1]]
+    assert page["postings"][1]["salary_usd_max"] == 90000
+    assert client.get("/api/discover", params={"sort": "random"}).status_code == 422
+
+    rescored = client.post("/api/discover/rescore", json={"include_hidden": True}).json()
+    assert rescored["trigger"] == "rescore" and rescored["llm_calls"] == 3
+    assert rescored["jsearch_requests"] == 0 and len(source.calls) == 1
 
     top = page["postings"][0]
     r = client.post(f"/api/discover/{top['id']}/apply")

@@ -30,6 +30,7 @@ from jobtracker.core.models import (
     JobPosting,
     MatchMethod,
     Origin,
+    PostingQuery,
     PostingStatus,
     ProcessStep,
     Stage,
@@ -77,6 +78,8 @@ POSTING_COLUMNS = [
     "location", "employment_type", "salary_text", "salary_min", "salary_max", "salary_period",
     "publisher", "posted_at", "description", "fetched_at", "drop_reason", "ai_verdict", "ai_score",
     "ai_result", "ai_model", "prompt_version", "status", "application_id", "updated_at",
+    "seniority", "years_required", "location_fit", "work_mode", "employer_kind", "company_size",
+    "sector", "technologies", "ai_related", "salary_usd_min", "salary_usd_max",
 ]  # fmt: skip
 RUN_COLUMNS = [
     "id", "started_at", "finished_at", "trigger", "jsearch_requests", "fetched", "new", "dropped",
@@ -215,13 +218,76 @@ def _step_from(r: dict) -> ProcessStep:
 def _posting_row(p: JobPosting) -> dict:
     row = {c: _v(getattr(p, c)) for c in POSTING_COLUMNS}
     row["ai_result"] = Jsonb(p.ai_result) if p.ai_result is not None else None
+    # "|TypeScript|React|": one LIKE '%|react|%' per technology filter, no arrays on DSQL.
+    row["technologies"] = f"|{'|'.join(p.technologies)}|" if p.technologies else None
     return row
 
 
 def _posting_from(r: dict) -> JobPosting:
-    data = {c: r[c] for c in POSTING_COLUMNS}
+    data = {c: r[c] for c in POSTING_COLUMNS if c in r}
     data["status"] = PostingStatus(r["status"])
+    data["technologies"] = [t for t in (r.get("technologies") or "").split("|") if t]
     return JobPosting(**data)
+
+
+def _like(text: str) -> str:
+    """Escape LIKE's wildcards in text typed on the page (backslash is the default escape)."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+_POSTED = "COALESCE(posted_at, fetched_at)"
+_POSTING_ORDER = {
+    "score": f"ai_score DESC NULLS LAST, {_POSTED} DESC, id",
+    "posted": f"{_POSTED} DESC, id",
+    "salary": f"salary_usd_max DESC NULLS LAST, ai_score DESC NULLS LAST, {_POSTED} DESC, id",
+}
+_FACET_COLUMNS = [c for c in POSTING_COLUMNS if c not in {"description", "ai_result"}]
+
+
+def _posting_where(q: PostingQuery) -> tuple[str, list]:
+    """discovery.matches, in SQL."""
+    where = ["(drop_reason IS NOT NULL) = %s"]
+    args: list = [q.hidden]
+
+    def one_of(column: str, values: tuple[str, ...]) -> None:
+        if values:
+            where.append(f"{column} IN ({', '.join(['%s'] * len(values))})")
+            args.extend(values)
+
+    if q.verdicts:
+        scored = tuple(v for v in q.verdicts if v != "unscored")
+        parts = ["ai_verdict IS NULL"] if "unscored" in q.verdicts else []
+        if scored:
+            parts.append(f"ai_verdict IN ({', '.join(['%s'] * len(scored))})")
+            args.extend(scored)
+        where.append(f"({' OR '.join(parts)})")
+    one_of("status", q.statuses)
+    one_of("source", (q.source,) if q.source else ())
+    one_of("publisher", (q.publisher,) if q.publisher else ())
+    if q.text:
+        where.append("(title ILIKE %s OR company ILIKE %s)")
+        args += [f"%{_like(q.text)}%"] * 2
+    if q.location:
+        where.append("location ILIKE %s")
+        args.append(f"%{_like(q.location)}%")
+    one_of("location_fit", q.location_fit)
+    one_of("work_mode", q.work_mode)
+    one_of("seniority", q.seniority)
+    one_of("company_size", q.company_size)
+    one_of("sector", q.sector)
+    one_of("employer_kind", q.employer_kind)
+    for tech in q.technologies:
+        where.append("lower(technologies) LIKE %s")
+        args.append(f"%|{_like(tech.lower())}|%")
+    if q.ai_only:
+        where.append("ai_related")
+    if q.salary_min_usd is not None:
+        where.append("salary_usd_max >= %s")
+        args.append(q.salary_min_usd)
+    if q.posted_since is not None:
+        where.append(f"{_POSTED} >= %s")
+        args.append(q.posted_since)
+    return " AND ".join(where), args
 
 
 def _run_from(r: dict) -> DiscoveryRun:
@@ -726,13 +792,36 @@ class PostgresRepo:
         )
         return [(r["company_normalized"], r["title"]) for r in rows]
 
-    def unscored_postings(self, limit: int) -> list[JobPosting]:
+    def unscored_postings(
+        self, limit: int, *, include_hidden: bool = False, any_status: bool = False
+    ) -> list[JobPosting]:
+        hidden = (
+            "(drop_reason IS NULL OR drop_reason <> 'duplicate')"
+            if include_hidden
+            else "drop_reason IS NULL"
+        )
+        status = "" if any_status else " AND status = %s"
+        args = () if any_status else (PostingStatus.NEW.value,)
         rows = self._all(
-            "SELECT * FROM job_postings WHERE drop_reason IS NULL AND ai_verdict IS NULL"
-            " AND status = %s ORDER BY fetched_at, id LIMIT %s",
-            (PostingStatus.NEW.value, limit),
+            f"SELECT * FROM job_postings WHERE {hidden} AND ai_verdict IS NULL{status}"
+            " ORDER BY fetched_at, id LIMIT %s",
+            (*args, limit),
         )
         return [_posting_from(r) for r in rows]
+
+    def search_postings(self, query: PostingQuery) -> tuple[list[JobPosting], int]:
+        where, args = _posting_where(query)
+        total = self._one(f"SELECT count(*) AS n FROM job_postings WHERE {where}", tuple(args))
+        order = _POSTING_ORDER.get(query.sort, _POSTING_ORDER["score"])
+        rows = self._all(
+            f"SELECT * FROM job_postings WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s",
+            (*args, query.limit, query.offset),
+        )
+        return [_posting_from(r) for r in rows], total["n"] if total else 0
+
+    def facet_postings(self) -> list[JobPosting]:
+        rows = self._all(f"SELECT {', '.join(_FACET_COLUMNS)} FROM job_postings")
+        return [_posting_from({**r, "description": ""}) for r in rows]
 
     def reset_scores(self, statuses: tuple[PostingStatus, ...], since: datetime) -> int:
         # Only scored rows change. A scored row hidden as a consultancy was hidden by the LLM (the

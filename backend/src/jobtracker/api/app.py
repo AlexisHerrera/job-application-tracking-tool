@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from collections.abc import Callable, Iterator
 from datetime import timedelta
@@ -32,7 +33,7 @@ from jobtracker.core import (
 )
 from jobtracker.core.clock import SystemClock
 from jobtracker.core.matching import normalize_company
-from jobtracker.core.models import Campaign, DiscoverySearch, InterviewNote, Origin
+from jobtracker.core.models import Campaign, DiscoverySearch, InterviewNote, Origin, PostingQuery
 from jobtracker.core.pipeline import Pipeline, PipelineConfig, run_incremental
 from jobtracker.core.ports import (
     CalendarAuthError,
@@ -768,39 +769,68 @@ def create_app(
         verdict: str | None = Query(None),
         status: str | None = Query(None),
         source: str | None = Query(None),
+        publisher: str | None = Query(None, max_length=200),
+        q: str | None = Query(None, max_length=200),
+        location: str | None = Query(None, max_length=200),
+        location_fit: str | None = Query(None),
+        work_mode: str | None = Query(None),
+        seniority: str | None = Query(None),
+        company_size: str | None = Query(None),
+        sector: str | None = Query(None),
+        employer_kind: str | None = Query(None),
+        tech: str | None = Query(None, max_length=500),
+        ai: bool = Query(False),
+        salary_min: int | None = Query(None, ge=0, le=10_000_000),
+        posted_days: int | None = Query(None, ge=1, le=365),
+        sort: str = Query("score", pattern="^(score|posted|salary)$"),
         hidden: bool = Query(False),
-        days: int = Query(30, ge=1, le=365),
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
         repo: PostgresRepo = Depends(get_repo),
     ):
-        postings = repo.list_postings(since=clock.now() - timedelta(days=days))
+        def items(value: str | None) -> tuple[str, ...]:
+            return tuple(v.strip() for v in (value or "").split(",") if v.strip())[:50]
+
+        query = PostingQuery(
+            hidden=hidden,
+            verdicts=items(verdict),
+            statuses=items(status),
+            source=source or None,
+            publisher=publisher or None,
+            text=(q or "").strip() or None,
+            location=(location or "").strip() or None,
+            location_fit=items(location_fit),
+            work_mode=items(work_mode),
+            seniority=items(seniority),
+            company_size=items(company_size),
+            sector=items(sector),
+            employer_kind=items(employer_kind),
+            technologies=items(tech),
+            ai_only=ai,
+            salary_min_usd=salary_min or None,
+            posted_since=clock.now() - timedelta(days=posted_days) if posted_days else None,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+        )
+        postings, total = repo.search_postings(query)
         labels = {x.id: x.label for x in repo.list_searches()}
         tracked = {normalize_company(a.company_name) for a in repo.list_applications()}
-        counts = {"total": len(postings), "hidden": 0, "unscored": 0}
-        rows = []
-        for p in postings:
-            if p.drop_reason:
-                counts["hidden"] += 1
-            elif p.ai_verdict is None:
-                counts["unscored"] += 1
-            if bool(p.drop_reason) != hidden:
-                continue
-            if verdict and (p.ai_verdict or "unscored") not in verdict.split(","):
-                continue
-            if status and p.status.value not in status.split(","):
-                continue
-            if source and p.source != source:
-                continue
-            rows.append(
-                s.posting_json(
-                    p,
-                    in_tracker=p.company_normalized in tracked,
-                    search_label=labels.get(p.search_id) if p.search_id else None,
-                )
+        summary = discovery.facets(repo.facet_postings(), query)
+        rows = [
+            s.posting_json(
+                p,
+                in_tracker=p.company_normalized in tracked,
+                search_label=labels.get(p.search_id) if p.search_id else None,
             )
-        # Best score first (unscored last); newest first within the same score.
-        rows.sort(key=lambda r: r["posted_at"] or r["fetched_at"] or "", reverse=True)
-        rows.sort(key=lambda r: -1 if r["score"] is None else r["score"], reverse=True)
-        return {"postings": rows, "counts": counts}
+            for p in postings
+        ]
+        return {
+            "postings": rows,
+            "total": total,
+            "counts": summary.pop("counts"),
+            "facets": summary,
+        }
 
     @api.patch("/discover/{posting_id}")
     def patch_posting(
@@ -896,6 +926,28 @@ def create_app(
         with repo.transaction():
             repo.delete_search(_uuid(search_id))
 
+    # Progress of the run the page started, read by GET /discover/progress while the POST waits.
+    # In memory: page runs are local only, in this one process (plan §20).
+    progress_lock = threading.Lock()
+    progress_now: dict[str, discovery.Progress | None] = {"latest": None}
+
+    def report(p: discovery.Progress) -> None:
+        with progress_lock:
+            progress_now["latest"] = p
+
+    def finish_progress() -> None:
+        # An exception mid-run must not leave the page believing it's still going.
+        with progress_lock:
+            p = progress_now["latest"]
+            if p is not None and p.phase != "done":
+                p.phase, p.finished_at = "done", clock.now()
+
+    @api.get("/discover/progress")
+    def discovery_progress():
+        with progress_lock:
+            p = progress_now["latest"]
+        return s.progress_json(p, clock.now())
+
     @api.post("/discover/run")
     def run_discovery(body: s.DiscoverRunIn, repo: PostgresRepo = Depends(get_repo)):
         """Collect now: JSearch requests (free quota) and paid LLM calls for new postings."""
@@ -904,11 +956,33 @@ def create_app(
         if not repo.try_discovery_lock():
             raise HTTPException(409, "A discovery run is already going")
         sources, llm = make_discovery()
-        result = discovery.run_discovery(
-            repo, sources, llm, clock, trigger="page", rescore=body.rescore
-        )
+        try:
+            result = discovery.run_discovery(
+                repo, sources, llm, clock, trigger="page", rescore=body.rescore, on_progress=report
+            )
+        finally:
+            finish_progress()
         log.info("discover: %s", s.run_json(result.run))
         return s.run_json(result.run)
+
+    @api.post("/discover/rescore")
+    def rescore_postings(body: s.DiscoverRescoreIn, repo: PostgresRepo = Depends(get_repo)):
+        """Score the recent postings again (paid LLM calls), without collecting: no JSearch."""
+        if make_discovery is None:
+            raise HTTPException(501, "Discovery runs on its schedule here")
+        if not repo.try_discovery_lock():
+            raise HTTPException(409, "A discovery run is already going")
+        _, llm = make_discovery()
+        if llm is None:
+            raise services.InvalidInput("ANTHROPIC_API_KEY isn't set")
+        try:
+            run = discovery.rescore(
+                repo, llm, clock, include_hidden=body.include_hidden, on_progress=report
+            )
+        finally:
+            finish_progress()
+        log.info("discover rescore: %s", s.run_json(run))
+        return s.run_json(run)
 
     app.include_router(api)
     return app

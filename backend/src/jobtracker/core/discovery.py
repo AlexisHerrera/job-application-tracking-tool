@@ -10,18 +10,20 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
 from rapidfuzz import fuzz
 
 from jobtracker.core.matching import normalize_company
-from jobtracker.core.models import DiscoveryRun, JobPosting, PostingStatus
+from jobtracker.core.models import DiscoveryRun, JobPosting, PostingQuery, PostingStatus
 from jobtracker.core.ports import Clock, DiscoveryRepo, JobSource, LLMClient, LLMError, SourceError
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "2026-11-11.1"
+PROMPT_VERSION = "2026-11-14.1"  # adds the search fields (plan §20, "Search and filters")
 SOURCES = ("jsearch", "remoteyeah")
 DESCRIPTION_LIMIT = 8000  # stored
 LLM_DESCRIPTION_CHARS = 4000  # sent to the model
@@ -29,6 +31,9 @@ MAX_OUTPUT_TOKENS = 2048
 DUPLICATE_WINDOW = timedelta(days=30)
 DUPLICATE_TITLE_SCORE = 92
 RESCORE_WINDOW = timedelta(days=21)
+RUN_SCORE_LIMIT = 150  # LLM calls in one daily run
+RESCORE_LIMIT = 500  # LLM calls when re-scoring from the page (~$0.0004 each)
+SCORE_WORKERS = 6  # LLM calls in flight at once
 
 # ---------------------------------------------------------------------------------------------
 # Defaults (editable on the Discover page; `jobtracker discover seed` writes them once)
@@ -303,6 +308,13 @@ VERDICTS = ("match", "maybe", "no")
 LOCATION_FIT = ("yes", "no", "unclear")
 SENIORITY = ("junior", "mid", "semi_senior", "senior", "staff_plus", "unclear")
 EMPLOYER_KIND = ("direct", "consultancy", "agency", "unclear")
+WORK_MODE = ("remote", "hybrid", "onsite", "unclear")
+COMPANY_SIZE = ("startup", "small", "medium", "large", "unclear")
+SECTORS = (
+    "fintech", "ai", "security", "devtools", "saas", "ecommerce", "health", "education",
+    "crypto", "media", "gaming", "logistics", "hr", "government", "consulting", "other", "unclear",
+)  # fmt: skip
+SALARY_PERIODS = ("year", "month", "week", "day", "hour", "unclear")
 
 DISCOVERY_SCHEMA = {
     "type": "object",
@@ -316,6 +328,14 @@ DISCOVERY_SCHEMA = {
         "employer_kind": {"type": "string", "enum": list(EMPLOYER_KIND)},
         "ai_related": {"type": "boolean"},
         "stack_overlap": {"type": "array", "items": {"type": "string"}},
+        "technologies": {"type": "array", "items": {"type": "string"}},
+        "work_mode": {"type": "string", "enum": list(WORK_MODE)},
+        "company_size": {"type": "string", "enum": list(COMPANY_SIZE)},
+        "sector": {"type": "string", "enum": list(SECTORS)},
+        "salary_min": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+        "salary_max": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+        "salary_currency": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "salary_period": {"type": "string", "enum": list(SALARY_PERIODS)},
     },
     "required": [
         "verdict",
@@ -327,6 +347,14 @@ DISCOVERY_SCHEMA = {
         "employer_kind",
         "ai_related",
         "stack_overlap",
+        "technologies",
+        "work_mode",
+        "company_size",
+        "sector",
+        "salary_min",
+        "salary_max",
+        "salary_currency",
+        "salary_period",
     ],
     "additionalProperties": False,
 }
@@ -352,6 +380,20 @@ nearshore outsourcing firm staffing client projects), "agency" (a recruiting age
 firm or talent marketplace posting for someone else), "unclear".
 - ai_related: whether the role involves AI or LLM work.
 - stack_overlap: the candidate's skills that the posting asks for (at most 8).
+- technologies: every language, framework, database, cloud and tool the posting asks for (at \
+most 15), with their usual names ("TypeScript", "Node.js", "PostgreSQL", "AWS").
+- work_mode: "remote", "hybrid", "onsite", or "unclear".
+- company_size: the hiring company's size, from the posting or from what you know about the \
+company: "startup" (under 50 people), "small" (50 to 250), "medium" (250 to 1,000), "large" \
+(over 1,000), "unclear". When an agency posts for a named client, describe the client.
+- sector: the hiring company's industry: "fintech" (payments, banking, lending, insurance, \
+trading), "ai" (the product is AI), "security", "devtools" (tools for developers), "saas" \
+(other business software), "ecommerce", "health", "education", "crypto", "media", "gaming", \
+"logistics" (also mobility and travel), "hr" (also recruiting), "government" (also non-profits), \
+"consulting" (software services for clients), "other", or "unclear".
+- salary_min, salary_max, salary_currency, salary_period: only when the posting states a \
+salary: the numbers as written (expand "90K" to 90000), the currency as an ISO code ("USD", \
+"ARS", "EUR"), and the period. Use null and "unclear" when no salary is stated; never estimate.
 
 <criteria>
 {criteria}
@@ -417,7 +459,86 @@ def parse_verdict(data: dict) -> dict:
         "employer_kind": _enum(data.get("employer_kind"), EMPLOYER_KIND, "unclear"),
         "ai_related": data.get("ai_related") is True,
         "stack_overlap": _texts(data.get("stack_overlap"), 8, 40),
+        "technologies": normalize_technologies(_texts(data.get("technologies"), 15, 40)),
+        "work_mode": _enum(data.get("work_mode"), WORK_MODE, "unclear"),
+        "company_size": _enum(data.get("company_size"), COMPANY_SIZE, "unclear"),
+        "sector": _enum(data.get("sector"), SECTORS, "unclear"),
+        "salary_min": _amount(data.get("salary_min")),
+        "salary_max": _amount(data.get("salary_max")),
+        "salary_currency": currency
+        if isinstance(currency := data.get("salary_currency"), str)
+        and re.fullmatch(r"[A-Z]{3}", currency := currency.strip().upper())
+        else None,
+        "salary_period": _enum(data.get("salary_period"), SALARY_PERIODS, "unclear"),
     }
+
+
+def _amount(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return int(value) if 0 < value < 1_000_000_000 else None
+
+
+# The model mostly writes names the usual way; these catch the common variants so the filter
+# doesn't list "Node", "NodeJS" and "Node.js" as three technologies.
+TECH_ALIASES = {
+    "js": "JavaScript", "javascript": "JavaScript", "ts": "TypeScript", "typescript": "TypeScript",
+    "node": "Node.js", "nodejs": "Node.js", "node.js": "Node.js", "react": "React",
+    "reactjs": "React", "react.js": "React", "next": "Next.js", "nextjs": "Next.js",
+    "next.js": "Next.js", "vue": "Vue", "vuejs": "Vue", "vue.js": "Vue", "angularjs": "Angular",
+    "postgres": "PostgreSQL", "postgresql": "PostgreSQL", "mysql": "MySQL", "mongo": "MongoDB",
+    "mongodb": "MongoDB", "golang": "Go", "python": "Python", "aws": "AWS",
+    "amazon web services": "AWS", "gcp": "GCP", "google cloud": "GCP",
+    "google cloud platform": "GCP", "k8s": "Kubernetes", "kubernetes": "Kubernetes",
+    "docker": "Docker", "graphql": "GraphQL", "terraform": "Terraform", "llm": "LLMs",
+    "llms": "LLMs", "c#": "C#", ".net": ".NET", "dotnet": ".NET",
+}  # fmt: skip
+
+
+def normalize_technologies(names: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        clean = " ".join(name.replace("|", " ").split())
+        canonical = TECH_ALIASES.get(clean.lower(), clean)
+        if canonical and canonical.lower() not in seen:
+            seen.add(canonical.lower())
+            out.append(canonical)
+    return out
+
+
+def yearly_usd(lo: int | None, hi: int | None, period: str | None) -> tuple[int, int] | None:
+    """A salary range in USD a year, or None when it can't be one (no numbers, unknown period,
+    or a figure no yearly salary has)."""
+    factor = _PERIOD_TO_YEAR.get((period or "").upper())
+    lo, hi = lo or hi, hi or lo
+    if not (lo and hi and factor):
+        return None
+    lo, hi = sorted((lo * factor, hi * factor))
+    return (lo, hi) if lo >= 1_000 and hi <= 5_000_000 else None
+
+
+def sync_search_fields(p: JobPosting) -> None:
+    """Copy what the page filters on from ai_result into plain columns (migration 0012).
+
+    Salary: the LLM's reading when it found one in USD; otherwise the source's own fields, taken
+    as USD (JSearch states salaries only for US listings: none of the Argentine ones had one)."""
+    ai = p.ai_result or {}
+    p.seniority = ai.get("seniority")
+    p.years_required = ai.get("years_required")
+    p.location_fit = ai.get("location_fit")
+    p.work_mode = ai.get("work_mode")
+    p.employer_kind = ai.get("employer_kind")
+    p.company_size = ai.get("company_size")
+    p.sector = ai.get("sector")
+    p.technologies = list(ai.get("technologies") or [])
+    p.ai_related = ai.get("ai_related") if p.ai_result is not None else None
+    salary = None
+    if ai.get("salary_currency") == "USD":
+        salary = yearly_usd(ai.get("salary_min"), ai.get("salary_max"), ai.get("salary_period"))
+    elif not ai.get("salary_currency"):
+        salary = yearly_usd(p.salary_min, p.salary_max, p.salary_period)
+    p.salary_usd_min, p.salary_usd_max = salary or (None, None)
 
 
 def apply_verdict(p: JobPosting, result: dict, model: str | None, now: datetime) -> None:
@@ -429,15 +550,17 @@ def apply_verdict(p: JobPosting, result: dict, model: str | None, now: datetime)
     p.updated_at = now
     if result["employer_kind"] == "consultancy" and p.drop_reason is None:
         p.drop_reason = "consultancy"  # hidden, like the consultancy list (plan §20)
+    sync_search_fields(p)
+
+
+def ask_llm(llm: LLMClient, system: str, p: JobPosting) -> dict:
+    return llm.complete_json(
+        system=system, user=posting_prompt(p), schema=DISCOVERY_SCHEMA, max_tokens=MAX_OUTPUT_TOKENS
+    )
 
 
 def score_posting(llm: LLMClient, criteria: str, p: JobPosting, now: datetime) -> None:
-    raw = llm.complete_json(
-        system=system_prompt(criteria),
-        user=posting_prompt(p),
-        schema=DISCOVERY_SCHEMA,
-        max_tokens=MAX_OUTPUT_TOKENS,
-    )
+    raw = ask_llm(llm, system_prompt(criteria), p)
     apply_verdict(p, parse_verdict(raw), getattr(llm, "model", None), now)
 
 
@@ -457,7 +580,37 @@ def prepare(p: JobPosting, now: datetime) -> JobPosting:
     p.description = (p.description or "")[:DESCRIPTION_LIMIT]
     p.fetched_at = now
     p.updated_at = now
+    sync_search_fields(p)
     return p
+
+
+@dataclass
+class Progress:
+    """Where a run or a re-score is, for the page to show while it waits. Reported after every
+    search and every LLM answer, always from the thread that called run_discovery / rescore."""
+
+    kind: str  # "run" | "rescore"
+    started_at: datetime
+    phase: str = "collecting"  # "collecting" | "scoring" | "done"
+    phase_started_at: datetime | None = None
+    searches_total: int = 0
+    searches_done: int = 0
+    current: str | None = None  # the search being fetched
+    fetched: int = 0
+    new: int = 0
+    hidden: int = 0
+    to_score: int = 0
+    scored: int = 0
+    errors: int = 0
+    finished_at: datetime | None = None
+
+
+ProgressFn = Callable[[Progress], None]
+
+
+def _report(progress: Progress | None, on_progress: ProgressFn | None) -> None:
+    if progress is not None and on_progress is not None:
+        on_progress(replace(progress))  # a copy: the caller may keep it
 
 
 @dataclass
@@ -476,7 +629,8 @@ def run_discovery(
     only_source: str | None = None,
     dry_run: bool = False,
     rescore: bool = False,
-    score_limit: int = 150,
+    score_limit: int = RUN_SCORE_LIMIT,
+    on_progress: ProgressFn | None = None,
 ) -> RunResult:
     """Collect every enabled search, store what's new (hidden ones too, with the reason), then
     score the postings that passed the rules and have no verdict yet. A dry run stores no
@@ -493,47 +647,62 @@ def run_discovery(
         with repo.transaction():
             repo.save_run(run)
 
-    for search in repo.list_searches():
-        if not search.enabled or (only_source and search.source != only_source):
-            continue
-        source = sources.get(search.source)
-        if source is None:
-            run.notes.append(f"{search.label}: source {search.source} not configured")
-            continue
-        if search.source == "jsearch" and used >= rules.jsearch_monthly_cap:
-            run.notes.append(f"{search.label}: skipped, JSearch monthly cap reached ({used})")
-            continue
+    searches = [
+        x
+        for x in repo.list_searches()
+        if x.enabled and (not only_source or x.source == only_source)
+    ]
+    progress = Progress("run", now, phase_started_at=now, searches_total=len(searches))
+    _report(progress, on_progress)
+
+    for search in searches:
+        progress.current = search.label
+        _report(progress, on_progress)
         try:
-            result = source.fetch(search.params)
-        except SourceError as err:
-            if search.source == "jsearch":
-                used += err.requests
-                run.jsearch_requests += err.requests
-            run.errors += 1
-            run.notes.append(f"{search.label}: {err}")
-            log.warning("discovery source failed: %s: %s", search.label, err)
-            continue
-        if search.source == "jsearch":
-            used += result.requests
-            run.jsearch_requests += result.requests
-        for p in result.postings:
-            run.fetched += 1
-            key = (p.source, p.source_id)
-            if key in seen or repo.posting_exists(*key):
+            source = sources.get(search.source)
+            if source is None:
+                run.notes.append(f"{search.label}: source {search.source} not configured")
                 continue
-            seen.add(key)
-            prepare(p, now)
-            p.search_id = search.id
-            p.drop_reason = rule_drop(p, rules, now) or (
-                "duplicate" if is_duplicate(p, recent) else None
-            )
-            recent.append((p.company_normalized, p.title))
-            run.new += 1
-            run.dropped += p.drop_reason is not None
-            new.append(p)
-            if not dry_run:
-                with repo.transaction():
-                    repo.add_posting(p)
+            if search.source == "jsearch" and used >= rules.jsearch_monthly_cap:
+                run.notes.append(f"{search.label}: skipped, JSearch monthly cap reached ({used})")
+                continue
+            try:
+                result = source.fetch(search.params)
+            except SourceError as err:
+                if search.source == "jsearch":
+                    used += err.requests
+                    run.jsearch_requests += err.requests
+                run.errors += 1
+                run.notes.append(f"{search.label}: {err}")
+                log.warning("discovery source failed: %s: %s", search.label, err)
+                continue
+            if search.source == "jsearch":
+                used += result.requests
+                run.jsearch_requests += result.requests
+            for p in result.postings:
+                run.fetched += 1
+                key = (p.source, p.source_id)
+                if key in seen or repo.posting_exists(*key):
+                    continue
+                seen.add(key)
+                prepare(p, now)
+                p.search_id = search.id
+                p.drop_reason = rule_drop(p, rules, now) or (
+                    "duplicate" if is_duplicate(p, recent) else None
+                )
+                recent.append((p.company_normalized, p.title))
+                run.new += 1
+                run.dropped += p.drop_reason is not None
+                new.append(p)
+                if not dry_run:
+                    with repo.transaction():
+                        repo.add_posting(p)
+        finally:
+            progress.searches_done += 1
+            progress.fetched, progress.new = run.fetched, run.new
+            progress.hidden, progress.errors = run.dropped, run.errors
+            _report(progress, on_progress)
+    progress.current = None
 
     if not dry_run:
         if rescore:
@@ -541,11 +710,16 @@ def run_discovery(
                 n = repo.reset_scores((PostingStatus.NEW,), now - RESCORE_WINDOW)
             run.notes.append(f"re-scoring {n} postings")
         if llm is not None:
-            score_pending(repo, llm, criteria, clock, run, score_limit)
+            score_pending(
+                repo, llm, criteria, clock, run, score_limit,
+                progress=progress, on_progress=on_progress,
+            )  # fmt: skip
 
     run.finished_at = clock.now()
     with repo.transaction():
         repo.save_run(run)
+    progress.phase, progress.finished_at = "done", run.finished_at
+    _report(progress, on_progress)
     return RunResult(run, new)
 
 
@@ -556,22 +730,177 @@ def score_pending(
     clock: Clock,
     run: DiscoveryRun,
     limit: int,
+    *,
+    include_hidden: bool = False,
+    any_status: bool = False,
+    progress: Progress | None = None,
+    on_progress: ProgressFn | None = None,
 ) -> None:
+    """Score what has no verdict yet, a few calls at a time (the LLM client is thread-safe; the
+    database is only touched from this thread). Three failures stop the rest."""
+    pending = repo.unscored_postings(limit, include_hidden=include_hidden, any_status=any_status)
+    if progress is not None:
+        progress.phase, progress.phase_started_at = "scoring", clock.now()
+        progress.to_score, progress.scored = len(pending), 0
+        _report(progress, on_progress)
+    if not pending:
+        return
+    system = system_prompt(criteria)
+    model = getattr(llm, "model", None)
     failures = 0
-    for p in repo.unscored_postings(limit):
-        try:
+    pool = ThreadPoolExecutor(max_workers=SCORE_WORKERS)
+    try:
+        futures = {pool.submit(ask_llm, llm, system, p): p for p in pending}
+        for future in as_completed(futures):
+            p = futures[future]
             run.llm_calls += 1
-            score_posting(llm, criteria, p, clock.now())
-        except LLMError as err:
-            run.errors += 1
-            failures += 1
-            log.warning("discovery LLM call failed for %s: %s", p.id, err)
-            if failures >= 3:
-                run.notes.append("stopped scoring after 3 LLM failures; the next run retries")
-                break
-            continue
-        with repo.transaction():
-            repo.update_posting(p)
+            if progress is not None:
+                progress.scored += 1
+            try:
+                raw = future.result()
+            except LLMError as err:
+                run.errors += 1
+                failures += 1
+                if progress is not None:
+                    progress.errors = run.errors
+                    _report(progress, on_progress)
+                log.warning("discovery LLM call failed for %s: %s", p.id, err)
+                if failures >= 3:
+                    run.notes.append("stopped scoring after 3 LLM failures; the next run retries")
+                    break
+                continue
+            apply_verdict(p, parse_verdict(raw), model, clock.now())
+            with repo.transaction():
+                repo.update_posting(p)
+            _report(progress, on_progress)
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
+def rescore(
+    repo: DiscoveryRepo,
+    llm: LLMClient,
+    clock: Clock,
+    *,
+    include_hidden: bool = False,
+    limit: int = RESCORE_LIMIT,
+    on_progress: ProgressFn | None = None,
+) -> DiscoveryRun:
+    """Score the recent postings again with the current criteria, without collecting anything
+    (no JSearch requests). Every status counts, so applied and dismissed postings get the search
+    fields too. `include_hidden` also scores the ones the rules hid (not the duplicates): their
+    verdict shows whether a rule hides something worth seeing; they stay hidden."""
+    now = clock.now()
+    run = DiscoveryRun(started_at=now, trigger="rescore")
+    criteria, _ = load_settings(repo)
+    with repo.transaction():
+        repo.save_run(run)
+        n = repo.reset_scores(tuple(PostingStatus), now - RESCORE_WINDOW)
+    run.notes.append(
+        f"re-scoring {n} scored postings" + (" and the hidden ones" if include_hidden else "")
+    )
+    progress = Progress("rescore", now, phase="scoring", phase_started_at=now)
+    _report(progress, on_progress)
+    score_pending(
+        repo, llm, criteria, clock, run, limit,
+        include_hidden=include_hidden, any_status=True, progress=progress, on_progress=on_progress,
+    )  # fmt: skip
+    run.finished_at = clock.now()
+    with repo.transaction():
+        repo.save_run(run)
+    progress.phase, progress.finished_at = "done", run.finished_at
+    _report(progress, on_progress)
+    return run
+
+
+# ---------------------------------------------------------------------------------------------
+# Search (the Discover page's filters). PostgresRepo runs these in SQL; `matches` and `sort_key`
+# say the same in Python for the test repo, and test_postgres checks that the two agree.
+
+SORTS = ("score", "posted", "salary")
+
+
+def posted_or_fetched(p: JobPosting) -> datetime:
+    return p.posted_at or p.fetched_at or datetime.min.replace(tzinfo=UTC)
+
+
+def matches(p: JobPosting, q: PostingQuery) -> bool:
+    def one_of(value: str | None, allowed: tuple[str, ...]) -> bool:
+        return not allowed or value in allowed
+
+    def contains(haystack: str | None, needle: str | None) -> bool:
+        return not needle or needle.lower() in (haystack or "").lower()
+
+    techs = {t.lower() for t in p.technologies}
+    return (
+        bool(p.drop_reason) == q.hidden
+        and one_of(p.ai_verdict or "unscored", q.verdicts)
+        and one_of(p.status.value, q.statuses)
+        and (not q.source or p.source == q.source)
+        and (not q.publisher or p.publisher == q.publisher)
+        and (contains(p.title, q.text) or contains(p.company, q.text))
+        and contains(p.location, q.location)
+        and one_of(p.location_fit, q.location_fit)
+        and one_of(p.work_mode, q.work_mode)
+        and one_of(p.seniority, q.seniority)
+        and one_of(p.company_size, q.company_size)
+        and one_of(p.sector, q.sector)
+        and one_of(p.employer_kind, q.employer_kind)
+        and all(t.lower() in techs for t in q.technologies)
+        and (not q.ai_only or p.ai_related is True)
+        and (q.salary_min_usd is None or (p.salary_usd_max or 0) >= q.salary_min_usd)
+        and (q.posted_since is None or posted_or_fetched(p) >= q.posted_since)
+    )
+
+
+def sort_postings(rows: list[JobPosting], sort: str) -> list[JobPosting]:
+    """Best score first (unscored last), newest first within a score; or newest first; or the
+    best-paid first (no salary last). The id breaks ties, as in SQL."""
+    rows = sorted(rows, key=lambda p: str(p.id))
+    rows.sort(key=posted_or_fetched, reverse=True)
+    if sort == "score":
+        rows.sort(key=lambda p: -1 if p.ai_score is None else p.ai_score, reverse=True)
+    elif sort == "salary":
+        rows.sort(key=lambda p: -1 if p.ai_score is None else p.ai_score, reverse=True)
+        rows.sort(key=lambda p: p.salary_usd_max or -1, reverse=True)
+    return rows
+
+
+FACETS = (
+    "publisher", "seniority", "company_size", "sector", "work_mode", "location_fit",
+    "employer_kind",
+)  # fmt: skip
+TECH_FACET_LIMIT = 80
+
+
+def facets(rows: list[JobPosting], query: PostingQuery) -> dict:
+    """Counts for the page: totals over everything, and the values each filter can take with how
+    many postings have them. A dropdown counts what the other filters let through (its own
+    choice left out, so its other values stay visible), which is what picking a value shows.
+    Technologies count within the current technology choice, since picking one more narrows."""
+    out: dict = {
+        "counts": {
+            "total": len(rows),
+            "hidden": sum(1 for p in rows if p.drop_reason),
+            "unscored": sum(1 for p in rows if not p.drop_reason and p.ai_verdict is None),
+        }
+    }
+
+    def tally(view: list[JobPosting], values) -> list[tuple[str, int]]:
+        counts: dict[str, int] = {}
+        for p in view:
+            for value in values(p):
+                if value:
+                    counts[value] = counts.get(value, 0) + 1
+        return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+
+    for name in FACETS:
+        others = replace(query, **{name: None if name == "publisher" else ()})
+        view = [p for p in rows if matches(p, others)]
+        out[name] = tally(view, lambda p, name=name: [getattr(p, name)])
+    view = [p for p in rows if matches(p, query)]
+    out["technologies"] = tally(view, lambda p: p.technologies)[:TECH_FACET_LIMIT]
+    return out
 
 
 # ---------------------------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from jobtracker.core.models import (
     Interview,
     InterviewNote,
     JobPosting,
+    PostingQuery,
     PostingStatus,
     ProcessStep,
 )
@@ -258,8 +259,20 @@ class DiscoveryRepo(Repository, Protocol):
         """(company_normalized, title) of postings fetched since then, for the duplicate check."""
         ...
 
-    def unscored_postings(self, limit: int) -> list[JobPosting]:
-        """Not dropped, not scored yet, status new: oldest first."""
+    def unscored_postings(
+        self, limit: int, *, include_hidden: bool = False, any_status: bool = False
+    ) -> list[JobPosting]:
+        """Not scored yet, oldest first. By default only visible ones with status new;
+        `include_hidden` adds the rule-hidden ones except duplicates, `any_status` every status."""
+        ...
+
+    def search_postings(self, query: PostingQuery) -> tuple[list[JobPosting], int]:
+        """One page of postings matching the query (discovery.matches), in its order
+        (discovery.sort_postings), and how many match in all."""
+        ...
+
+    def facet_postings(self) -> list[JobPosting]:
+        """Every posting, without its description: enough for discovery.facets."""
         ...
 
     def reset_scores(self, statuses: tuple[PostingStatus, ...], since: datetime) -> int: ...
