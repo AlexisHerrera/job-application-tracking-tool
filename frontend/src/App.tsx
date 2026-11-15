@@ -12,7 +12,7 @@ import { CampaignPicker } from "./campaign";
 import AddApplication from "./pages/AddApplication";
 import ApplicationPage from "./pages/Application/ApplicationPage";
 import Applications from "./pages/Applications";
-import CalendarPage from "./pages/Calendar";
+import CalendarPage from "./pages/Calendar/CalendarPage";
 import Campaigns from "./pages/Campaigns";
 import DashboardPage from "./pages/Dashboard";
 import Discover from "./pages/Discover/DiscoverPage";

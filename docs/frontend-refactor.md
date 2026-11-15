@@ -13,7 +13,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 | 2 | Application detail | `ApplicationView.tsx` (457) + `InterviewNotes.tsx` (225) | done |
 | 3 | Process timeline | `ProcessTimeline.tsx` (393) | done |
 | 4 | Notes editor | `NotesEditor.tsx` (534) | done |
-| 5 | Calendar | `pages/Calendar.tsx` (335) | todo |
+| 5 | Calendar | `pages/Calendar.tsx` (335) | done |
 | 6 | Dashboard | `pages/Dashboard.tsx` (292) + `FlowChart` (288), `Insights` (127), `MiniCalendar` (77) | todo |
 | 7 | Applications (board and list) | `pages/Applications.tsx` (203) + `applications/Board.tsx` (243) + `AllTable.tsx` (94) | todo |
 | 8 | App shell and the `src/` root | `App.tsx` (194), `campaign.tsx`, `auth.ts`, `AuthGate.tsx`, `useAsync.ts` | todo |
@@ -301,6 +301,19 @@ pages/Calendar/
 
 `MiniCalendar` (Dashboard) repeats the month math (`shiftMonth`, the grid of days). Move that math
 to `lib/days.ts` (`shiftMonth`, `monthDays`) and use it from both.
+
+As built: as planned. `Calendar.tsx` was `git mv`'d to `CalendarPage.tsx`. The local `Set` type
+(the URL-param patch handed to both views) is `SetParams` in `calendar.ts`, so it doesn't shadow
+the global `Set`. `calendar.ts` also holds `isOpen` (the `open` predicate, used by `ProcessesView`,
+`ProcessRow` and `ProcessBar`). `MonthNav` takes `ym` and builds the title itself. `DayCell` gets
+`outside`, `isToday`, `isSelected` and `onClick`; `MonthGrid` keeps the `key` and the `onPick`
+wiring. `timelineScale(processes, today)` returns `{ start, end, span, x, width, mondays }`; the
+"no dated applications" early return stays in `ProcessesView` before it's called. The `ticks`
+fragment became a private `Ticks` inside `ProcessBar.tsx` (same DOM, drawn once per row as before).
+`ProcessBar` computes `applied`, `endDay` and `lastNews` (only the bar reads them).
+`useOpenEditor` is now called in `DayAgendaItem` and `ProcessBar` instead of once per view.
+`MiniCalendar` uses `shiftMonth` and `monthDays` from `lib/days.ts`; it moves to the Dashboard folder
+in session 6. `App.tsx` imports `./pages/Calendar/CalendarPage`.
 
 ---
 

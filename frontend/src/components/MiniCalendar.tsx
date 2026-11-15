@@ -6,10 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { api, fmtDate, fmtTime, localDay } from "../api";
 import { talkWith } from "@/lib/interviews";
-import { addDays, calendarDayLink, daysBetween, utc, weekday, WEEKDAYS } from "../lib/days";
+import { calendarDayLink, monthDays, shiftMonth, utc, WEEKDAYS } from "../lib/days";
 import { useAsync } from "../useAsync";
-
-const shiftMonth = (ym: string, n: number) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + n, 1)).toISOString().slice(0, 7);
 
 /** A month of interviews beside the dashboard's upcoming list. Days open the calendar page on that day. */
 export function MiniCalendar({ className }: { className?: string }) {
@@ -25,11 +23,8 @@ export function MiniCalendar({ className }: { className?: string }) {
     return m;
   }, [data]);
 
-  const first = `${ym}-01`;
-  const last = addDays(`${shiftMonth(ym, 1)}-01`, -1);
-  const start = addDays(first, -weekday(first));
-  const days = Array.from({ length: daysBetween(start, addDays(last, 6 - weekday(last))) + 1 }, (_, i) => addDays(start, i));
-  const title = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(utc(first)));
+  const days = monthDays(ym);
+  const title = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(utc(`${ym}-01`)));
   const now = new Date().toISOString();
   const current = ym === today.slice(0, 7);
 
