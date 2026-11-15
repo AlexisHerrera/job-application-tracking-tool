@@ -12,7 +12,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 | 1 | Discover | `pages/Discover.tsx` (1,095 lines) | done |
 | 2 | Application detail | `ApplicationView.tsx` (457) + `InterviewNotes.tsx` (225) | done |
 | 3 | Process timeline | `ProcessTimeline.tsx` (393) | done |
-| 4 | Notes editor | `NotesEditor.tsx` (534) | todo |
+| 4 | Notes editor | `NotesEditor.tsx` (534) | done |
 | 5 | Calendar | `pages/Calendar.tsx` (335) | todo |
 | 6 | Dashboard | `pages/Dashboard.tsx` (292) + `FlowChart` (288), `Insights` (127), `MiniCalendar` (77) | todo |
 | 7 | Applications (board and list) | `pages/Applications.tsx` (203) + `applications/Board.tsx` (243) + `AllTable.tsx` (94) | todo |
@@ -260,6 +260,17 @@ features/notes/
 
 Watch out for: `inflight` must stay one module-level set (exported `settled()` from
 `useAutosave.ts`), since `EditorDialog` and `EditorPage` wait on it.
+
+As built: as planned. `NotesEditor.tsx` was `git mv`'d to `InterviewEditor.tsx`. `Header` →
+`EditorHeader`, `Toolbar` → `EditorToolbar`. The file-top comment about the two entry points sits
+in `EditorDialog.tsx`. `draft.ts` also holds `noteData` (the Draft → `Partial<Note>` body that
+`NoteDoc` saves, with `lines` kept private) and `topicsOf` (the comma split, which was written
+twice: once for the save and once for the chips). `NoteDetailsPanel` takes `draft` and `change` and
+keeps `bind` inside; `SelfRating` takes `value` and `onChange`. `NoteTabs` takes `slots` (only
+their keys are read), `active` (the current slot's key) and `onSelect`; the `Slot` type stays in
+`InterviewEditor`. `NoteActionsMenu` takes `onAdd`, `onDelete` and `canDelete`. The Join / Google
+Calendar buttons stay inline in `InterviewEditor` (both its headers use them). `App.tsx` imports
+`@/features/notes/EditorDialog` and `@/features/notes/EditorPage`.
 
 ---
 
