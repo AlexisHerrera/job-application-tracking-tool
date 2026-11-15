@@ -137,10 +137,12 @@ def create_app(
         from jobtracker.adapters.getonbrd import GetOnBoardSource
         from jobtracker.adapters.jsearch import JSearchSource
         from jobtracker.adapters.remoteyeah import RemoteYeahSource
+        from jobtracker.adapters.workable import WorkableSource
 
         sources: dict[str, JobSource] = {
             "remoteyeah": RemoteYeahSource(),
             "getonbrd": GetOnBoardSource(),
+            "workable": WorkableSource(),
         }
         if settings.jsearch_api_key:
             sources["jsearch"] = JSearchSource(settings.jsearch_api_key, clock=clock)
@@ -878,7 +880,9 @@ def create_app(
             "criteria": criteria,
             "rules": rules.to_dict(),
             "searches": [s.search_json(x) for x in repo.list_searches()],
-            "companies": s.companies_json(repo.list_watched()),
+            "companies": s.companies_json(
+                repo.list_watched(), repo.get_discovery_setting("watchlist_scan")
+            ),
             "last_run": s.run_json(repo.last_run()),
             "jsearch_used_this_month": repo.jsearch_requests_since(
                 discovery.month_start(clock.now())

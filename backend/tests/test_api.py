@@ -332,7 +332,7 @@ def test_discover_boards_collect_only_and_hide_company(repo):
     state = client.get("/api/discover/settings").json()
     assert state["companies"] == {
         "total": 1, "enabled": 1, "by_ats": {"ashby": 1, "greenhouse": 0, "lever": 0},
-        "with_jobs": 1, "jobs_kept": 2, "last_checked_at": state["companies"]["last_checked_at"],
+        "with_jobs": 1, "jobs_kept": 2, "last_checked_at": state["companies"]["last_checked_at"], "last_scan_at": None,
     }  # fmt: skip
     page = client.get("/api/discover", params={"source": "ashby"}).json()
     assert page["counts"] == {"total": 2, "hidden": 0, "unscored": 2}

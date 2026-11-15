@@ -300,7 +300,7 @@ export class ApiError extends Error {
 }
 
 // Job discovery (plan §20, §21)
-export type SearchSource = "jsearch" | "remoteyeah" | "getonbrd";
+export type SearchSource = "jsearch" | "remoteyeah" | "getonbrd" | "workable";
 export type PostingSource = SearchSource | "ashby" | "greenhouse" | "lever";
 export type Verdict = "match" | "maybe" | "no";
 export type PostingStatus = "new" | "interested" | "dismissed" | "applied";
@@ -420,6 +420,7 @@ export interface WatchlistSummary {
   total: number;
   enabled: number;
   by_ats: { ashby: number; greenhouse: number; lever: number };
+  last_scan_at: string | null; // the last `discover companies scan` of the board directory
   with_jobs: number;
   jobs_kept: number;
   last_checked_at: string | null;

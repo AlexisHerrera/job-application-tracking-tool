@@ -40,9 +40,11 @@ from jobtracker.core.ports import (
 log = logging.getLogger(__name__)
 
 PROMPT_VERSION = "2026-11-14.2"  # intermediaries pass, Argentina bonus, full description (§21)
-SEARCH_SOURCES = ("jsearch", "remoteyeah", "getonbrd")  # collected through saved searches
+SEARCH_SOURCES = ("jsearch", "remoteyeah", "getonbrd", "workable")  # through saved searches
 ATS = ("ashby", "greenhouse", "lever")  # collected from the watched companies' boards (§21)
 SOURCES = (*SEARCH_SOURCES, *ATS)
+# Sources that list only open jobs, so the "too old" rule doesn't apply to them.
+OPEN_LISTINGS = (*ATS, "workable")
 BOARD_WORKERS = 8  # boards fetched at once
 DESCRIPTION_LIMIT = 8000  # stored
 LLM_DESCRIPTION_CHARS = DESCRIPTION_LIMIT  # sent whole: who can be hired is often at the end
@@ -174,6 +176,16 @@ GETONBRD_CATEGORIES = (
 DEFAULT_SEARCHES: list[tuple[str, str, dict]] = [
     ("getonbrd", "getonbrd · programming", {"category": "programming"}),
     ("getonbrd", "getonbrd · AI", {"category": "machine-learning-ai"}),
+    (
+        "workable",
+        "Workable · engineer in Argentina",
+        {"query": "engineer", "location": "Argentina"},
+    ),
+    (
+        "workable",
+        "Workable · developer in Argentina",
+        {"query": "developer", "location": "Argentina"},
+    ),
     *(
         ("remoteyeah", f"remoteyeah · {name}", {"feed": f"https://remoteyeah.com/{slug}.xml"})
         for name, slug in [
@@ -381,8 +393,9 @@ def rule_drop(p: JobPosting, rules: Rules, now: datetime, *, age: bool = True) -
         return "location: brazil onsite"
     if in_portuguese(p.description):
         return "language: portuguese"
-    # A job still listed on a company's board is open, however long ago it was published.
-    if age and p.source not in ATS and p.posted_at and now - p.posted_at > timedelta(days=rules.max_age_days):  # fmt: skip
+    # A job still listed on a company's board (or in Workable's search) is open, however long
+    # ago it was published.
+    if age and p.source not in OPEN_LISTINGS and p.posted_at and now - p.posted_at > timedelta(days=rules.max_age_days):  # fmt: skip
         return "old"
     if rules.salary_floor_usd and (yearly := yearly_salary(p)) and yearly < rules.salary_floor_usd:
         return "salary"
@@ -826,7 +839,10 @@ def run_discovery(
                 used += result.requests
                 run.jsearch_requests += result.requests
             for p in result.postings:
-                store(p, search.id)
+                # Workable's search matches on the whole posting: "developer" also brings
+                # business developers. Like a board, only engineering titles are stored.
+                if search.source != "workable" or ENGINEERING_TITLE.search(p.title):
+                    store(p, search.id)
         finally:
             tick()
 
@@ -1188,7 +1204,25 @@ def scan_directory(
             )  # fmt: skip
         if on_board is not None:
             on_board(out["checked"], len(todo), out["added"])
+    with repo.transaction():  # the page shows when the directory was last scanned
+        repo.set_discovery_setting("watchlist_scan", {"at": clock.now().isoformat(), **out})
     return out
+
+
+def watch_company(
+    repo: DiscoveryRepo, boards: BoardSource, ats: str, slug: str, name: str | None, clock: Clock
+) -> tuple[int, int]:
+    """Add one board the user chose to the watchlist, after reading it once: a board that
+    doesn't answer isn't added (SourceError), one already watched raises ValueError. Returns
+    (jobs on the board, engineering roles in an allowed location). Stores no postings."""
+    if ats not in ATS or not _SLUG.fullmatch(slug):
+        raise ValueError("not an ATS and slug this app knows")
+    postings = boards.fetch_board(ats, slug, name or slug)
+    row = {"ats": ats, "slug": slug, "name": name or slug, "note": "added by hand"}
+    if not import_companies(repo, [row], clock):
+        raise ValueError(f"{ats}/{slug} is already watched")
+    _, rules = load_settings(repo)
+    return len(postings), sum(1 for p in postings if board_keep(p, rules))
 
 
 def block_company(repo: DiscoveryRepo, company: str) -> int:
@@ -1288,6 +1322,19 @@ def clean_search_params(source: str, params: dict) -> dict:
         if category not in GETONBRD_CATEGORIES:
             raise ValueError(f"category is one of {', '.join(GETONBRD_CATEGORIES)}")
         return {"category": category}
+    if source == "workable":
+        out = {}
+        for key in ("query", "location"):
+            value = params.get(key)
+            if value is None or value == "":
+                continue
+            if not isinstance(value, str) or len(value) > 100:
+                raise ValueError(f"{key} must be a short text")
+            if value.strip():
+                out[key] = " ".join(value.split())
+        if not out:
+            raise ValueError("a Workable search needs a query or a location")
+        return out
     if source != "jsearch":
         raise ValueError(f"unknown source {source!r}")
     out: dict = {}

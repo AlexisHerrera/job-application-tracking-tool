@@ -339,7 +339,7 @@ class JobPosting:
     """An open position collected from a job source. Everything in it comes from the web, so it's
     untrusted text: shown as text, given to the LLM as data, never followed or executed."""
 
-    source: str  # "jsearch" | "remoteyeah" | "getonbrd" | "ashby" | "greenhouse" | "lever"
+    source: str  # a search source ("remoteyeah", "getonbrd", "workable", "jsearch") or an ATS
     source_id: str
     url: str
     title: str

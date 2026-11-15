@@ -8,7 +8,10 @@ import pytest
 
 from jobtracker.adapters import seeds
 from jobtracker.adapters.ats_boards import AtsBoards, parse_ashby, parse_greenhouse, parse_lever
+from jobtracker.adapters.careers import BoardFinder, find_boards
 from jobtracker.adapters.getonbrd import GetOnBoardSource, parse_jobs
+from jobtracker.adapters.workable import WorkableSource
+from jobtracker.adapters.workable import parse_jobs as parse_workable
 from jobtracker.core import discovery
 from jobtracker.core.clock import FixedClock
 from jobtracker.core.discovery import Rules, board_keep, rule_drop
@@ -320,6 +323,7 @@ def test_directory_scan_adds_only_latam_engineering_boards():
     notes = {c.slug: c.note for c in repo.list_watched()}
     assert notes == {"mural": None, "double": "directory scan: argentin", "fde": "directory scan: sao paulo"}  # fmt: skip
     assert ticks[-1] == (6, 6, 2) and repo.list_postings() == []
+    assert repo.get_discovery_setting("watchlist_scan") == {"at": NOW.isoformat(), **out}
 
 
 def test_hide_company_blocks_it_and_hides_its_postings():
@@ -359,5 +363,150 @@ def test_watchlist_summary_for_the_page():
     ]
     assert companies_json(rows) == {
         "total": 3, "enabled": 2, "by_ats": {"ashby": 1, "greenhouse": 0, "lever": 1},
-        "with_jobs": 1, "jobs_kept": 3, "last_checked_at": NOW.isoformat(),
+        "with_jobs": 1, "jobs_kept": 3, "last_checked_at": NOW.isoformat(), "last_scan_at": None,
     }  # fmt: skip
+    assert companies_json(rows, {"at": "2026-11-15T10:00:00+00:00"})["last_scan_at"] == "2026-11-15T10:00:00+00:00"  # fmt: skip
+
+
+# --- Round 3: Workable's search, and adding one company by URL ---------------------------------
+
+
+def workable_job(job_id, title="Senior Backend Engineer", **fields):
+    return {
+        "id": job_id, "title": title, "state": "published", "workplace": "remote",
+        "url": f"https://jobs.workable.com/view/{job_id}/x", "employmentType": "Full-time",
+        "description": "<p>About the role</p>", "requirementsSection": "<ul><li>Go</li></ul>",
+        "benefitsSection": "", "created": "2026-01-10T16:31:39.874Z",
+        "location": {"city": "Buenos Aires", "subregion": None, "countryName": "Argentina"},
+        "company": {"title": "Maxana", "website": "http://example.test"},
+        **fields,
+    }  # fmt: skip
+
+
+def test_workable_parsing():
+    data = {
+        "jobs": [
+            workable_job("w1"),
+            workable_job("w2", workplace="on_site", location={"city": "", "countryName": "Uruguay"}),
+            workable_job("w3", workplace="hybrid", location=None, company=None),
+            workable_job("w4", url="javascript:alert(1)"),
+            "junk",
+        ]
+    }  # fmt: skip
+    a, b, c = parse_workable(data)
+    assert (a.source, a.source_id, a.company, a.publisher) == ("workable", "w1", "Maxana", "Workable")  # fmt: skip
+    assert a.location == "Buenos Aires, Argentina (remote)"
+    assert a.description == "About the role\n\n- Go" and a.employment_type == "Full-time"
+    assert a.posted_at == datetime(2026, 1, 10, 16, 31, 39, 874000, tzinfo=UTC)
+    assert (b.location, c.location, c.company) == ("Uruguay (on-site)", "Hybrid", "(unknown)")
+    assert parse_workable({"jobs": None}) == [] and parse_workable([]) == []
+
+
+def test_workable_follows_the_page_token_and_stops_on_a_repeat():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(dict(request.url.params))
+        token = request.url.params.get("pageToken")
+        if token is None:
+            return httpx.Response(200, json={"jobs": [workable_job("a")], "nextPageToken": "t1"})
+        # every later page repeats the same job, as the API does with a token it doesn't know
+        return httpx.Response(200, json={"jobs": [workable_job("a")], "nextPageToken": "t2"})
+
+    source = WorkableSource(httpx.Client(transport=httpx.MockTransport(handler)))
+    result = source.fetch({"query": "engineer", "location": "Argentina"})
+    assert [p.source_id for p in result.postings] == ["a"] and result.requests == 0
+    assert seen == [
+        {"query": "engineer", "location": "Argentina"},
+        {"query": "engineer", "location": "Argentina", "pageToken": "t1"},
+    ]
+    with pytest.raises(SourceError):
+        source.fetch({})
+    clean = discovery.clean_search_params
+    assert clean("workable", {"query": " engineer ", "location": "Argentina", "x": 1}) == {"query": "engineer", "location": "Argentina"}  # fmt: skip
+    assert clean("workable", {"location": "Uruguay"}) == {"location": "Uruguay"}
+    for bad in [{}, {"query": " "}, {"query": 5}, {"location": "x" * 101}]:
+        with pytest.raises(ValueError):
+            clean("workable", bad)
+
+
+def test_a_run_keeps_only_engineering_titles_from_workable_and_old_ones_too():
+    repo, clock = MemoryRepo(), FixedClock(NOW)
+    repo.save_search(DiscoverySearch(source="workable", label="w", params={"location": "Argentina"}))  # fmt: skip
+    old = datetime(2025, 8, 1, tzinfo=UTC)  # still listed, so still open
+    source = FakeSource(
+        [
+            posting(source="workable", source_id="1", title="Backend Developer", location="Argentina (remote)", posted_at=old),
+            posting(source="workable", source_id="2", title="Business Development Rep", location="Argentina (remote)"),
+        ]
+    )  # fmt: skip
+    result = discovery.run_discovery(repo, {"workable": source}, None, clock)
+    assert [(p.source_id, p.drop_reason) for p in result.new] == [("1", None)]
+    assert "workable" in discovery.SEARCH_SOURCES and "workable" in discovery.OPEN_LISTINGS
+    assert {x[0] for x in discovery.DEFAULT_SEARCHES} == {"getonbrd", "remoteyeah", "workable"}
+
+
+def test_board_links_in_a_page():
+    page = """
+      <a href="https://jobs.ashbyhq.com/Silver/abc-123">Apply</a>
+      <script src="https://boards.greenhouse.io/embed/job_board/js?for=gofundme"></script>
+      <a href="https://job-boards.greenhouse.io/gofundme/jobs/1">x</a>
+      <iframe src="https://jobs.lever.co/RyzLabs"></iframe>
+      <a href="https://apply.workable.com/acme">not read</a>
+    """
+    assert find_boards(page) == [("ashby", "Silver"), ("greenhouse", "gofundme"), ("lever", "RyzLabs")]  # fmt: skip
+    assert find_boards("https://boards.greenhouse.io/embed/job_board?for=acme&b=x") == [("greenhouse", "acme")]  # fmt: skip
+    assert find_boards("see jobs.lever.co/acme.") == [("lever", "acme")]
+    assert find_boards("https://example.test/careers") == []
+
+
+def test_finding_a_board_from_a_company_site():
+    pages = {
+        "https://acme.test": '<a href="/about">About</a> <a href="/careers#open">Careers</a>'
+        ' <a href="https://evil.test/jobs">Jobs</a> <a href="http://acme.test/jobs">Jobs</a>',
+        "https://acme.test/careers": '<iframe src="https://jobs.lever.co/AcmeCo"></iframe>',
+        "https://plain.test": "<p>We sell bread.</p>",
+    }
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if str(request.url) in pages:
+            return httpx.Response(200, html=pages[str(request.url)])
+        return httpx.Response(404)
+
+    finder = BoardFinder(httpx.Client(transport=httpx.MockTransport(handler)))
+    assert finder.find("acme.test") == ("lever", "AcmeCo")
+    assert seen == [
+        "https://acme.test",
+        "https://acme.test/careers",
+    ]  # other sites, http: not followed
+    assert finder.find("https://jobs.ashbyhq.com/Silver") == ("ashby", "Silver")
+    assert len(seen) == 2  # a board URL needs no request
+    assert finder.find("https://plain.test") is None
+    assert finder.find("https://gone.test/") is None
+    assert finder.find("http://acme.test/") is None and finder.find("ftp://x") is None
+
+
+def test_watching_one_company_reads_its_board_first():
+    repo, clock = MemoryRepo(), FixedClock(NOW)
+    boards = FakeBoards(
+        {
+            ("lever", "RyzLabs"): [
+                board_job("lever", "RyzLabs", 1, title="Full Stack Engineer", location="Argentina"),
+                board_job("lever", "RyzLabs", 2, title="Account Executive", location="Argentina"),
+                board_job("lever", "RyzLabs", 3, title="Software Engineer", location="New York"),
+            ]
+        }
+    )  # fmt: skip
+    assert discovery.watch_company(repo, boards, "lever", "RyzLabs", "RYZ Labs", clock) == (3, 1)
+    [c] = repo.list_watched()
+    assert (c.ats, c.slug, c.name, c.note) == ("lever", "RyzLabs", "RYZ Labs", "added by hand")
+    assert repo.list_postings() == []
+    with pytest.raises(ValueError, match="already watched"):
+        discovery.watch_company(repo, boards, "lever", "RyzLabs", None, clock)
+    with pytest.raises(SourceError):
+        discovery.watch_company(repo, boards, "ashby", "missing", None, clock)
+    with pytest.raises(ValueError):
+        discovery.watch_company(repo, boards, "workday", "acme", None, clock)
+    assert len(repo.list_watched()) == 1

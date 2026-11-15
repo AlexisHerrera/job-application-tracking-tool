@@ -403,7 +403,7 @@ def test_seed_is_idempotent():
     assert discovery.seed(repo, FixedClock(NOW), boards)["companies"] == 0
     assert repo.get_discovery_setting("criteria") == "mine"
     # JSearch is off by default (plan §21)
-    assert {x.source for x in repo.list_searches()} == {"getonbrd", "remoteyeah"}
+    assert {x.source for x in repo.list_searches()} == {"getonbrd", "remoteyeah", "workable"}
 
 
 def test_search_params_validation():

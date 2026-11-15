@@ -1,6 +1,6 @@
 # Handoff: job discovery page
 
-Updated 2026-11-15. The design and its history are in `docs/plan.md` §20 and §21. Read those first; this file covers only what's done, what's next, and the traps.
+Updated 2026-11-15 (round 3). The design and its history are in `docs/plan.md` §20 and §21. Read those first; this file covers only what's done, what's next, and the traps.
 
 ## Status
 
@@ -36,7 +36,7 @@ What exists now:
 - **JSearch is off**: migration `0013` disables the saved JSearch searches when it is applied (`docker compose up` runs it). The adapter, the cap and the key are still there; removing them is round 5.
 - **Collect only**: a button on the page, `score: false` on `POST /api/discover/run`, `--no-llm` on the CLI.
 - **CLI**: `jobtracker discover companies list|add|import|scan`, and `discover run --source boards`.
-- The starting watchlist (454 companies) ships in `backend/src/jobtracker/adapters/seeds/ats_watchlist.csv`; the full directory it came from is `backend/seeds/ats_directory_2026-08.csv` (CC BY 4.0, see `backend/seeds/README.md`).
+- The starting watchlist (454 companies then, 459 since round 3) ships in `backend/src/jobtracker/adapters/seeds/ats_watchlist.csv`; the full directory it came from is `backend/seeds/ats_directory_2026-08.csv` (CC BY 4.0, see `backend/seeds/README.md`).
 
 What the user has to do (Claude doesn't touch the real database):
 1. `docker compose up --build`, which applies migration `0013`.
@@ -136,3 +136,23 @@ Feedback from 2026-11-14:
 - Never mutate the real local `jobtracker` DB in tests; the Postgres tests use `jobtracker_test`.
 - Migrations stay DSQL-compatible (`test_guardrails.py` lints them).
 - Backend checks: `cd backend && uv run ruff check src tests && uv run ruff format src tests && uv run pytest -q`.
+
+## Round 3: grow the watchlist (2026-11-15, committed; the user hasn't loaded the new defaults or run it yet)
+
+The measurements and the design are in `docs/plan.md` §21, "Round 3". In short:
+- The planned resolver feeds (YC list, HN, company names) were measured and found about 5 new companies in all, so they weren't built. The same for Teamtailor, Recruitee, SmartRecruiters and BambooHR: nothing feeds them.
+- **Workable search is a new source** (`adapters/workable.py`, source `workable`): two default searches, `engineer` and `developer` in Argentina. A dry run in memory gave 264 new postings, 168 visible, at 53 companies.
+- **Add a company by URL**: `jobtracker discover companies add <website or board URL>` (`adapters/careers.py`, `discovery.watch_company`).
+- The directory scan records when it ran; the page and `companies list` show it.
+- The starting watchlist has 5 more companies (459).
+
+What the user has to do:
+1. `docker compose up --build` (no migration).
+2. On the page, Criteria & searches → **Add missing defaults**: adds the two Workable searches and the 5 companies.
+3. **Collect only**, then look at the Workable postings (source filter → Workable) and hide the staffing firms they don't want (Uptalent.io, Pavago, Workana, Huzzle are the big ones) before "Score pending" (about 170 calls, under $0.10).
+
+Traps:
+- Workable's `nextPageToken`: an unknown token returns page 1 again. The adapter stops on a page with nothing new.
+- A Workable search by words alone ("engineer latam") returns thousands of US jobs. Always give a location.
+- `companies_json` takes the scan record as a second argument; `last_scan_at` is in the summary the page reads.
+

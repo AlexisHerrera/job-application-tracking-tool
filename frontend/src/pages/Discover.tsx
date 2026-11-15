@@ -353,6 +353,7 @@ function Filters({
           <NativeSelectOption value="">All sources</NativeSelectOption>
           <NativeSelectOption value="remoteyeah">remoteyeah</NativeSelectOption>
           <NativeSelectOption value="getonbrd">getonbrd</NativeSelectOption>
+          <NativeSelectOption value="workable">Workable</NativeSelectOption>
           <NativeSelectOption value="ashby">Company boards · Ashby</NativeSelectOption>
           <NativeSelectOption value="greenhouse">Company boards · Greenhouse</NativeSelectOption>
           <NativeSelectOption value="lever">Company boards · Lever</NativeSelectOption>
@@ -974,6 +975,9 @@ function Watchlist({ state, onChange }: { state: DiscoveryState; onChange: () =>
               {c.last_checked_at ? `Last read ${timeAgo(c.last_checked_at)}: ${c.jobs_kept} matching role${c.jobs_kept === 1 ? "" : "s"} at ${c.with_jobs} compan${c.with_jobs === 1 ? "y" : "ies"}` : "Not read yet: run a collection."}
               {c.total > c.enabled && ` · ${c.total - c.enabled} off (board gone)`}
             </div>
+            <div className="text-xs text-muted-foreground">
+              {c.last_scan_at ? `Board directory scanned for new companies ${timeAgo(c.last_scan_at)}.` : "Board directory not scanned for new companies from here yet."} Worth doing monthly: <code>jobtracker discover companies scan seeds/ats_directory_2026-08.csv</code>
+            </div>
           </>
         )}
       </div>
@@ -981,7 +985,7 @@ function Watchlist({ state, onChange }: { state: DiscoveryState; onChange: () =>
         <Button size="sm" variant="outline" disabled={loading} onClick={load} title="Adds the starting list of about 450 companies that had engineering roles in Latin America, and any default search that's missing. Keeps what you already have.">
           <Plus /> {c.total === 0 ? "Load the starting watchlist" : "Add missing defaults"}
         </Button>
-        <span className="text-xs text-muted-foreground">Add one company from a terminal: <code>jobtracker discover companies add ashby &lt;slug&gt;</code></span>
+        <span className="text-xs text-muted-foreground">Add one company from a terminal: <code>jobtracker discover companies add &lt;its website or board URL&gt;</code></span>
       </div>
     </section>
   );
@@ -990,6 +994,7 @@ function Watchlist({ state, onChange }: { state: DiscoveryState; onChange: () =>
 function paramsSummary(x: DiscoverySearch): string {
   if (x.source === "getonbrd") return `category ${String(x.params.category ?? "")}`;
   if (x.source === "remoteyeah") return String(x.params.feed ?? "").replace("https://remoteyeah.com/", "");
+  if (x.source === "workable") return [x.params.query && `"${x.params.query}"`, x.params.location].filter(Boolean).join(" · ");
   const parts = [`"${x.params.query}"`];
   if (x.params.country) parts.push(String(x.params.country).toUpperCase());
   if (x.params.work_from_home) parts.push("remote only");
@@ -1004,6 +1009,7 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
   const [country, setCountry] = useState("ar");
   const [remote, setRemote] = useState(false);
   const [feed, setFeed] = useState("https://remoteyeah.com/");
+  const [place, setPlace] = useState("Argentina");
   const enabledJsearch = searches.filter((x) => x.enabled && x.source === "jsearch").length;
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -1016,9 +1022,9 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
   };
 
   async function add() {
-    const params: DiscoverySearch["params"] = source === "jsearch" ? { query, country } : source === "getonbrd" ? { category } : { feed };
+    const params: DiscoverySearch["params"] = source === "jsearch" ? { query, country } : source === "workable" ? { query: query.trim(), location: place.trim() } : source === "getonbrd" ? { category } : { feed };
     if (source === "jsearch" && remote) params.work_from_home = true;
-    const fallback = source === "jsearch" ? `${country.toUpperCase()} · ${query}` : source === "getonbrd" ? `getonbrd · ${category}` : feed.split("/").pop() ?? "feed";
+    const fallback = source === "jsearch" ? `${country.toUpperCase()} · ${query}` : source === "workable" ? `Workable · ${[query.trim(), place.trim()].filter(Boolean).join(" in ")}` : source === "getonbrd" ? `getonbrd · ${category}` : feed.split("/").pop() ?? "feed";
     await run(async () => {
       await api.addSearch({ source, label: labelText || fallback, params, enabled: true });
       setLabelText("");
@@ -1031,7 +1037,7 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
       <div>
         <h3 className="text-sm font-medium">Searches</h3>
         <p className="text-xs text-muted-foreground">
-          remoteyeah feeds and getonbrd categories are free.
+          remoteyeah feeds, getonbrd categories and Workable searches are free.
           {enabledJsearch > 0 && ` ${enabledJsearch} JSearch search${enabledJsearch === 1 ? "" : "es"} on: about ${enabledJsearch * 30} of the free 200 requests a month at one run a day.`}
           {enabledJsearch > 0 && !jsearchConfigured && " JSEARCH_API_KEY isn't set, so JSearch searches are skipped."}
         </p>
@@ -1053,6 +1059,7 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
           <NativeSelect size="sm" value={source} onChange={(e) => setSource(e.target.value as SearchSource)} aria-label="Source">
             <NativeSelectOption value="getonbrd">getonbrd category</NativeSelectOption>
             <NativeSelectOption value="remoteyeah">remoteyeah feed</NativeSelectOption>
+            <NativeSelectOption value="workable">Workable search</NativeSelectOption>
             <NativeSelectOption value="jsearch">JSearch</NativeSelectOption>
           </NativeSelect>
           <Input className="h-7 min-w-32 flex-1" placeholder="Label (optional)" value={labelText} onChange={(e) => setLabelText(e.target.value)} />
@@ -1065,6 +1072,11 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
               <Checkbox checked={remote} onCheckedChange={(c) => setRemote(c === true)} /> remote only
             </label>
           </div>
+        ) : source === "workable" ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Input className="h-7 min-w-40 flex-1" placeholder='Words, e.g. "engineer"' value={query} onChange={(e) => setQuery(e.target.value)} />
+            <Input className="h-7 w-40" placeholder="Country or city" value={place} onChange={(e) => setPlace(e.target.value)} aria-label="Location" />
+          </div>
         ) : source === "getonbrd" ? (
           <NativeSelect size="sm" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
             {GETONBRD_CATEGORIES.map((c) => (
@@ -1074,7 +1086,7 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
         ) : (
           <Input className="h-7" placeholder="https://remoteyeah.com/remote-…-jobs.xml" value={feed} onChange={(e) => setFeed(e.target.value)} />
         )}
-        <Button size="sm" variant="outline" disabled={source === "jsearch" ? !query.trim() : source === "remoteyeah" ? !feed.endsWith(".xml") : false} onClick={add}>
+        <Button size="sm" variant="outline" disabled={source === "jsearch" ? !query.trim() : source === "workable" ? !(query.trim() || place.trim()) : source === "remoteyeah" ? !feed.endsWith(".xml") : false} onClick={add}>
           <Plus /> Add search
         </Button>
       </div>

@@ -487,7 +487,7 @@ The user wanted to look through what was collected before tuning the criteria: f
 
 ## 21. More sources: company boards and getonbrd (2026-11-14)
 
-Status: **round 1 built and committed 2026-11-14.** Rounds 2–6 are independent enough to run in separate sessions; each one starts from this section and `docs/handoff-job-discovery.md`.
+Status: **rounds 1 and 2 built and committed; round 3 built and committed 2026-11-15.** Rounds 4–6 are independent enough to run in separate sessions; each one starts from this section and `docs/handoff-job-discovery.md`.
 
 ### Why
 
@@ -508,9 +508,9 @@ JSearch's results are mostly reposts through aggregators (JobLeads, WhatJobs, Be
 | Greenhouse `boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true` | public JSON | round 1 |
 | Lever `api.lever.co/v0/postings/{slug}?mode=json` (slug is case-sensitive) | public JSON | round 1 |
 | getonbrd `www.getonbrd.com/api/v0/categories/{id}/jobs` | public JSON | round 1 |
-| Workable `jobs.workable.com/api/v1/jobs?query=…&location=Argentina` | public JSON, 85 results | round 3 |
-| Hacker News "Who is hiring" (Algolia API) | public, ~3 LATAM posts a month | round 3, to find companies |
-| YC company list `yc-oss.github.io/api/companies/hiring.json` | public, 1,485 hiring | round 3, to find companies |
+| Workable `jobs.workable.com/api/v1/jobs?query=…&location=Argentina` | public JSON, ~220 engineering results | round 3 (built) |
+| Hacker News "Who is hiring" (Algolia API) | public, ~3 LATAM posts a month | measured in round 3: not worth a feed |
+| YC company list `yc-oss.github.io/api/companies/hiring.json` | public, 1,485 hiring | measured in round 3: not worth a feed |
 | WeRemoto, a16z portfolio board | plain HTML | maybe later |
 | Himalayas, Remotive, RemoteOK, We Work Remotely | public | skipped: mostly US-only or no location |
 | Wellfound, Built In, Kaszek portfolio board | bot challenge | only through the user's browser, if the rest falls short |
@@ -591,9 +591,44 @@ The run scored 194 and stopped after 3 `RateLimitError`s: 6 calls at a time with
 
 ### Round 3: grow the watchlist
 
-- A resolver: company name or website → careers page → ATS and slug (how RYZ Labs' Lever board was found), fed by company names from silver.dev, getonbrd, remoteyeah, HN and the YC list.
-- More systems: Workable search first, then Teamtailor, Recruitee, SmartRecruiters, BambooHR.
-- A monthly `companies scan` of the directory.
+Status: **built and committed 2026-11-15; the user hasn't loaded the new defaults or run it yet.** The round was planned as a resolver fed by company lists, more ATSs, and a monthly scan. The measurements changed it: Workable's search is the only part that brings a real number of new postings, so that is what was built, with a small resolver for adding one company by hand.
+
+**What was measured** (2026-11-15, public APIs and company sites only; no database, no LLM)
+
+| Idea | Tried on | Result |
+|---|---|---|
+| Resolver: website → careers page → board | 1,482 YC companies that are hiring | a board found for 601 (Ashby 267, Greenhouse 41, Lever 16; 185 only link to YC's own job pages). 311 were not on the watchlist; **3 have an engineering role for Latin America** |
+| Board links in Hacker News "Who is hiring" | 744 posts, September to November | 80 boards, **1 new with a Latin America role** (ClickHouse) |
+| Resolver on LATAM companies | the 108 companies behind getonbrd's programming and AI jobs | a board found for 7, none on the three ATSs with a role to keep: these companies post on getonbrd itself |
+| Guessing the slug from a company name | 346 names from remoteyeah, getonbrd and Workable not on the watchlist | 13 boards exist, **1 with a Latin America role** (Blue Coding) |
+| Other ATSs (Teamtailor, Recruitee, SmartRecruiters, BambooHR) | every page read above | between 1 and 3 companies each; Workable 17 |
+| A newer board directory | DataHub | still the August 2026 snapshot |
+| Workable search, `location=Argentina` | `engineer`, `developer` | 221 and 169 results, all located in Argentina; **264 new engineering postings, 168 visible after the rules, at 53 companies** |
+| Workable search by words (`engineer latam`, `location=Latin America`) | | 1,700 to 16,000 results, mostly in the US: not usable |
+
+So: the directory scan of round 1 had already found nearly every company on the three ATSs that hires in Latin America. Crawling company lists adds about 5 companies for 1,500 sites read, and nothing feeds the four smaller ATSs. Not built: the YC, HN and name feeds, and adapters for Teamtailor, Recruitee, SmartRecruiters and BambooHR. The 5 companies the measurement found are in the starting watchlist (459 now).
+
+**1. Workable as a source**
+
+- `adapters/workable.py`: a saved search with `query` and/or `location`, 20 jobs a page through `nextPageToken`, at most 15 pages. The API answers a token it doesn't know with the first page again, so reading stops when a page brings nothing new.
+- No company watchlist for Workable: its search covers every company that hires through it, so a search by country does the work.
+- Location is written "Buenos Aires, Argentina (remote)", so the location rule reads it. The description is the posting's three sections (description, requirements, benefits).
+- Default searches: `engineer` and `developer` in Argentina. "Add missing defaults" on the page adds them to an existing database.
+- A run stores only engineering titles from Workable (`ENGINEERING_TITLE`, as for boards): the search matches on the whole text, so "developer" also brings business developers.
+- The "older than 21 days" rule doesn't apply (`OPEN_LISTINGS` = the three ATSs and Workable): the search lists only published jobs, and most are older than that.
+- Much of what it brings comes from staffing firms and marketplaces (Uptalent.io 33 of the 168 visible, Pavago 17, Workana 16, Huzzle 8). They aren't in the default rule lists: "Hide company" or the Agencies list is the user's call.
+
+**2. Add one company by URL**
+
+- `adapters/careers.py`: `find_boards(text)` finds Ashby, Greenhouse and Lever board links (direct, embedded or API). `BoardFinder.find(url)` reads the page and, when it has no board, up to 3 careers-looking links on the same site. Only https, 3 MB a page.
+- CLI: `jobtracker discover companies add <website, careers page or board URL>`; `add <ats> <slug>` still works. Both read the board once (`discovery.watch_company`): a board that doesn't answer isn't added, and the command says how many jobs it has and how many are engineering roles in the allowed locations.
+- Checked on real sites: `ryzlabs.com` → Lever `RyzLabs`, `gofundme.com` → Greenhouse `gofundme`. `ramp.com` isn't found (the careers page builds its links with JavaScript): pass the board URL instead.
+- Not in the API or the page: round 6 builds the watchlist table, and fetching a URL typed into a page needs more care than a local command.
+
+**3. The monthly scan**
+
+- `scan_directory` records when it ran (`watchlist_scan` in the discovery settings). `companies list` and the page's Company boards summary show the date (`last_scan_at`).
+- Nothing schedules it: locally there is no scheduler, and it takes about 20 minutes. On AWS it could go on the schedule in round 5.
 
 ### Round 4: quality of what's stored
 

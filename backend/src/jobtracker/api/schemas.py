@@ -405,8 +405,9 @@ def search_json(x: DiscoverySearch) -> dict:
     }
 
 
-def companies_json(rows: list[WatchedCompany]) -> dict:
-    """The watchlist in numbers: the page shows a summary, the CLI lists the companies."""
+def companies_json(rows: list[WatchedCompany], scan: object = None) -> dict:
+    """The watchlist in numbers: the page shows a summary, the CLI lists the companies. `scan`
+    is what the last directory scan left in the settings."""
     on = [c for c in rows if c.enabled]
     checked = [c.last_checked_at for c in rows if c.last_checked_at]
     return {
@@ -418,6 +419,7 @@ def companies_json(rows: list[WatchedCompany]) -> dict:
         "with_jobs": sum(1 for c in on if c.jobs_kept),
         "jobs_kept": sum(c.jobs_kept or 0 for c in on),
         "last_checked_at": _iso(max(checked)) if checked else None,
+        "last_scan_at": scan.get("at") if isinstance(scan, dict) else None,
     }
 
 
@@ -476,7 +478,7 @@ class DiscoverySettingsIn(BaseModel):
 
 
 class SearchIn(BaseModel):
-    source: str = Field(pattern="^(jsearch|remoteyeah|getonbrd)$")
+    source: str = Field(pattern="^(jsearch|remoteyeah|getonbrd|workable)$")
     label: str = Field(min_length=1, max_length=120)
     params: dict
     enabled: bool = True

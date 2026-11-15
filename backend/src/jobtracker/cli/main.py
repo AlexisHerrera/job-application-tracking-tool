@@ -799,21 +799,43 @@ def companies_list(
         typer.echo(f"[{flag}] {c.ats:<10} {c.slug:<28} {c.name}  ({found}; {c.last_status or '-'})")
     on = sum(1 for c in rows if c.enabled)
     typer.echo(f"{len(rows)} companies, {on} on, {sum(1 for c in rows if c.jobs_kept)} with jobs")
+    scan = _repo(_settings()).get_discovery_setting("watchlist_scan")
+    when = str(scan["at"])[:10] if isinstance(scan, dict) and scan.get("at") else "never from here"
+    typer.echo(f"directory last scanned: {when} (`discover companies scan <csv>`, monthly)")
 
 
 @companies_app.command("add")
 def companies_add(
-    ats: str = typer.Argument(..., help="ashby, greenhouse or lever."),
-    slug: str = typer.Argument(..., help="The board's name in its URL (jobs.ashbyhq.com/<slug>)."),
+    board: str = typer.Argument(
+        ..., help="ashby, greenhouse or lever; or the company's website, careers page or board URL."
+    ),
+    slug: str | None = typer.Argument(
+        None, help="The board's name in its URL (jobs.ashbyhq.com/<slug>). Not needed with a URL."
+    ),
     name: str | None = typer.Option(None, help="The company's name (default: the slug)."),
 ) -> None:
-    """Watch one company's board."""
+    """Watch one company's board: `add lever RyzLabs`, or `add https://ryzlabs.com` to look for
+    the board on the company's site. Reads the board once to check it exists."""
+    from jobtracker.adapters.ats_boards import AtsBoards
+    from jobtracker.adapters.careers import BoardFinder
     from jobtracker.core import discovery
+    from jobtracker.core.ports import SourceError
 
-    row = {"ats": ats, "slug": slug, "name": name or slug, "note": "added by hand"}
-    if not discovery.import_companies(_repo(_settings()), [row], SystemClock()):
-        raise typer.BadParameter("already watched, or not an ATS and slug this app knows")
-    typer.echo(f"watching {ats}/{slug}")
+    ats = board.strip().lower()
+    if slug is None:
+        found = BoardFinder().find(board)
+        if found is None:
+            raise typer.BadParameter(
+                "no Ashby, Greenhouse or Lever board found there; other systems aren't read"
+            )
+        ats, slug = found
+    try:
+        total, kept = discovery.watch_company(
+            _repo(_settings()), AtsBoards(), ats, slug, name, SystemClock()
+        )
+    except (ValueError, SourceError) as err:
+        raise typer.BadParameter(str(err)) from err
+    typer.echo(f"watching {ats}/{slug}: {total} jobs now, {kept} engineering in your locations")
 
 
 @companies_app.command("import")
@@ -835,7 +857,8 @@ def companies_scan(
 ) -> None:  # fmt: skip
     """Check every board in a directory that isn't watched yet and add the ones with an
     engineering role in Latin America or worldwide. About 20 minutes for 10,000 boards; stores
-    no postings and makes no paid calls."""
+    no postings and makes no paid calls. Worth running once a month: companies open roles in
+    new places, and `companies list` and the page show when it last ran."""
     from jobtracker.adapters import seeds
     from jobtracker.adapters.ats_boards import AtsBoards
     from jobtracker.core import discovery
@@ -860,7 +883,8 @@ def discover_searches() -> None:
 @discover_app.command("run")
 def discover_run(
     source: str | None = typer.Option(
-        None, help="Only this source: remoteyeah, getonbrd, jsearch, or boards (the watchlist)."
+        None,
+        help="Only this source: remoteyeah, getonbrd, workable, jsearch, or boards (the watchlist).",
     ),
     no_llm: bool = typer.Option(False, "--no-llm", help="Collect and store, score later."),
     dry_run: bool = typer.Option(
@@ -881,11 +905,16 @@ def discover_run(
     from jobtracker.adapters.getonbrd import GetOnBoardSource
     from jobtracker.adapters.jsearch import JSearchSource
     from jobtracker.adapters.remoteyeah import RemoteYeahSource
+    from jobtracker.adapters.workable import WorkableSource
     from jobtracker.core import discovery
 
     settings = _settings()
     clock = SystemClock()
-    sources: dict = {"remoteyeah": RemoteYeahSource(), "getonbrd": GetOnBoardSource()}
+    sources: dict = {
+        "remoteyeah": RemoteYeahSource(),
+        "getonbrd": GetOnBoardSource(),
+        "workable": WorkableSource(),
+    }
     if settings.jsearch_api_key:
         sources["jsearch"] = JSearchSource(settings.jsearch_api_key, clock=clock)
     llm = None
