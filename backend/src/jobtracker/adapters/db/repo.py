@@ -798,7 +798,7 @@ class PostgresRepo:
         return [(r["company_normalized"], r["title"]) for r in rows]
 
     def unscored_postings(
-        self, limit: int, *, include_hidden: bool = False, any_status: bool = False
+        self, *, include_hidden: bool = False, any_status: bool = False
     ) -> list[JobPosting]:
         hidden = (
             "(drop_reason IS NULL OR drop_reason <> 'duplicate')"
@@ -809,10 +809,18 @@ class PostgresRepo:
         args = () if any_status else (PostingStatus.NEW.value,)
         rows = self._all(
             f"SELECT * FROM job_postings WHERE {hidden} AND ai_verdict IS NULL{status}"
-            " ORDER BY fetched_at, id LIMIT %s",
-            (*args, limit),
+            " ORDER BY fetched_at, id",
+            args,
         )
         return [_posting_from(r) for r in rows]
+
+    def count_unscored(self) -> int:
+        row = self._one(
+            "SELECT count(*) AS n FROM job_postings"
+            " WHERE drop_reason IS NULL AND ai_verdict IS NULL AND status = %s",
+            (PostingStatus.NEW.value,),
+        )
+        return row["n"]
 
     def search_postings(self, query: PostingQuery) -> tuple[list[JobPosting], int]:
         where, args = _posting_where(query)

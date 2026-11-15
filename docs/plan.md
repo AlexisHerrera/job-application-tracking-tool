@@ -535,7 +535,59 @@ Goal: collect as much as possible. How to score this volume with the LLM is roun
 
 ### Round 2: scoring strategy for the larger volume
 
-The first board run stores a few thousand postings. One Haiku call each is still cheap (~$0.0004), but the prompt, the limits (`RUN_SCORE_LIMIT` 150) and the page were made for ~60 a day. To decide with the user: tighter rules before the LLM (seniority, stack), scoring only the best location tier first, a cheaper first pass on title + location alone, batching, and measuring the real cost on a sample. Also the criteria feedback in the handoff (agencies are fine, Buenos Aires bonus).
+Status: **built and committed 2026-11-15; the user ran "Score pending" (194 scored, 3 failed on rate limits, see 5. below).** The user's answers (2026-11-14): hide managers, support / sales and infrastructure-type titles and let the LLM judge data and security engineers; hide onsite Brazil; keep talent marketplaces dropped; score in two steps.
+
+**What was measured** (2026-11-14, read-only queries on the local database after the user's first collect-only run):
+
+- 1,984 postings stored (plus 47 from JSearch), 969 visible, **921 visible and unscored**, at 299 companies. Descriptions average 4,800 characters.
+- By the location text: Argentina / Buenos Aires 227, LATAM / Americas 192, worldwide 212, Brazil only 280, no location 10.
+- Brazil only: 143 don't say "remote" (onsite or hybrid in Brazil), and 52 have a description in Portuguese.
+- By title: 73 managers or directors; 41 support, sales or customer-success engineers; 35 infrastructure, Linux, kernel, embedded or network; 60 data or analytics engineers; 25 security engineers. About 570 are plain software, full stack, backend, frontend or AI roles.
+- Canonical has 93 of the 921 (Supabase 29, CI&T 35). No role is stored twice under the same company and title.
+- A regex for "N years" finds 6 or more in 172 descriptions, but it also catches "10 years in business": not reliable enough for a rule.
+
+**The finding: cost isn't the problem, reading is.** Scoring all 921 is about $0.45 at the plan's ~$0.0005 a call, and about 6 minutes at 6 calls at a time. So nothing here is built to save LLM money:
+
+- No cheaper first pass on title + location: it would save about 20 cents once, and add a second prompt to keep in step with the first.
+- No Batch API: half price on cents, and the results arrive hours later with no progress on the page.
+- What needs to shrink is the list the user reads. Free rules cut what is certainly not wanted, the LLM scores everything else, and the order of scoring puts the best location first.
+
+**1. Free rules, before any LLM call** (each hides with a reason, nothing is deleted)
+
+- **Role words**: a new list `rules.role_exclude` ("Role words" on the page), separate from the stack words because AI titles don't skip it ("AI Support Engineer" is still support). Default: `manager`, `director`, `head of`, `vp`, `support engineer`, `sales engineer`, `customer success`, `technical account`, `pre-sales`, `presales`, `infrastructure engineer`, `network engineer`, `linux`, `kernel`, `embedded`, `firmware`. Solutions and forward deployed engineers aren't on it. `systems engineer` and `kubernetes` were tried and removed: on the real postings they hid "Distributed Systems Engineer" and "Senior Software Engineer - Python/Golang - Kubernetes". A saved rules setting without the key gets the default list, so the user's database needs no edit.
+- **Onsite in Brazil** → `location: brazil onsite` (`discovery.brazil_onsite`): Brazil is the only allowed place the location names, it names more than the country, and neither the location nor the title says remote. A bare "Brazil" is kept: it usually means anywhere in the country. Not for JSearch.
+- **Description in Portuguese** → `language: portuguese` (`discovery.in_portuguese`): at least 5 common Portuguese words in the first 3,000 characters and more than a third of the English count. Spanish passes.
+- **The rules run again before scoring**: `score_pending` passes the visible, new, unscored postings through `rule_drop` once more (without the "too old" rule), so a rule added after a posting was stored hides it instead of costing a call. That is how the 921 already stored get the new rules.
+- On the 921 (simulated with the real code, read-only, 2026-11-15): 83 onsite Brazil, 143 by role words, 22 Portuguese → **673 left to score**: Argentina 206, LATAM 160, worldwide 158, Brazil 139, no location 10.
+- Not a rule: years of experience (unreliable from a regex), a cap per company ("Hide company" covers it), and "anywhere" inside a US-only location ("U.S. Anywhere" passes the location list; the LLM says no).
+
+**2. Scoring order and limits**
+
+- `score_pending` sorts by `discovery.location_tier` (Argentina → LATAM / Americas → worldwide → not stated → the rest), newest first inside a tier, then applies the limit. No new column: `unscored_postings` lost its `limit` argument and returns every pending row.
+- `RUN_SCORE_LIMIT` is 1,000 (was 150). `RESCORE_LIMIT` stays 500.
+- **Score without collecting**: `run_discovery(collect=False)` reads no source. `POST /api/discover/run` takes `collect` (422 when `collect` and `score` are both false); its progress has `kind = "score"`. The page shows "Score pending (N)" when something waits (`unscored` in `GET /api/discover/settings`, from `count_unscored`). CLI: `discover run --no-collect [--limit N]`.
+- Every scoring adds a run note with the calls and the tokens in and out (`LLMUsage`). No dollar figure: the price isn't in the code.
+
+**3. Prompt and criteria** (`PROMPT_VERSION` `2026-11-14.2`)
+
+- `apply_verdict` no longer forces "no" for `employer_kind = agency`; the system prompt says the field only describes who posted. The `agencies` rule list still drops the talent marketplaces.
+- The system prompt: a location that names the candidate's city or country is `location_fit = yes`.
+- The whole stored description goes to the model (`LLM_DESCRIPTION_CHARS` = 8,000, was 4,000).
+- `DEFAULT_CRITERIA` gained the Argentina bonus, "a recruiter hiring for a client is fine", and "per-task AI-training gigs score lower". **The user's saved criteria still have the old Employers paragraph**: they edit it on the page before scoring.
+
+**4. First scoring, in two steps** (the user runs both; paid, about $0.40 in all at the plan's price)
+
+1. `discover run --no-collect --limit 210`: hides the ~250 by the new rules, then scores the Argentina tier. The user reads the verdicts and corrects the criteria and rules.
+2. "Score pending" for the rest, then "Re-score recent" only if the criteria changed.
+
+**5. Rate limits (2026-11-15, after the first "Score pending")**
+
+The run scored 194 and stopped after 3 `RateLimitError`s: 6 calls at a time with about 4,900 input tokens each went over the account's input tokens per minute, and the SDK's 3 quick retries gave up within seconds. The errors only showed in `docker compose logs api`.
+
+- **Prompt caching**: `AnthropicLLM` marks the system prompt (`cache_control: ephemeral`). It is the same for every call in a run (criteria and instructions; for email, the extraction rules). Cache reads cost a tenth and don't count toward the input-token limit. `LLMUsage.cached_tokens` counts them, and the run note shows `(+N cached)`: if it stays 0 on a large run, caching isn't working.
+- **Wait out a 429**: after the SDK's retries, the adapter waits `retry-after` (capped at 60 s, 20 s when missing) and tries again, up to 4 times, then raises `LLMRateLimited` (an `LLMError`). The 3-failure stop is unchanged.
+- **Errors in the run note**: `LLM errors: <kind> ×N`, so the page shows what failed.
+- Not done: lowering `SCORE_WORKERS`. Measure the first large run with caching first.
 
 ### Round 3: grow the watchlist
 

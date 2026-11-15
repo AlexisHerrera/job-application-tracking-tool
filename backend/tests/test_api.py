@@ -336,6 +336,16 @@ def test_discover_boards_collect_only_and_hide_company(repo):
     }  # fmt: skip
     page = client.get("/api/discover", params={"source": "ashby"}).json()
     assert page["counts"] == {"total": 2, "hidden": 0, "unscored": 2}
+    assert state["unscored"] == 2
+
+    # Score what is waiting without reading the boards again.
+    nothing = client.post("/api/discover/run", json={"score": False, "collect": False})
+    assert nothing.status_code == 422
+    run = client.post("/api/discover/run", json={"collect": False}).json()
+    assert (run["fetched"], run["llm_calls"]) == (0, 2)
+    assert boards.calls == [("ashby", "mural")]  # only the first run read the board
+    assert client.get("/api/discover/progress").json()["kind"] == "score"
+    assert client.get("/api/discover/settings").json()["unscored"] == 0
 
     blocked = client.post("/api/discover/block", json={"company": "Mural"}).json()
     assert blocked["hidden"] == 2 and "Mural" in blocked["rules"]["blocked"]

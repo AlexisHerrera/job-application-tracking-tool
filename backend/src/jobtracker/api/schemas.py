@@ -491,6 +491,7 @@ class SearchPatch(BaseModel):
 class DiscoverRunIn(BaseModel):
     rescore: bool = False
     score: bool = True  # false: collect only, no LLM calls (plan §21)
+    collect: bool = True  # false: only score what is waiting, read no source
 
 
 class BlockCompanyIn(BaseModel):

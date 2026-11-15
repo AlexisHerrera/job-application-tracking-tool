@@ -356,7 +356,7 @@ class MemoryRepo:
             (p.company_normalized, p.title) for p in self.postings.values() if p.fetched_at >= since
         ]
 
-    def unscored_postings(self, limit, *, include_hidden=False, any_status=False):
+    def unscored_postings(self, *, include_hidden=False, any_status=False):
         rows = [
             p for p in self.postings.values()
             if p.ai_verdict is None
@@ -364,7 +364,10 @@ class MemoryRepo:
             and (any_status or p.status == PostingStatus.NEW)
         ]  # fmt: skip
         rows.sort(key=lambda p: (p.fetched_at, str(p.id)))
-        return [copy.deepcopy(p) for p in rows][:limit]
+        return [copy.deepcopy(p) for p in rows]
+
+    def count_unscored(self):
+        return len(self.unscored_postings())
 
     def search_postings(self, query):
         from jobtracker.core import discovery

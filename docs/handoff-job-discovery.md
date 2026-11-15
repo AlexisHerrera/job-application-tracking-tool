@@ -1,6 +1,6 @@
 # Handoff: job discovery page
 
-Updated 2026-11-14. The design and its history are in `docs/plan.md` §20 and §21. Read those first; this file covers only what's done, what's next, and the traps.
+Updated 2026-11-15. The design and its history are in `docs/plan.md` §20 and §21. Read those first; this file covers only what's done, what's next, and the traps.
 
 ## Status
 
@@ -53,18 +53,37 @@ First real numbers (2026-11-14, a collect-only run into an in-memory repo: no da
 
 Traps:
 - `PostgresRepo.list_companies` already existed for the email pipeline's company hints. The watchlist methods are `list_watched` / `save_watched`.
-- "Run now" still scores at most 150 new postings a run (`RUN_SCORE_LIMIT`), oldest first, so after a big collection it would work through the backlog 150 at a time. Scoring this volume is round 2; don't raise the limit before that.
 - The location rule now applies to every source but JSearch, and the 21-day rule doesn't apply to board postings.
 - A board that answers 404 is switched off (`last_status = "gone"`); other errors leave it on.
 - `create_app(discovery_factory=…)` in tests gets no real boards and no seed watchlist unless `boards_factory` is passed.
 - Postings that leave a board aren't marked closed yet (round 4).
 
+## Round 2: scoring the larger volume (2026-11-15, committed)
+
+Update 2026-11-15: the user ran "Score pending": 194 scored, 3 failed on rate limits. The fix (prompt caching, waiting out 429s, error kinds in the run note) is plan §21 round 2, point 5. Those 3 postings are still pending, and the next "Score pending" picks them up.
+
+The design, the measurements and what changed from the proposal are in `docs/plan.md` §21, "Round 2". In short:
+- The user ran the first collect-only run: **921 visible postings wait for a score** in the local database.
+- New rules: `rules.role_exclude` (managers, support / sales, infrastructure-type titles; AI titles don't skip it), onsite in Brazil, description in Portuguese. `score_pending` runs the rules again on what waits, so the stored 921 get them: about 250 are hidden and **673 are left**.
+- Scoring goes best location first (Argentina, LATAM, worldwide, not stated, Brazil); the run limit is 1,000.
+- "Score pending (N)" on the page, `discover run --no-collect [--limit N]` on the CLI. The run note has the calls and tokens.
+- Prompt `2026-11-14.2`: an agency isn't a forced "no", a location in Argentina is a fit, the model gets the whole description.
+
+What the user has to do:
+1. `docker compose up --build` (no migration in this round).
+2. On the page, Criteria & searches: replace the "Employers:" paragraph of the criteria and add the Argentina line (the new wording is `DEFAULT_CRITERIA` in `core/discovery.py`). The saved text still says recruiters aren't wanted.
+3. From `backend/`: `uv run jobtracker discover run --no-collect --limit 210` (about $0.10): the Argentina tier.
+4. Read the verdicts, fix the criteria and rules, then "Score pending" for the rest (about $0.25).
+
+Traps:
+- The rules run again only on visible postings with status new and no verdict. A scored posting isn't hidden by a new rule; "Re-score recent" doesn't run the rules either.
+- `unscored_postings` has no limit any more: the caller sorts and cuts.
+- `data` and `security` engineers are left to the LLM on purpose; decide from their verdicts whether they become role words.
+
 ## Later: tune the criteria
 
-Feedback from 2026-11-14, not acted on yet:
-- **Staffing intermediaries are fine.** "G2i - Senior/Staff Software Engineer | AI Task Creation" via Silver.dev got "no · 25" partly for being posted through an intermediary. The user was hired through Silver.dev before. Two things cause this: the criteria text says recruiters for an unnamed client aren't wanted, and `apply_verdict` forces `verdict = "no"` whenever `employer_kind == "agency"`. Both need changing. Talent marketplaces (Turing, Toptal…) may still be unwanted: ask.
-- **Gig-style per-task AI-training contracts** (task creation, not product building) should rank lower, but not be a "no" when everything else fits.
-- **A Buenos Aires location** (e.g. "Cdad. Autónoma de Buenos Aires") means the user can certainly apply: extra points.
+Feedback from 2026-11-14:
+- Done in round 2 (2026-11-15): staffing intermediaries are fine (no forced "no" for an agency), per-task AI-training gigs rank lower, a Buenos Aires location scores higher. The first is in the code; all three are in the default criteria text, which the user still has to copy into their saved criteria.
 - **Fake-looking postings**: "Javascript Engineer - Remote, Latin America" (Remote Quest Jobs) went through redirect sites (remotejobs.dedyn.io, victorytuitions.in) to talents.vaia.com / **Bluelight Consulting**. The user thinks Bluelight posts fake openings. Ideas: a "hide this company" action from the card (adds it to a block list in the rules), and dropping postings whose apply link goes through known redirect or aggregator domains.
 
 ## Quota and cost

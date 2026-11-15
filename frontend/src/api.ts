@@ -346,7 +346,7 @@ export interface Posting {
 /** Where the run or re-score started from the page is (GET /discover/progress). */
 export interface DiscoveryProgress {
   running: boolean;
-  kind?: "run" | "rescore";
+  kind?: "run" | "score" | "rescore";
   phase?: "collecting" | "scoring" | "done";
   elapsed_s?: number;
   phase_elapsed_s?: number | null;
@@ -383,6 +383,7 @@ export interface PostingPage {
 export interface DiscoveryRules {
   seniority_exclude: string[];
   title_exclude: string[];
+  role_exclude: string[];
   agencies: string[];
   consultancies: string[];
   location_allow: string[];
@@ -434,6 +435,8 @@ export interface DiscoveryState {
   jsearch_configured: boolean;
   llm_configured: boolean;
   can_run: boolean;
+  /** Visible new postings waiting for a score. */
+  unscored: number;
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -556,7 +559,7 @@ export const api = {
   updateSearch: (id: string, data: Partial<Omit<DiscoverySearch, "id" | "source">>) =>
     request<DiscoverySearch>("PATCH", `/discover/searches/${id}`, data),
   deleteSearch: (id: string) => request<void>("DELETE", `/discover/searches/${id}`),
-  runDiscovery: (score = true) => request<DiscoveryRun>("POST", "/discover/run", { score }),
+  runDiscovery: (score = true, collect = true) => request<DiscoveryRun>("POST", "/discover/run", { score, collect }),
   discoveryProgress: () => request<DiscoveryProgress>("GET", "/discover/progress"),
   /** Scores recent postings again (paid AI calls) without running the searches. */
   rescorePostings: (includeHidden = false) => request<DiscoveryRun>("POST", "/discover/rescore", { include_hidden: includeHidden }),

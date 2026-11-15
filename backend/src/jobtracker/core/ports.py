@@ -37,13 +37,15 @@ class Clock(Protocol):
 @dataclass(slots=True)
 class LLMUsage:
     calls: int = 0
-    input_tokens: int = 0
+    input_tokens: int = 0  # billed at the full rate (includes cache writes)
     output_tokens: int = 0
+    cached_tokens: int = 0  # read from the prompt cache: ~10% of the price, no rate-limit cost
 
     def add(self, other: LLMUsage) -> None:
         self.calls += other.calls
         self.input_tokens += other.input_tokens
         self.output_tokens += other.output_tokens
+        self.cached_tokens += other.cached_tokens
 
 
 class LLMClient(Protocol):
@@ -57,6 +59,11 @@ class LLMClient(Protocol):
 
 class LLMError(Exception):
     """Transient failure (network, rate limit, overload): retry on the next run."""
+
+
+class LLMRateLimited(LLMError):
+    """Still rate limited (429) after waiting it out: the account's per-minute limit is too low
+    for this pace."""
 
 
 class LLMRefusal(LLMError):
@@ -269,10 +276,15 @@ class DiscoveryRepo(Repository, Protocol):
         ...
 
     def unscored_postings(
-        self, limit: int, *, include_hidden: bool = False, any_status: bool = False
+        self, *, include_hidden: bool = False, any_status: bool = False
     ) -> list[JobPosting]:
-        """Not scored yet, oldest first. By default only visible ones with status new;
-        `include_hidden` adds the rule-hidden ones except duplicates, `any_status` every status."""
+        """Not scored yet, oldest first (the caller orders and limits them). By default only
+        visible ones with status new; `include_hidden` adds the rule-hidden ones except duplicates,
+        `any_status` every status."""
+        ...
+
+    def count_unscored(self) -> int:
+        """How many visible new postings wait for a score."""
         ...
 
     def search_postings(self, query: PostingQuery) -> tuple[list[JobPosting], int]:

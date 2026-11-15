@@ -271,14 +271,14 @@ def test_discovery_roundtrip(pg, clock):
         "React"
     ]
     assert stored["a2"].drop_reason == "agency"
-    assert pg.unscored_postings(10) == []
+    assert pg.unscored_postings() == [] and pg.count_unscored() == 0
     assert pg.recent_posting_keys(clock.now() - timedelta(days=1))
     assert pg.jsearch_requests_since(discovery.month_start(clock.now())) == 1
     last = pg.last_run()
     assert isinstance(last, DiscoveryRun) and last.llm_calls == 1
 
     assert pg.reset_scores((PostingStatus.NEW,), clock.now() - timedelta(days=1)) == 1
-    assert [p.source_id for p in pg.unscored_postings(10)] == ["a1"]
+    assert [p.source_id for p in pg.unscored_postings()] == ["a1"]
 
     with pg.transaction():
         p, app = discovery.apply_to(pg, clock, stored["a1"].id)
@@ -355,9 +355,9 @@ def test_posting_search_sql_agrees_with_matches(pg, clock):
     for p in stored.values():
         p.ai_verdict = None
         pg.update_posting(p)
-    assert len(pg.unscored_postings(10)) == 2  # visible + new
-    assert len(pg.unscored_postings(10, any_status=True)) == 3
-    assert len(pg.unscored_postings(10, include_hidden=True, any_status=True)) == 4  # no duplicate
+    assert len(pg.unscored_postings()) == pg.count_unscored() == 2  # visible + new
+    assert len(pg.unscored_postings(any_status=True)) == 3
+    assert len(pg.unscored_postings(include_hidden=True, any_status=True)) == 4  # no duplicate
 
 
 def test_watchlist_roundtrip(pg, clock):

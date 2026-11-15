@@ -82,6 +82,41 @@ def test_ai_titles_skip_the_stack_words_but_not_seniority():
     assert rule_drop(prepared(title="Junior AI Engineer"), rules, NOW) == "title: junior"
 
 
+def test_role_words_hide_ai_titles_too():
+    rules = Rules()
+    assert rule_drop(prepared(title="Engineering Manager, Payments"), rules, NOW) == "title: manager"  # fmt: skip
+    assert rule_drop(prepared(title="AI Support Engineer"), rules, NOW) == "title: support engineer"  # fmt: skip
+    assert rule_drop(prepared(title="Forward Deployed Engineer"), rules, NOW) is None
+    assert rule_drop(prepared(title="Solutions Engineer"), rules, NOW) is None
+    assert rule_drop(prepared(title="Distributed Systems Engineer"), rules, NOW) is None
+    assert Rules.from_dict({"title_exclude": ["cobol"]}).role_exclude == Rules().role_exclude
+
+
+def test_brazil_onsite_and_portuguese_are_hidden():
+    rules = Rules()
+
+    def at(location, **more):
+        return rule_drop(prepared(source="greenhouse", location=location, **more), rules, NOW)
+
+    assert at("São Paulo, Brazil") == "location: brazil onsite"
+    assert at("Brazil | Remote") is None
+    assert at("Brazil") is None  # the country alone: probably anywhere in it
+    assert at("Brazil - Sao Paulo", title="Developer - Remoto") is None
+    assert at("São Paulo | Buenos Aires | Brazil") is None  # Argentina is named too
+    portuguese = (
+        "Buscamos uma pessoa para atuar na nossa equipe de desenvolvimento. Você será "
+        "responsável por uma plataforma. Requisitos: experiência com Python. Benefícios: não há."
+    )
+    assert at("Brazil | Remote", description=portuguese) == "language: portuguese"
+    spanish = "Buscamos una persona con experiencia en desarrollo para nuestro equipo."
+    assert at("Argentina", description=spanish) is None
+
+
+def test_location_tiers():
+    places = ["Buenos Aires | Remote", "Remote - LATAM", "Home based - Worldwide", None, "Brazil"]
+    assert [discovery.location_tier(x) for x in places] == [0, 1, 2, 3, 4]
+
+
 def test_remoteyeah_location_rule():
     rules = Rules()
     us = prepared(source="remoteyeah", location="United States")
@@ -151,7 +186,7 @@ def test_verdict_is_validated():
 def test_agency_and_consultancy_verdicts():
     p = prepared()
     discovery.apply_verdict(p, discovery.parse_verdict(verdict(verdict="match", employer_kind="agency")), "m", NOW)  # fmt: skip
-    assert p.ai_verdict == "no" and p.drop_reason is None
+    assert p.ai_verdict == "match" and p.drop_reason is None  # intermediaries are fine (§21)
     q = prepared()
     discovery.apply_verdict(q, discovery.parse_verdict(verdict(employer_kind="consultancy")), "m", NOW)  # fmt: skip
     assert q.drop_reason == "consultancy"
@@ -521,6 +556,7 @@ def test_three_failures_stop_the_scoring(drepo):
         drepo.add_posting(prepared(source_id=f"x{i}", company=f"Co {i}"))
     run = discovery.rescore(drepo, llm, FixedClock(NOW))
     assert run.errors >= 3 and any("3 LLM failures" in n for n in run.notes)
+    assert any(n.startswith("LLM errors: overloaded ×") for n in run.notes)
     assert not any(p.ai_verdict for p in drepo.postings.values())
 
 
@@ -542,3 +578,26 @@ def test_progress_follows_the_run(drepo):
     )
     assert seen[0].kind == "rescore" and seen[0].searches_total == 0
     assert seen[-1].phase == "done" and seen[-1].scored == seen[-1].to_score == 9
+
+
+def test_scoring_goes_best_location_first_and_rechecks_the_rules(drepo):
+    places = ["Brazil | Remote", "Worldwide", "Argentina", "LATAM", "São Paulo, Brazil"]
+    for i, location in enumerate(places):
+        drepo.add_posting(
+            prepared(source="lever", source_id=f"x{i}", company=f"Co {i}", location=location)
+        )
+    seen: list[discovery.Progress] = []
+    # Nothing is collected: the JSearch fixture is never read.
+    sources = _sources()
+    result = discovery.run_discovery(
+        drepo, sources, FakeLLM(), FixedClock(NOW), collect=False, score_limit=2,
+        on_progress=seen.append,
+    )  # fmt: skip
+    assert sources["jsearch"].calls == [] and result.run.fetched == 0
+    by_place = {p.location: p for p in drepo.postings.values()}
+    assert by_place["São Paulo, Brazil"].drop_reason == "location: brazil onsite"  # stored earlier
+    assert [x for x in places if by_place[x].ai_verdict] == ["Argentina", "LATAM"]
+    assert result.run.llm_calls == 2 and result.run.dropped == 1
+    assert any(n.startswith("LLM: 2 calls") for n in result.run.notes)
+    assert seen[0].kind == "score" and seen[-1].scored == 2
+    assert drepo.count_unscored() == 2

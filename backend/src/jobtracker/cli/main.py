@@ -867,6 +867,12 @@ def discover_run(
         False, "--dry-run", help="Print what would be stored. Stores nothing, no LLM calls."
     ),
     rescore: bool = typer.Option(False, help="Score the recent new postings again."),
+    no_collect: bool = typer.Option(
+        False, "--no-collect", help="Read no source: only score what is waiting."
+    ),
+    limit: int | None = typer.Option(
+        None, min=1, help="Score at most this many, best location first (default 1000)."
+    ),
 ) -> None:
     """Collect every enabled search and every watched company's board, store the new postings,
     then score the ones that pass the rules (paid Haiku calls; --no-llm only collects)."""
@@ -888,11 +894,14 @@ def discover_run(
             raise typer.BadParameter("ANTHROPIC_API_KEY is empty (or pass --no-llm)")
         llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
     repo = _repo(settings)
-    if not repo.list_searches() and not repo.list_watched():
+    if no_collect and llm is None:
+        raise typer.BadParameter("--no-collect only scores: it can't go with --no-llm or --dry-run")
+    if not no_collect and not repo.list_searches() and not repo.list_watched():
         raise typer.BadParameter("nothing to collect yet: run `jobtracker discover seed` first")
     result = discovery.run_discovery(
         repo, sources, llm, clock, boards=AtsBoards(), trigger="cli", only_source=source,
-        dry_run=dry_run, rescore=rescore,
+        dry_run=dry_run, rescore=rescore, collect=not no_collect,
+        score_limit=limit or discovery.RUN_SCORE_LIMIT,
     )  # fmt: skip
     r = result.run
     if dry_run:

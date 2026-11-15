@@ -184,7 +184,7 @@ export default function Discover() {
     setProgress(null);
     setJob(next);
     try {
-      const r = next.kind === "run" ? await api.runDiscovery(next.score) : await api.rescorePostings(next.includeHidden);
+      const r = next.kind === "run" ? await api.runDiscovery(next.score, next.collect) : await api.rescorePostings(next.includeHidden);
       const msg = next.kind === "rescore" ? `${r.llm_calls} postings scored` : `${r.new} new · ${r.dropped} hidden · ${next.score ? `${r.llm_calls} scored` : "not scored"}`;
       if (r.errors) toast.warning(`${msg}. ${r.notes.join(" · ")}`);
       else toast.success(msg);
@@ -203,7 +203,7 @@ export default function Discover() {
         actions={
           s && (
             <>
-              <RunButton state={s} working={working} onRun={(score) => void start({ kind: "run", score })} />
+              <RunButton state={s} working={working} onRun={(score, collect) => void start({ kind: "run", score, collect })} />
               <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
                 <Settings2 /> Criteria & searches
               </Button>
@@ -213,7 +213,7 @@ export default function Discover() {
       />
 
       {working ? (
-        <ProgressPanel p={progress} kind={job?.kind ?? progress?.kind ?? "run"} collectOnly={job?.kind === "run" && !job.score} />
+        <ProgressPanel p={progress} kind={job ? (job.kind === "run" && !job.collect ? "score" : job.kind) : (progress?.kind ?? "run")} collectOnly={job?.kind === "run" && !job.score} />
       ) : (
         s && <LastRun run={s.last_run} used={s.jsearch_used_this_month} cap={s.rules.jsearch_monthly_cap} jsearchOn={s.searches.some((x) => x.enabled && x.source === "jsearch")} />
       )}
@@ -465,7 +465,7 @@ function TechPicker({ selected, options, onChange }: { selected: string[]; optio
   );
 }
 
-function RunButton({ state, working, onRun }: { state: DiscoveryState; working: boolean; onRun: (score: boolean) => void }) {
+function RunButton({ state, working, onRun }: { state: DiscoveryState; working: boolean; onRun: (score: boolean, collect: boolean) => void }) {
   if (!state.can_run) return null;
   const enabled = state.searches.filter((x) => x.enabled);
   const jsearch = state.jsearch_configured ? enabled.filter((x) => x.source === "jsearch").length : 0;
@@ -473,10 +473,15 @@ function RunButton({ state, working, onRun }: { state: DiscoveryState; working: 
   const sources = `${enabled.length} search${enabled.length === 1 ? "" : "es"} and ${state.companies.enabled} company board${state.companies.enabled === 1 ? "" : "s"}`;
   return (
     <>
-      <Button size="sm" variant="outline" disabled={working || nothing} onClick={() => onRun(false)} title={`Reads ${sources} and stores what's new. No AI calls: new postings stay unscored.`}>
+      <Button size="sm" variant="outline" disabled={working || nothing} onClick={() => onRun(false, true)} title={`Reads ${sources} and stores what's new. No AI calls: new postings stay unscored.`}>
         <Download /> Collect only
       </Button>
-      <Button size="sm" disabled={working || nothing} onClick={() => onRun(true)} title={`Reads ${sources}${jsearch ? ` (about ${jsearch} JSearch request${jsearch === 1 ? "" : "s"})` : ""}, then scores up to 150 new postings with AI (paid, about $0.0005 each)`}>
+      {state.unscored > 0 && (
+        <Button size="sm" variant="outline" disabled={working || !state.llm_configured} onClick={() => onRun(true, false)} title={`Scores the ${state.unscored} postings that are waiting with AI, best location first (paid, about $${(state.unscored * 0.0005).toFixed(2)}). Reads no source.`}>
+          <Sparkles /> Score pending ({state.unscored})
+        </Button>
+      )}
+      <Button size="sm" disabled={working || nothing} onClick={() => onRun(true, true)} title={`Reads ${sources}${jsearch ? ` (about ${jsearch} JSearch request${jsearch === 1 ? "" : "s"})` : ""}, then scores up to 1,000 waiting postings with AI (paid, about $0.0005 each)`}>
         <Play className={cn(working && "animate-pulse")} /> {working ? "Running…" : "Run now"}
       </Button>
     </>
@@ -486,7 +491,7 @@ function RunButton({ state, working, onRun }: { state: DiscoveryState; working: 
 // ---------------------------------------------------------------------------------------------
 // Progress of a run or a re-score
 
-type Job = { kind: "run"; score: boolean } | { kind: "rescore"; includeHidden: boolean };
+type Job = { kind: "run"; score: boolean; collect: boolean } | { kind: "rescore"; includeHidden: boolean };
 
 /** Asks the server every second while `active` (or while it reports a run going). */
 function useDiscoveryProgress(active: boolean) {
@@ -559,7 +564,7 @@ function Step({ state, title, children }: { state: StepState; title: string; chi
   );
 }
 
-function ProgressPanel({ p, kind, collectOnly = false }: { p: DiscoveryProgress | null; kind: "run" | "rescore"; collectOnly?: boolean }) {
+function ProgressPanel({ p, kind, collectOnly = false }: { p: DiscoveryProgress | null; kind: "run" | "score" | "rescore"; collectOnly?: boolean }) {
   const live = p?.kind ? p : null; // {running: false} alone: nothing reported yet
   const phase = live?.phase;
   const total = live?.searches_total ?? 0;
@@ -573,7 +578,7 @@ function ProgressPanel({ p, kind, collectOnly = false }: { p: DiscoveryProgress 
   return (
     <div className="mb-4 rounded-lg border bg-card p-3" aria-live="polite">
       <div className="mb-2.5 flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-medium">{kind === "run" ? "Finding new openings" : "Re-scoring postings"}</h2>
+        <h2 className="text-sm font-medium">{kind === "run" ? "Finding new openings" : kind === "score" ? "Scoring postings" : "Re-scoring postings"}</h2>
         <span className="text-xs text-muted-foreground tabular-nums">
           {live?.elapsed_s != null ? duration(live.elapsed_s) : "starting…"}
         </span>
@@ -660,6 +665,8 @@ const DROP_LABEL: Record<string, string> = {
   agency: "agency / marketplace",
   consultancy: "consultancy",
   location: "location",
+  "location: brazil onsite": "onsite in Brazil",
+  "language: portuguese": "in Portuguese",
   old: "too old",
   salary: "below the salary floor",
   duplicate: "duplicate",
@@ -823,7 +830,8 @@ const LIST_FIELDS: { key: keyof DiscoveryRules; label: string; hint: string }[] 
   { key: "agencies", label: "Agencies & talent marketplaces", hint: "Dropped. One company per line." },
   { key: "consultancies", label: "Consultancies", hint: "Hidden. One company per line." },
   { key: "seniority_exclude", label: "Seniority words", hint: "A title with one of these is hidden (junior, intern…)." },
-  { key: "title_exclude", label: "Stack / role words", hint: "Hidden unless the title is about AI. Whole words: \"java\" doesn't hit JavaScript." },
+  { key: "role_exclude", label: "Role words", hint: "A title with one of these is hidden, AI titles too (manager, support engineer…)." },
+  { key: "title_exclude", label: "Stack words", hint: "Hidden unless the title is about AI. Whole words: \"java\" doesn't hit JavaScript." },
   { key: "location_allow", label: "Locations", hint: "A job is hidden unless its location mentions one of these (no location = kept). Company-board jobs outside these aren't stored at all. Doesn't apply to JSearch." },
 ];
 

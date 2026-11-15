@@ -886,6 +886,7 @@ def create_app(
             "jsearch_configured": bool(settings.jsearch_api_key),
             "llm_configured": bool(settings.anthropic_api_key),
             "can_run": make_discovery is not None,
+            "unscored": repo.count_unscored(),
         }
 
     @api.get("/discover/settings")
@@ -981,9 +982,12 @@ def create_app(
     @api.post("/discover/run")
     def run_discovery(body: s.DiscoverRunIn, repo: PostgresRepo = Depends(get_repo)):
         """Collect now: the saved searches and the watched companies' boards (free), then paid
-        LLM calls for new postings unless `score` is false."""
+        LLM calls for new postings unless `score` is false. `collect: false` only scores what
+        is waiting."""
         if make_discovery is None:
             raise HTTPException(501, "Discovery runs on its schedule here")
+        if not (body.collect or body.score):
+            raise services.InvalidInput("nothing to do: collect and score are both off")
         if not repo.try_discovery_lock():
             raise HTTPException(409, "A discovery run is already going")
         sources, llm = make_discovery()
@@ -996,6 +1000,7 @@ def create_app(
                 boards=make_boards() if make_boards else None,
                 trigger="page",
                 rescore=body.rescore and body.score,
+                collect=body.collect,
                 on_progress=report,
             )
         finally:

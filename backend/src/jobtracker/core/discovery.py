@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
@@ -38,18 +39,18 @@ from jobtracker.core.ports import (
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "2026-11-14.1"  # adds the search fields (plan §20, "Search and filters")
+PROMPT_VERSION = "2026-11-14.2"  # intermediaries pass, Argentina bonus, full description (§21)
 SEARCH_SOURCES = ("jsearch", "remoteyeah", "getonbrd")  # collected through saved searches
 ATS = ("ashby", "greenhouse", "lever")  # collected from the watched companies' boards (§21)
 SOURCES = (*SEARCH_SOURCES, *ATS)
 BOARD_WORKERS = 8  # boards fetched at once
 DESCRIPTION_LIMIT = 8000  # stored
-LLM_DESCRIPTION_CHARS = 4000  # sent to the model
+LLM_DESCRIPTION_CHARS = DESCRIPTION_LIMIT  # sent whole: who can be hired is often at the end
 MAX_OUTPUT_TOKENS = 2048
 DUPLICATE_WINDOW = timedelta(days=30)
 DUPLICATE_TITLE_SCORE = 92
 RESCORE_WINDOW = timedelta(days=21)
-RUN_SCORE_LIMIT = 150  # LLM calls in one daily run
+RUN_SCORE_LIMIT = 1000  # LLM calls in one run; a normal day brings tens, a backlog hundreds
 RESCORE_LIMIT = 500  # LLM calls when re-scoring from the page (~$0.0004 each)
 SCORE_WORKERS = 6  # LLM calls in flight at once
 
@@ -89,12 +90,15 @@ or needs working Portuguese ("no").
 limited to Europe, India or other regions.
 - A salary above about USD 100k a year with no mention of LATAM usually means a US-local role: \
 lean towards "no" on location.
+- A location that names Buenos Aires or Argentina means the candidate can certainly apply: score \
+those higher.
 
 Salary: no minimum for now. Most LATAM roles pay USD 40-90k a year.
 
-Employers: recruiting agencies and talent marketplaces (Turing, Toptal, Crossover, recruiters \
-posting for an unnamed client) are not wanted. Nearshore software consultancies (BairesDev, \
-Globant, Stefanini…) are not wanted either.
+Employers: a recruiter or staffing firm hiring for a client (Silver.dev, G2i) is fine: judge the \
+role itself. Talent marketplaces (Turing, Toptal, Crossover) and nearshore software consultancies \
+(BairesDev, Globant, Stefanini…) are not wanted. Per-task AI-training gigs (creating or labelling \
+tasks, not building a product) score lower, but are not a "no" when the rest fits.
 
 Industry: fintech first, but anything that fits the experience counts.
 """
@@ -105,6 +109,12 @@ TITLE_EXCLUDE = [
     "flutter", "kotlin", "swift", "mobile developer", "mobile engineer", "devops", "sre",
     "site reliability", "qa", "quality assurance", "tester", "test automation", "sdet",
     "data scientist", "data analyst", "salesforce", "sap",
+]  # fmt: skip
+# Roles that aren't building software, whatever the stack. AI titles don't skip these.
+ROLE_EXCLUDE = [
+    "manager", "director", "head of", "vp", "support engineer", "sales engineer",
+    "customer success", "technical account", "pre-sales", "presales", "infrastructure engineer",
+    "network engineer", "linux", "kernel", "embedded", "firmware",
 ]  # fmt: skip
 AGENCIES = [
     "Turing", "Toptal", "Crossover", "Pragmatike", "Hire Hangar", "Jobgether", "Lemon.io",
@@ -133,6 +143,21 @@ ENGINEERING_TITLE = re.compile(
     r"|desarrollador|ingenier|\bswe\b|\bsde\b",
     re.IGNORECASE,
 )
+REMOTE_WORD = re.compile(r"remot|distributed|home.?based|anywhere", re.IGNORECASE)
+BRAZIL = ("brazil", "brasil")
+# Location tiers, best first: the order postings are scored in (plan §21, round 2).
+LOCATION_TIERS = (
+    re.compile(r"argentin|buenos aires", re.IGNORECASE),
+    re.compile(r"latam|latin america|latinoam|south america|sudam|\bamericas\b", re.IGNORECASE),
+    re.compile(r"worldwide|anywhere|\bglobal", re.IGNORECASE),
+)
+_PORTUGUESE = re.compile(
+    r"\b(você|não|uma|nossa|nosso|são|experiência|conhecimento|desenvolvimento|vaga|requisitos"
+    r"|benefícios|atuar|será|equipe)\b",
+    re.IGNORECASE,
+)
+_ENGLISH = re.compile(r"\b(the|and|you|with|our|will|experience|team)\b", re.IGNORECASE)
+_TAG = re.compile(r"<[^>]+>")
 BARE_REMOTE = re.compile(r"^\W*(fully\s+)?(remote|remoto|distributed)\W*$", re.IGNORECASE)
 LATAM_SIGNAL = re.compile(
     r"argentin|buenos aires|latam|latin america|latinoam|south america|sudam|\bamericas\b"
@@ -181,6 +206,7 @@ class Rules:
 
     seniority_exclude: list[str] = field(default_factory=lambda: list(SENIORITY_EXCLUDE))
     title_exclude: list[str] = field(default_factory=lambda: list(TITLE_EXCLUDE))
+    role_exclude: list[str] = field(default_factory=lambda: list(ROLE_EXCLUDE))
     agencies: list[str] = field(default_factory=lambda: list(AGENCIES))
     consultancies: list[str] = field(default_factory=lambda: list(CONSULTANCIES))
     location_allow: list[str] = field(default_factory=lambda: list(LOCATION_ALLOW))
@@ -195,6 +221,7 @@ class Rules:
         r = cls()
         r.seniority_exclude = _str_list(d.get("seniority_exclude"), r.seniority_exclude)
         r.title_exclude = _str_list(d.get("title_exclude"), r.title_exclude)
+        r.role_exclude = _str_list(d.get("role_exclude"), r.role_exclude)
         r.agencies = _str_list(d.get("agencies"), r.agencies)
         r.consultancies = _str_list(d.get("consultancies"), r.consultancies)
         r.location_allow = _str_list(d.get("location_allow"), r.location_allow)
@@ -208,6 +235,7 @@ class Rules:
         return {
             "seniority_exclude": self.seniority_exclude,
             "title_exclude": self.title_exclude,
+            "role_exclude": self.role_exclude,
             "agencies": self.agencies,
             "consultancies": self.consultancies,
             "location_allow": self.location_allow,
@@ -296,6 +324,33 @@ def location_allowed(location: str | None, allow: list[str]) -> bool:
     return any(a.lower() in low for a in allow)
 
 
+def brazil_onsite(p: JobPosting, allow: list[str]) -> bool:
+    """Brazil is the only allowed place the location names, it names more than the country (a
+    city or an office), and neither it nor the title says remote. A bare "Brazil" usually means
+    anywhere in the country, so the LLM reads those."""
+    low = (p.location or "").lower()
+    hits = [a.lower() for a in allow if a.lower() in low]
+    if not hits or any(h not in BRAZIL for h in hits):
+        return False
+    if REMOTE_WORD.search(low) or REMOTE_WORD.search(p.title):
+        return False
+    return bool(re.sub(r"bra[sz]il|[\W_]", "", low))
+
+
+def in_portuguese(description: str | None) -> bool:
+    """A rough count of common Portuguese words against English ones. Spanish passes."""
+    text = _TAG.sub(" ", description or "")[:3000]
+    pt = len(_PORTUGUESE.findall(text))
+    return pt >= 5 and pt > len(_ENGLISH.findall(text)) / 3
+
+
+def location_tier(location: str | None) -> int:
+    """0 Argentina, 1 LATAM / Americas, 2 worldwide, 3 not stated, 4 the rest (Brazil only)."""
+    if not location or not location.strip():
+        return 3
+    return next((i for i, pattern in enumerate(LOCATION_TIERS) if pattern.search(location)), 4)
+
+
 _PERIOD_TO_YEAR = {"YEAR": 1, "MONTH": 12, "WEEK": 52, "DAY": 260, "HOUR": 2080}
 
 
@@ -305,15 +360,16 @@ def yearly_salary(posting: JobPosting) -> int | None:
     return top * factor if top and factor else None
 
 
-def rule_drop(p: JobPosting, rules: Rules, now: datetime) -> str | None:
-    """Why the cheap filter hides this posting, or None to send it to the LLM."""
+def rule_drop(p: JobPosting, rules: Rules, now: datetime, *, age: bool = True) -> str | None:
+    """Why the cheap filter hides this posting, or None to send it to the LLM. `age=False` skips
+    the "too old" rule: for postings checked again some days after they were stored."""
     if in_company_list(p.company_normalized, rules.blocked):
         return "blocked"
     if in_company_list(p.company_normalized, rules.agencies):
         return "agency"
     if in_company_list(p.company_normalized, rules.consultancies):
         return "consultancy"
-    if hit := title_hit(p.title, rules.seniority_exclude):
+    if hit := title_hit(p.title, rules.seniority_exclude) or title_hit(p.title, rules.role_exclude):
         return f"title: {hit}"
     # Stack words don't drop AI roles: the user tailors the CV for those, the LLM decides.
     if not AI_TITLE.search(p.title) and (hit := title_hit(p.title, rules.title_exclude)):
@@ -321,8 +377,12 @@ def rule_drop(p: JobPosting, rules: Rules, now: datetime) -> str | None:
     # JSearch's location is where the listing was posted, not where it hires: the LLM reads it.
     if p.source != "jsearch" and not location_allowed(p.location, rules.location_allow):
         return "location"
+    if p.source != "jsearch" and brazil_onsite(p, rules.location_allow):
+        return "location: brazil onsite"
+    if in_portuguese(p.description):
+        return "language: portuguese"
     # A job still listed on a company's board is open, however long ago it was published.
-    if p.source not in ATS and p.posted_at and now - p.posted_at > timedelta(days=rules.max_age_days):  # fmt: skip
+    if age and p.source not in ATS and p.posted_at and now - p.posted_at > timedelta(days=rules.max_age_days):  # fmt: skip
         return "old"
     if rules.salary_floor_usd and (yearly := yearly_salary(p)) and yearly < rules.salary_floor_usd:
         return "salary"
@@ -417,12 +477,14 @@ is missing), "no" (fails a hard requirement of the criteria).
 - reasons: at most 3 short reasons (under 15 words each), most important first, in English. Say \
 what decided the location question.
 - location_fit: "yes" if someone living where the candidate lives can be hired for this role, \
-"no" if the posting rules them out, "unclear" if it doesn't say.
+"no" if the posting rules them out, "unclear" if it doesn't say. A location that names the \
+candidate's city or country is a "yes".
 - seniority: the level the posting asks for.
 - years_required: the minimum years of experience the posting asks for, or null.
 - employer_kind: "direct" (a company hiring for itself), "consultancy" (a software consultancy or \
 nearshore outsourcing firm staffing client projects), "agency" (a recruiting agency, staffing \
-firm or talent marketplace posting for someone else), "unclear".
+firm or talent marketplace posting for someone else), "unclear". This only describes who posted: \
+whether that counts against the posting is for the criteria to say.
 - ai_related: whether the role involves AI or LLM work.
 - stack_overlap: the candidate's skills that the posting asks for (at most 8).
 - technologies: every language, framework, database, cloud and tool the posting asks for (at \
@@ -589,7 +651,7 @@ def sync_search_fields(p: JobPosting) -> None:
 def apply_verdict(p: JobPosting, result: dict, model: str | None, now: datetime) -> None:
     p.ai_result = result
     p.ai_score = result["score"]
-    p.ai_verdict = "no" if result["employer_kind"] == "agency" else result["verdict"]
+    p.ai_verdict = result["verdict"]  # an agency isn't a "no" any more: the criteria decide
     p.ai_model = model
     p.prompt_version = PROMPT_VERSION
     p.updated_at = now
@@ -634,7 +696,7 @@ class Progress:
     """Where a run or a re-score is, for the page to show while it waits. Reported after every
     search and every LLM answer, always from the thread that called run_discovery / rescore."""
 
-    kind: str  # "run" | "rescore"
+    kind: str  # "run" | "score" (a run that collects nothing) | "rescore"
     started_at: datetime
     phase: str = "collecting"  # "collecting" | "scoring" | "done"
     phase_started_at: datetime | None = None
@@ -675,13 +737,14 @@ def run_discovery(
     only_source: str | None = None,
     dry_run: bool = False,
     rescore: bool = False,
+    collect: bool = True,
     score_limit: int = RUN_SCORE_LIMIT,
     on_progress: ProgressFn | None = None,
 ) -> RunResult:
     """Collect every enabled search and every watched company's board, store what's new (hidden
     ones too, with the reason), then score the postings that passed the rules and have no verdict
     yet (`llm=None` only collects). `only_source` is a source name, or "boards" for all three
-    ATSs. A dry run stores no
+    ATSs. `collect=False` reads no source and only scores what is waiting. A dry run stores no
     postings and calls no LLM, but its run row is kept: the JSearch requests it used still count
     towards the month."""
     now = clock.now()
@@ -698,15 +761,18 @@ def run_discovery(
     searches = [
         x
         for x in repo.list_searches()
-        if x.enabled and (not only_source or x.source == only_source)
+        if collect and x.enabled and (not only_source or x.source == only_source)
     ]
     companies = [
         c
-        for c in (repo.list_watched() if boards is not None else [])
+        for c in (repo.list_watched() if collect and boards is not None else [])
         if c.enabled and only_source in (None, "boards", c.ats)
     ]
     progress = Progress(
-        "run", now, phase_started_at=now, searches_total=len(searches) + len(companies)
+        "run" if collect else "score",
+        now,
+        phase_started_at=now,
+        searches_total=len(searches) + len(companies),
     )
     _report(progress, on_progress)
 
@@ -805,7 +871,7 @@ def run_discovery(
         if llm is not None:
             score_pending(
                 repo, llm, criteria, clock, run, score_limit,
-                progress=progress, on_progress=on_progress,
+                rules=rules, progress=progress, on_progress=on_progress,
             )  # fmt: skip
 
     run.finished_at = clock.now()
@@ -841,12 +907,33 @@ def score_pending(
     *,
     include_hidden: bool = False,
     any_status: bool = False,
+    rules: Rules | None = None,
     progress: Progress | None = None,
     on_progress: ProgressFn | None = None,
 ) -> None:
-    """Score what has no verdict yet, a few calls at a time (the LLM client is thread-safe; the
-    database is only touched from this thread). Three failures stop the rest."""
-    pending = repo.unscored_postings(limit, include_hidden=include_hidden, any_status=any_status)
+    """Score what has no verdict yet, best location first, a few calls at a time (the LLM client
+    is thread-safe; the database is only touched from this thread). Three failures stop the rest.
+    With `rules`, the visible new postings go through the rules again first, so a rule added
+    after they were stored hides them instead of costing a call."""
+    pending = repo.unscored_postings(include_hidden=include_hidden, any_status=any_status)
+    if rules is not None:
+        now = clock.now()
+        keep = []
+        for p in pending:
+            fresh = p.drop_reason is None and p.status == PostingStatus.NEW
+            if fresh and (reason := rule_drop(p, rules, now, age=False)):
+                p.drop_reason, p.updated_at = reason, now
+                run.dropped += 1
+                with repo.transaction():
+                    repo.update_posting(p)
+            else:
+                keep.append(p)
+        if len(keep) < len(pending):
+            run.notes.append(f"{len(pending) - len(keep)} waiting postings hidden by the rules")
+        pending = keep
+    pending.sort(key=lambda p: (location_tier(p.location), -posted_or_fetched(p).timestamp()))
+    pending = pending[:limit]
+    before = replace(llm.usage)
     if progress is not None:
         progress.phase, progress.phase_started_at = "scoring", clock.now()
         progress.to_score, progress.scored = len(pending), 0
@@ -856,6 +943,7 @@ def score_pending(
     system = system_prompt(criteria)
     model = getattr(llm, "model", None)
     failures = 0
+    kinds: Counter[str] = Counter()
     pool = ThreadPoolExecutor(max_workers=SCORE_WORKERS)
     try:
         futures = {pool.submit(ask_llm, llm, system, p): p for p in pending}
@@ -872,6 +960,7 @@ def score_pending(
                 if progress is not None:
                     progress.errors = run.errors
                     _report(progress, on_progress)
+                kinds[str(err)] += 1
                 log.warning("discovery LLM call failed for %s: %s", p.id, err)
                 if failures >= 3:
                     run.notes.append("stopped scoring after 3 LLM failures; the next run retries")
@@ -883,6 +972,18 @@ def score_pending(
             _report(progress, on_progress)
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
+        used = llm.usage
+        cached = used.cached_tokens - before.cached_tokens
+        run.notes.append(
+            f"LLM: {used.calls - before.calls} calls, "
+            f"{used.input_tokens - before.input_tokens:,} tokens in"
+            + (f" (+{cached:,} cached)" if cached else "")
+            + f", {used.output_tokens - before.output_tokens:,} out"
+        )
+        if kinds:
+            run.notes.append(
+                "LLM errors: " + ", ".join(f"{kind} ×{n}" for kind, n in kinds.most_common())
+            )
 
 
 def rescore(
