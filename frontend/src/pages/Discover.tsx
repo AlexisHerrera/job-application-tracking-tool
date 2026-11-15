@@ -1,7 +1,7 @@
-// Job discovery (plan §20): new openings from the saved searches, scored by the LLM against the
-// criteria. Everything in a posting comes from the web: rendered as text, links only if http(s).
+// Job discovery (plan §20, §21): new openings from the saved searches and the watched companies'
+// job boards, scored by the LLM against the criteria. Everything in a posting comes from the web: rendered as text, links only if http(s).
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Circle, ExternalLink, Loader2, Play, Plus, RefreshCw, Search, Settings2, Sparkles, Star, Telescope, ThumbsDown, Trash2, X } from "lucide-react";
+import { Ban, Check, ChevronDown, ChevronLeft, ChevronRight, Circle, Download, ExternalLink, Loader2, Play, Plus, RefreshCw, Search, Settings2, Sparkles, Star, Telescope, ThumbsDown, Trash2, X } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
   type Posting,
   type PostingPage,
   type PostingStatus,
+  type SearchSource,
 } from "../api";
 import { Empty, Loading, PageHeader } from "../components/common";
 import { useAsync } from "../useAsync";
@@ -183,8 +184,8 @@ export default function Discover() {
     setProgress(null);
     setJob(next);
     try {
-      const r = next.kind === "run" ? await api.runDiscovery() : await api.rescorePostings(next.includeHidden);
-      const msg = next.kind === "run" ? `${r.new} new · ${r.dropped} hidden · ${r.llm_calls} scored` : `${r.llm_calls} postings scored`;
+      const r = next.kind === "run" ? await api.runDiscovery(next.score) : await api.rescorePostings(next.includeHidden);
+      const msg = next.kind === "rescore" ? `${r.llm_calls} postings scored` : `${r.new} new · ${r.dropped} hidden · ${next.score ? `${r.llm_calls} scored` : "not scored"}`;
       if (r.errors) toast.warning(`${msg}. ${r.notes.join(" · ")}`);
       else toast.success(msg);
       reloadAll();
@@ -198,11 +199,11 @@ export default function Discover() {
     <div className="mx-auto max-w-5xl">
       <PageHeader
         title="Discover"
-        description="New openings from your saved searches, scored against your criteria."
+        description="New openings from your saved searches and watched companies, scored against your criteria."
         actions={
           s && (
             <>
-              <RunButton state={s} working={working} onRun={() => void start({ kind: "run" })} />
+              <RunButton state={s} working={working} onRun={(score) => void start({ kind: "run", score })} />
               <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
                 <Settings2 /> Criteria & searches
               </Button>
@@ -212,12 +213,12 @@ export default function Discover() {
       />
 
       {working ? (
-        <ProgressPanel p={progress} kind={job?.kind ?? progress?.kind ?? "run"} />
+        <ProgressPanel p={progress} kind={job?.kind ?? progress?.kind ?? "run"} collectOnly={job?.kind === "run" && !job.score} />
       ) : (
-        s && <LastRun run={s.last_run} used={s.jsearch_used_this_month} cap={s.rules.jsearch_monthly_cap} />
+        s && <LastRun run={s.last_run} used={s.jsearch_used_this_month} cap={s.rules.jsearch_monthly_cap} jsearchOn={s.searches.some((x) => x.enabled && x.source === "jsearch")} />
       )}
 
-      {s && s.searches.length === 0 ? (
+      {s && s.searches.length === 0 && s.companies.total === 0 ? (
         <Empty icon={<Telescope className="size-8" />}>
           <p>No saved searches yet.</p>
           <Button
@@ -225,7 +226,7 @@ export default function Discover() {
             onClick={async () => {
               try {
                 await api.seedDiscovery();
-                toast.success("Loaded the default searches and criteria. Review them, then run.");
+                toast.success("Loaded the default searches, criteria and company watchlist. Review them, then run.");
                 reloadAll();
                 setSettingsOpen(true);
               } catch (e) {
@@ -233,7 +234,7 @@ export default function Discover() {
               }
             }}
           >
-            Load the default searches
+            Load the defaults
           </Button>
         </Empty>
       ) : (
@@ -278,7 +279,7 @@ export default function Discover() {
                 {data.total > PAGE_SIZE && ` · showing ${page * PAGE_SIZE + 1}–${Math.min(data.total, (page + 1) * PAGE_SIZE)}`}
               </p>
               {data.postings.map((p) => (
-                <PostingCard key={p.id} p={p} onChange={() => void list.reload()} onTech={addTech} />
+                <PostingCard key={p.id} p={p} onChange={() => void list.reload()} onBlocked={reloadAll} onTech={addTech} />
               ))}
               {data.total > PAGE_SIZE && (
                 <div className="flex items-center justify-end gap-2 pt-1">
@@ -350,8 +351,12 @@ function Filters({
         <FacetSelect value={params.get("pub") ?? ""} onChange={(v) => set("pub", v || null)} all="Any job board" options={facets?.publisher ?? []} />
         <NativeSelect size="sm" value={params.get("source") ?? ""} onChange={(e) => set("source", e.target.value || null)} aria-label="Source" className={cn(params.get("source") && "[&_select]:border-primary")}>
           <NativeSelectOption value="">All sources</NativeSelectOption>
-          <NativeSelectOption value="jsearch">JSearch</NativeSelectOption>
           <NativeSelectOption value="remoteyeah">remoteyeah</NativeSelectOption>
+          <NativeSelectOption value="getonbrd">getonbrd</NativeSelectOption>
+          <NativeSelectOption value="ashby">Company boards · Ashby</NativeSelectOption>
+          <NativeSelectOption value="greenhouse">Company boards · Greenhouse</NativeSelectOption>
+          <NativeSelectOption value="lever">Company boards · Lever</NativeSelectOption>
+          <NativeSelectOption value="jsearch">JSearch</NativeSelectOption>
         </NativeSelect>
         {facet("sen", "Any seniority", facets?.seniority, SENIORITY)}
         <TechPicker selected={techsOf(params)} options={facets?.technologies ?? []} onChange={(t) => set("tech", t.join(",") || null)} />
@@ -460,21 +465,28 @@ function TechPicker({ selected, options, onChange }: { selected: string[]; optio
   );
 }
 
-function RunButton({ state, working, onRun }: { state: DiscoveryState; working: boolean; onRun: () => void }) {
+function RunButton({ state, working, onRun }: { state: DiscoveryState; working: boolean; onRun: (score: boolean) => void }) {
   if (!state.can_run) return null;
   const enabled = state.searches.filter((x) => x.enabled);
   const jsearch = state.jsearch_configured ? enabled.filter((x) => x.source === "jsearch").length : 0;
+  const nothing = enabled.length === 0 && state.companies.enabled === 0;
+  const sources = `${enabled.length} search${enabled.length === 1 ? "" : "es"} and ${state.companies.enabled} company board${state.companies.enabled === 1 ? "" : "s"}`;
   return (
-    <Button size="sm" disabled={working || enabled.length === 0} onClick={onRun} title={`Uses about ${jsearch} JSearch request${jsearch === 1 ? "" : "s"}, plus AI scoring of new postings`}>
-      <Play className={cn(working && "animate-pulse")} /> {working ? "Running…" : "Run now"}
-    </Button>
+    <>
+      <Button size="sm" variant="outline" disabled={working || nothing} onClick={() => onRun(false)} title={`Reads ${sources} and stores what's new. No AI calls: new postings stay unscored.`}>
+        <Download /> Collect only
+      </Button>
+      <Button size="sm" disabled={working || nothing} onClick={() => onRun(true)} title={`Reads ${sources}${jsearch ? ` (about ${jsearch} JSearch request${jsearch === 1 ? "" : "s"})` : ""}, then scores up to 150 new postings with AI (paid, about $0.0005 each)`}>
+        <Play className={cn(working && "animate-pulse")} /> {working ? "Running…" : "Run now"}
+      </Button>
+    </>
   );
 }
 
 // ---------------------------------------------------------------------------------------------
 // Progress of a run or a re-score
 
-type Job = { kind: "run" } | { kind: "rescore"; includeHidden: boolean };
+type Job = { kind: "run"; score: boolean } | { kind: "rescore"; includeHidden: boolean };
 
 /** Asks the server every second while `active` (or while it reports a run going). */
 function useDiscoveryProgress(active: boolean) {
@@ -547,7 +559,7 @@ function Step({ state, title, children }: { state: StepState; title: string; chi
   );
 }
 
-function ProgressPanel({ p, kind }: { p: DiscoveryProgress | null; kind: "run" | "rescore" }) {
+function ProgressPanel({ p, kind, collectOnly = false }: { p: DiscoveryProgress | null; kind: "run" | "rescore"; collectOnly?: boolean }) {
   const live = p?.kind ? p : null; // {running: false} alone: nothing reported yet
   const phase = live?.phase;
   const total = live?.searches_total ?? 0;
@@ -568,10 +580,10 @@ function ProgressPanel({ p, kind }: { p: DiscoveryProgress | null; kind: "run" |
       </div>
       <ol className="space-y-2.5">
         {kind === "run" && (
-          <Step state={collectState} title={total ? `Collect from your searches (${Math.min(done, total)} of ${total})` : "Collect from your searches"}>
+          <Step state={collectState} title={total ? `Collect from your searches and company boards (${Math.min(done, total)} of ${total})` : "Collect from your searches and company boards"}>
             {collectState === "active" && live?.current && (
               <>
-                Fetching “{live.current}”{eta(live.phase_elapsed_s, done, total) && ` · ${eta(live.phase_elapsed_s, done, total)}`}
+                Reading “{live.current}”{eta(live.phase_elapsed_s, done, total) && ` · ${eta(live.phase_elapsed_s, done, total)}`}
                 <Bar done={done} total={total} />
               </>
             )}
@@ -582,7 +594,7 @@ function ProgressPanel({ p, kind }: { p: DiscoveryProgress | null; kind: "run" |
             )}
           </Step>
         )}
-        <Step state={scoreState} title={scoreState === "pending" || !toScore ? "Score with AI" : `Score with AI (${scored} of ${toScore})`}>
+        {!collectOnly && <Step state={scoreState} title={scoreState === "pending" || !toScore ? "Score with AI" : `Score with AI (${scored} of ${toScore})`}>
           {scoreState === "active" && (
             toScore === 0 ? (
               "Nothing to score"
@@ -593,7 +605,7 @@ function ProgressPanel({ p, kind }: { p: DiscoveryProgress | null; kind: "run" |
               </>
             )
           )}
-        </Step>
+        </Step>}
       </ol>
       {errors > 0 && <p className="mt-2 text-xs text-destructive">{errors} error{errors === 1 ? "" : "s"} so far; the rest keeps going.</p>}
       <p className="mt-2.5 text-xs text-muted-foreground">You can leave this page: the run keeps going, and the list refreshes when it ends.</p>
@@ -601,7 +613,7 @@ function ProgressPanel({ p, kind }: { p: DiscoveryProgress | null; kind: "run" |
   );
 }
 
-function LastRun({ run, used, cap }: { run: DiscoveryRun | null; used: number; cap: number }) {
+function LastRun({ run, used, cap, jsearchOn }: { run: DiscoveryRun | null; used: number; cap: number; jsearchOn: boolean }) {
   return (
     <p className="mb-4 text-xs text-muted-foreground">
       {run ? (
@@ -612,7 +624,7 @@ function LastRun({ run, used, cap }: { run: DiscoveryRun | null; used: number; c
       ) : (
         "Never run."
       )}
-      {" · "}JSearch this month: {used} / {cap}
+      {jsearchOn && <>{" · "}JSearch this month: {used} / {cap}</>}
     </p>
   );
 }
@@ -660,7 +672,7 @@ function usdSalary(p: Posting): string | null {
   return `≈ USD ${lo === p.salary_usd_max ? k(lo) : `${k(lo)}–${k(p.salary_usd_max)}`} / yr`;
 }
 
-function PostingCard({ p, onChange, onTech }: { p: Posting; onChange: () => void; onTech: (tech: string) => void }) {
+function PostingCard({ p, onChange, onBlocked, onTech }: { p: Posting; onChange: () => void; onBlocked: () => void; onTech: (tech: string) => void }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const url = safeUrl(p.url);
@@ -674,6 +686,17 @@ function PostingCard({ p, onChange, onTech }: { p: Posting; onChange: () => void
     try {
       await api.setPostingStatus(p.id, next);
       onChange();
+    } catch (e) {
+      toast.error(errorText(e));
+    }
+    setBusy(false);
+  }
+  async function hideCompany() {
+    setBusy(true);
+    try {
+      const r = await api.blockCompany(p.company);
+      toast.success(`${p.company} is blocked: ${r.hidden} posting${r.hidden === 1 ? "" : "s"} hidden. Undo it in Criteria & searches, under "Blocked companies".`);
+      onBlocked();
     } catch (e) {
       toast.error(errorText(e));
     }
@@ -767,6 +790,9 @@ function PostingCard({ p, onChange, onTech }: { p: Posting; onChange: () => void
                 ) : (
                   <Button size="sm" variant="ghost" disabled={busy} onClick={() => setStatus("dismissed")}><ThumbsDown /> Not for me</Button>
                 )}
+                {p.drop_reason !== "blocked" && (
+                  <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={busy} onClick={hideCompany} title={`Never show ${p.company} again: hides its postings and blocks new ones`}><Ban /> Hide company</Button>
+                )}
               </>
             )}
             {p.status === "applied" && p.application_id && (
@@ -793,11 +819,12 @@ function PostingCard({ p, onChange, onTech }: { p: Posting; onChange: () => void
 // Criteria, rules and searches
 
 const LIST_FIELDS: { key: keyof DiscoveryRules; label: string; hint: string }[] = [
+  { key: "blocked", label: "Blocked companies", hint: "Hidden, whatever the source. \"Hide company\" on a posting adds to this list. One company per line." },
   { key: "agencies", label: "Agencies & talent marketplaces", hint: "Dropped. One company per line." },
   { key: "consultancies", label: "Consultancies", hint: "Hidden. One company per line." },
   { key: "seniority_exclude", label: "Seniority words", hint: "A title with one of these is hidden (junior, intern…)." },
   { key: "title_exclude", label: "Stack / role words", hint: "Hidden unless the title is about AI. Whole words: \"java\" doesn't hit JavaScript." },
-  { key: "location_allow", label: "remoteyeah locations", hint: "A remoteyeah job is hidden unless its location mentions one of these (empty = kept)." },
+  { key: "location_allow", label: "Locations", hint: "A job is hidden unless its location mentions one of these (no location = kept). Company-board jobs outside these aren't stored at all. Doesn't apply to JSearch." },
 ];
 
 function SettingsSheet({
@@ -884,6 +911,8 @@ function SettingsSheet({
             )}
           </div>
 
+          <Watchlist state={state} onChange={onSaved} />
+
           <Searches searches={state.searches} jsearchConfigured={state.jsearch_configured} onChange={onSaved} />
         </div>
       </SheetContent>
@@ -902,7 +931,56 @@ function NumberField({ label: text, value, placeholder, onChange }: { label: str
   );
 }
 
+const GETONBRD_CATEGORIES = ["programming", "machine-learning-ai", "mobile-developer", "sysadmin-devops-qa", "data-science-analytics", "cybersecurity", "design-ux", "innovation-agile", "other"];
+
+function Watchlist({ state, onChange }: { state: DiscoveryState; onChange: () => void }) {
+  const c = state.companies;
+  const [loading, setLoading] = useState(false);
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await api.seedDiscovery();
+      toast.success(`Added ${r.added.companies} compan${r.added.companies === 1 ? "y" : "ies"} and ${r.added.searches} search${r.added.searches === 1 ? "" : "es"}.`);
+      onChange();
+    } catch (e) {
+      toast.error(errorText(e));
+    }
+    setLoading(false);
+  }
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-medium">Company boards</h3>
+      <p className="text-xs text-muted-foreground">
+        Each run reads the public job board of every watched company and keeps the engineering roles in your locations. It's free and needs no key.
+      </p>
+      <div className="rounded-lg border px-3 py-2 text-sm">
+        {c.total === 0 ? (
+          "No companies watched yet."
+        ) : (
+          <>
+            <div>
+              {c.enabled} compan{c.enabled === 1 ? "y" : "ies"} watched
+              <span className="text-muted-foreground"> · Greenhouse {c.by_ats.greenhouse} · Ashby {c.by_ats.ashby} · Lever {c.by_ats.lever}</span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {c.last_checked_at ? `Last read ${timeAgo(c.last_checked_at)}: ${c.jobs_kept} matching role${c.jobs_kept === 1 ? "" : "s"} at ${c.with_jobs} compan${c.with_jobs === 1 ? "y" : "ies"}` : "Not read yet: run a collection."}
+              {c.total > c.enabled && ` · ${c.total - c.enabled} off (board gone)`}
+            </div>
+          </>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" disabled={loading} onClick={load} title="Adds the starting list of about 450 companies that had engineering roles in Latin America, and any default search that's missing. Keeps what you already have.">
+          <Plus /> {c.total === 0 ? "Load the starting watchlist" : "Add missing defaults"}
+        </Button>
+        <span className="text-xs text-muted-foreground">Add one company from a terminal: <code>jobtracker discover companies add ashby &lt;slug&gt;</code></span>
+      </div>
+    </section>
+  );
+}
+
 function paramsSummary(x: DiscoverySearch): string {
+  if (x.source === "getonbrd") return `category ${String(x.params.category ?? "")}`;
   if (x.source === "remoteyeah") return String(x.params.feed ?? "").replace("https://remoteyeah.com/", "");
   const parts = [`"${x.params.query}"`];
   if (x.params.country) parts.push(String(x.params.country).toUpperCase());
@@ -911,7 +989,8 @@ function paramsSummary(x: DiscoverySearch): string {
 }
 
 function Searches({ searches, jsearchConfigured, onChange }: { searches: DiscoverySearch[]; jsearchConfigured: boolean; onChange: () => void }) {
-  const [source, setSource] = useState<"jsearch" | "remoteyeah">("jsearch");
+  const [source, setSource] = useState<SearchSource>("getonbrd");
+  const [category, setCategory] = useState("programming");
   const [labelText, setLabelText] = useState("");
   const [query, setQuery] = useState("");
   const [country, setCountry] = useState("ar");
@@ -929,10 +1008,11 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
   };
 
   async function add() {
-    const params: DiscoverySearch["params"] = source === "jsearch" ? { query, country } : { feed };
+    const params: DiscoverySearch["params"] = source === "jsearch" ? { query, country } : source === "getonbrd" ? { category } : { feed };
     if (source === "jsearch" && remote) params.work_from_home = true;
+    const fallback = source === "jsearch" ? `${country.toUpperCase()} · ${query}` : source === "getonbrd" ? `getonbrd · ${category}` : feed.split("/").pop() ?? "feed";
     await run(async () => {
-      await api.addSearch({ source, label: labelText || (source === "jsearch" ? `${country.toUpperCase()} · ${query}` : feed.split("/").pop() ?? "feed"), params, enabled: true });
+      await api.addSearch({ source, label: labelText || fallback, params, enabled: true });
       setLabelText("");
       setQuery("");
     });
@@ -943,8 +1023,9 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
       <div>
         <h3 className="text-sm font-medium">Searches</h3>
         <p className="text-xs text-muted-foreground">
-          {enabledJsearch} JSearch search{enabledJsearch === 1 ? "" : "es"} on: about {enabledJsearch * 30} of the free 200 requests a month at one run a day. remoteyeah feeds are free.
-          {!jsearchConfigured && " JSEARCH_API_KEY isn't set, so JSearch searches are skipped."}
+          remoteyeah feeds and getonbrd categories are free.
+          {enabledJsearch > 0 && ` ${enabledJsearch} JSearch search${enabledJsearch === 1 ? "" : "es"} on: about ${enabledJsearch * 30} of the free 200 requests a month at one run a day.`}
+          {enabledJsearch > 0 && !jsearchConfigured && " JSEARCH_API_KEY isn't set, so JSearch searches are skipped."}
         </p>
       </div>
       <ul className="divide-y rounded-lg border">
@@ -961,9 +1042,10 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
       </ul>
       <div className="space-y-2 rounded-lg border p-3">
         <div className="flex flex-wrap gap-2">
-          <NativeSelect size="sm" value={source} onChange={(e) => setSource(e.target.value as "jsearch" | "remoteyeah")} aria-label="Source">
-            <NativeSelectOption value="jsearch">JSearch</NativeSelectOption>
+          <NativeSelect size="sm" value={source} onChange={(e) => setSource(e.target.value as SearchSource)} aria-label="Source">
+            <NativeSelectOption value="getonbrd">getonbrd category</NativeSelectOption>
             <NativeSelectOption value="remoteyeah">remoteyeah feed</NativeSelectOption>
+            <NativeSelectOption value="jsearch">JSearch</NativeSelectOption>
           </NativeSelect>
           <Input className="h-7 min-w-32 flex-1" placeholder="Label (optional)" value={labelText} onChange={(e) => setLabelText(e.target.value)} />
         </div>
@@ -975,10 +1057,16 @@ function Searches({ searches, jsearchConfigured, onChange }: { searches: Discove
               <Checkbox checked={remote} onCheckedChange={(c) => setRemote(c === true)} /> remote only
             </label>
           </div>
+        ) : source === "getonbrd" ? (
+          <NativeSelect size="sm" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
+            {GETONBRD_CATEGORIES.map((c) => (
+              <NativeSelectOption key={c} value={c}>{c}</NativeSelectOption>
+            ))}
+          </NativeSelect>
         ) : (
           <Input className="h-7" placeholder="https://remoteyeah.com/remote-…-jobs.xml" value={feed} onChange={(e) => setFeed(e.target.value)} />
         )}
-        <Button size="sm" variant="outline" disabled={source === "jsearch" ? !query.trim() : !feed.endsWith(".xml")} onClick={add}>
+        <Button size="sm" variant="outline" disabled={source === "jsearch" ? !query.trim() : source === "remoteyeah" ? !feed.endsWith(".xml") : false} onClick={add}>
           <Plus /> Add search
         </Button>
       </div>

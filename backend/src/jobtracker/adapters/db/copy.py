@@ -45,6 +45,7 @@ TABLES: list[tuple[str, tuple[str, ...]]] = [
     ("calendar_sync_state", ("calendar_id",)),
     ("discovery_searches", ("id",)),
     ("discovery_settings", ("key",)),
+    ("discovery_companies", ("id",)),
     ("job_postings", ("id",)),
     ("discovery_runs", ("id",)),  # the month's JSearch request count lives here
 ]

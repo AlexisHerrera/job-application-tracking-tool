@@ -449,7 +449,7 @@ remoteyeah (free): `remote-full-stack-engineer-jobs.xml`, `remote-backend-engine
 
 - **(a) Local**: migrations, sources, rules, LLM filter, CLI and the page, against local Postgres; tests use recorded JSearch/remoteyeah fixtures (no network). Then **one real run after the user's OK** (≤6 JSearch requests plus a few cents of Haiku), into the local database. Stop for review.
 - **(b) AWS**: `ingest` handler gets `{"trigger": "discover"}` with its own lease name; a second daily schedule in `infra/prod/scheduler.tf` (09:00 Buenos Aires); `JSEARCH_API_KEY` added to `ssm_secrets.SECRET_NAMES` and `local.secrets` in `infra/prod/lambdas.tf`, pushed with `jobtracker aws push-secrets`. Check that remoteyeah answers from Lambda; if Cloudflare blocks it, that source runs from the laptop with `jobtracker discover run --source remoteyeah --dsql`. The user runs the apply.
-- **(c) Later**: more boards, LinkedIn job-alert emails as a source (they're dropped by the funnel today), public ATS boards (Greenhouse/Lever/Ashby JSON) for a watchlist of fintechs, and a browser scraper only for a site that really needs one.
+- **(c) Later** (boards and the ATS watchlist became §21): more boards, LinkedIn job-alert emails as a source (they're dropped by the funnel today), public ATS boards (Greenhouse/Lever/Ashby JSON) for a watchlist of fintechs, and a browser scraper only for a site that really needs one.
 
 ### Open questions
 
@@ -484,3 +484,80 @@ The user wanted to look through what was collected before tuning the criteria: f
 - **Page**: the filters live in the URL, so they survive opening an application and coming back. The text boxes wait 300 ms. Clicking a technology on a card adds it to the filter; the ones on the CV (`stack_overlap`) are highlighted. The default view is now "All" instead of "Matches". A banner offering the re-score for postings scored with the older prompt was tried and removed: too much code for a one-time step.
 - **Progress while it runs**: `run_discovery` and `rescore` take an `on_progress` callback that gets a `discovery.Progress` after every search and every LLM answer: the phase (collecting → scoring → done), searches done / total and the one being fetched, found / new / hidden, scored / to score, errors. The API keeps the latest one in memory (page runs are local only, one process) and serves it at `GET /api/discover/progress` with elapsed times. While the POST waits, the page polls it every second and shows the two steps with a bar and a time estimate (from how long the finished units took). If the page is reloaded mid-run, it finds the run still going and refreshes the list when it ends.
 
+
+## 21. More sources: company boards and getonbrd (2026-11-14)
+
+Status: **round 1 built and committed 2026-11-14.** Rounds 2–6 are independent enough to run in separate sessions; each one starts from this section and `docs/handoff-job-discovery.md`.
+
+### Why
+
+JSearch's results are mostly reposts through aggregators (JobLeads, WhatJobs, BeBee) and spam (Bluelight Consulting). The user's good leads came from somewhere else: an agency board (silver.dev), a LATAM job portal (getonbrd), and company career pages (Ramp, HomeVision, GoFundMe, RYZ Labs). Most of those career pages sit on three applicant tracking systems with a public JSON API, so a **watchlist of companies** replaces keyword searches.
+
+### What was measured (2026-11-14)
+
+- An open directory of 9,935 company boards (LastRound AI on DataHub, **CC BY 4.0**, August 2026 snapshot; copy in `backend/seeds/ats_directory_2026-08.csv`) was scanned through the public APIs in about 20 minutes with 10 connections. 7,724 boards were live (885 gave 404), holding ~270,000 jobs, ~56,000 with an engineering title.
+- Engineering roles located in Argentina: 100 companies. Tagged LATAM / Americas / South America: 101. Only Brazil, Mexico, Colombia etc.: 217. Only "worldwide / anywhere": 44.
+- Bluelight Consulting alone had 510 of the matching postings.
+- silver.dev is an Ashby board (`Silver`); RYZ Labs is a Lever board (`RyzLabs`); GoFundMe is Greenhouse (`gofundme`).
+
+### Sources checked
+
+| Source | Access | Decision |
+|---|---|---|
+| Ashby `api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true` | public JSON | round 1 |
+| Greenhouse `boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true` | public JSON | round 1 |
+| Lever `api.lever.co/v0/postings/{slug}?mode=json` (slug is case-sensitive) | public JSON | round 1 |
+| getonbrd `www.getonbrd.com/api/v0/categories/{id}/jobs` | public JSON | round 1 |
+| Workable `jobs.workable.com/api/v1/jobs?query=…&location=Argentina` | public JSON, 85 results | round 3 |
+| Hacker News "Who is hiring" (Algolia API) | public, ~3 LATAM posts a month | round 3, to find companies |
+| YC company list `yc-oss.github.io/api/companies/hiring.json` | public, 1,485 hiring | round 3, to find companies |
+| WeRemoto, a16z portfolio board | plain HTML | maybe later |
+| Himalayas, Remotive, RemoteOK, We Work Remotely | public | skipped: mostly US-only or no location |
+| Wellfound, Built In, Kaszek portfolio board | bot challenge | only through the user's browser, if the rest falls short |
+| JSearch | paid API | **switched off** in round 1 |
+
+### Round 1: collect (built)
+
+Goal: collect as much as possible. How to score this volume with the LLM is round 2, so a run can now skip scoring.
+
+- **Watchlist**: table `discovery_companies` (migration `0013`): `ats` (`ashby|greenhouse|lever`), `slug`, `name`, `enabled`, `note` (how it got here), `last_checked_at`, `last_status`, `jobs_total`, `jobs_kept`. Unique `(ats, slug)`.
+- **Seed**: `adapters/seeds/ats_watchlist.csv`, the companies from the scan with at least one engineering role in Argentina, LATAM, a neighbouring country or worldwide (Bluelight left out). `jobtracker discover seed` and the page's seed action import it; existing rows are kept.
+- **Adapter** `adapters/ats_boards.py`: one `fetch_board(ats, slug, name)` for the three systems, returning every job on the board as a `JobPosting` with `source` = the ATS and `source_id` = `slug:job id`.
+- **What is stored from a board** (`discovery.board_keep`): only jobs with an engineering title whose location passes `rules.location_allow`, or is empty or a bare "Remote". The rest is counted on the company row and not stored: a board like Ramp's has 180 jobs and none for LATAM. The usual rules then apply (hidden with a reason). The "older than 21 days" rule doesn't apply to boards: a job listed on the board is open.
+- **Run**: after the saved searches, `run_discovery` reads every enabled company, 8 at a time. A board that answers 404 is disabled with `last_status = "gone"`.
+- **getonbrd**: `adapters/getonbrd.py`, a saved search per category (`programming`, `machine-learning-ai`). Location is built from the remote fields ("Remote (anywhere)", "Remote (Chile, Peru)", "Chile (hybrid)"), so the location rule works on it. Salary is USD a month.
+- **Location rule**: now applies to every source except JSearch (it was remoteyeah only).
+- **Block list**: `rules.blocked`, default `["Bluelight Consulting"]`, drop reason `blocked`. "Hide company" on a card adds the company and hides its stored postings (`POST /api/discover/block`).
+- **JSearch off**: migration `0013` disables the saved JSearch searches, and the defaults no longer include them. The adapter and the monthly cap stay until round 5.
+- **Collect only**: `POST /api/discover/run` takes `score` (the page has a "Collect only" button); the CLI already had `--no-llm`.
+- **CLI**: `jobtracker discover companies list|add|import|scan`. `scan <directory.csv>` checks every board in a directory file that isn't watched yet and adds the ones with an engineering role in Latin America (about 20 minutes for the full directory; run it monthly).
+- Not done: marking a posting closed when it leaves its board (round 4).
+
+### Round 2: scoring strategy for the larger volume
+
+The first board run stores a few thousand postings. One Haiku call each is still cheap (~$0.0004), but the prompt, the limits (`RUN_SCORE_LIMIT` 150) and the page were made for ~60 a day. To decide with the user: tighter rules before the LLM (seniority, stack), scoring only the best location tier first, a cheaper first pass on title + location alone, batching, and measuring the real cost on a sample. Also the criteria feedback in the handoff (agencies are fine, Buenos Aires bonus).
+
+### Round 3: grow the watchlist
+
+- A resolver: company name or website → careers page → ATS and slug (how RYZ Labs' Lever board was found), fed by company names from silver.dev, getonbrd, remoteyeah, HN and the YC list.
+- More systems: Workable search first, then Teamtailor, Recruitee, SmartRecruiters, BambooHR.
+- A monthly `companies scan` of the directory.
+
+### Round 4: quality of what's stored
+
+Mark postings closed when they leave the board; dedupe the same role listed in several locations; show a company's watch status on the page.
+
+### Round 5: AWS and cleanup
+
+Run boards from the Lambda (phase (b) of §20), copy `discovery_companies` to DSQL (already in `db copy-to-dsql`), remove the JSearch adapter, cap and secret.
+
+### Round 6: a proper page for criteria, rules, searches and the watchlist (asked 2026-11-14)
+
+Independent of rounds 2–5; it can go first. Today all of this lives in the "Criteria & searches" side sheet on Discover (`SettingsSheet`, `Watchlist` and `Searches` in `frontend/src/pages/Discover.tsx`), which has outgrown a sheet: one long scroll with the criteria text, seven rule lists, the watchlist summary and the searches.
+
+- A route of its own (for example `/discover/settings`, linked from Discover's header in place of the sheet), with sections or tabs: **Criteria**, **Rules**, **Sources** (saved searches and the company watchlist), **Runs**.
+- **Company watchlist** as a real table: search by name, filter by ATS and status, turn a company on or off, add one by ATS and slug, and see what the last check found (`jobs_kept` / `jobs_total`, `last_status`, `note`). Needs `GET /api/discover/companies` (paged), `POST` and `PATCH`; today the API only returns the summary and the list is edited from the CLI.
+- **Rules**: each list as its own editor instead of seven textareas in a row; the block list shows what "Hide company" added and lets one entry be removed.
+- **Runs**: the last runs with their notes and errors (`discovery_runs`), not only the latest one.
+- Split `Discover.tsx` (over 1,000 lines) while moving this out: the page keeps the list, the filters and the run buttons.
+- To decide with the user before building: tabs or one long page, and whether "Re-score recent" stays on Discover or moves here.

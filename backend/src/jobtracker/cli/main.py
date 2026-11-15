@@ -769,12 +769,84 @@ def aws_push_secrets(
 
 @discover_app.command("seed")
 def discover_seed() -> None:
-    """Write the default criteria, rules and searches (keeps what already exists)."""
+    """Write the default criteria, rules, searches and company watchlist (keeps what already
+    exists)."""
+    from jobtracker.adapters import seeds
     from jobtracker.core import discovery
 
     repo = _repo(_settings())
-    added = discovery.seed(repo, SystemClock())
+    added = discovery.seed(repo, SystemClock(), seeds.watchlist())
     typer.echo(f"added: {added}")
+
+
+companies_app = typer.Typer(
+    no_args_is_help=True, help="The watchlist of companies whose job boards a run reads (plan §21)."
+)
+discover_app.add_typer(companies_app, name="companies")
+
+
+@companies_app.command("list")
+def companies_list(
+    all_: bool = typer.Option(False, "--all", help="Every company, not only the ones with jobs."),
+) -> None:
+    """The watched companies, with what the last check found."""
+    rows = _repo(_settings()).list_watched()
+    for c in rows:
+        if not (all_ or c.jobs_kept):
+            continue
+        flag = " " if c.enabled else "x"
+        found = "not checked" if c.jobs_total is None else f"{c.jobs_kept}/{c.jobs_total} jobs"
+        typer.echo(f"[{flag}] {c.ats:<10} {c.slug:<28} {c.name}  ({found}; {c.last_status or '-'})")
+    on = sum(1 for c in rows if c.enabled)
+    typer.echo(f"{len(rows)} companies, {on} on, {sum(1 for c in rows if c.jobs_kept)} with jobs")
+
+
+@companies_app.command("add")
+def companies_add(
+    ats: str = typer.Argument(..., help="ashby, greenhouse or lever."),
+    slug: str = typer.Argument(..., help="The board's name in its URL (jobs.ashbyhq.com/<slug>)."),
+    name: str | None = typer.Option(None, help="The company's name (default: the slug)."),
+) -> None:
+    """Watch one company's board."""
+    from jobtracker.core import discovery
+
+    row = {"ats": ats, "slug": slug, "name": name or slug, "note": "added by hand"}
+    if not discovery.import_companies(_repo(_settings()), [row], SystemClock()):
+        raise typer.BadParameter("already watched, or not an ATS and slug this app knows")
+    typer.echo(f"watching {ats}/{slug}")
+
+
+@companies_app.command("import")
+def companies_import(
+    path: Path | None = typer.Argument(None, help="A CSV: ats, slug, name, note. Default: the starting watchlist."),
+) -> None:  # fmt: skip
+    """Add every board in a CSV to the watchlist, without checking them."""
+    from jobtracker.adapters import seeds
+    from jobtracker.core import discovery
+
+    rows = seeds.read_boards(path.read_text("utf-8")) if path else seeds.watchlist()
+    added = discovery.import_companies(_repo(_settings()), rows, SystemClock())
+    typer.echo(f"added {added} of {len(rows)}")
+
+
+@companies_app.command("scan")
+def companies_scan(
+    path: Path = typer.Argument(..., help="A board directory CSV, e.g. seeds/ats_directory_2026-08.csv."),
+) -> None:  # fmt: skip
+    """Check every board in a directory that isn't watched yet and add the ones with an
+    engineering role in Latin America or worldwide. About 20 minutes for 10,000 boards; stores
+    no postings and makes no paid calls."""
+    from jobtracker.adapters import seeds
+    from jobtracker.adapters.ats_boards import AtsBoards
+    from jobtracker.core import discovery
+
+    def show(done: int, total: int, added: int) -> None:
+        if done % 250 == 0 or done == total:
+            typer.echo(f"  {done}/{total} checked, {added} added")
+
+    rows = seeds.read_boards(path.read_text("utf-8"))
+    out = discovery.scan_directory(_repo(_settings()), AtsBoards(), rows, SystemClock(), show)
+    typer.echo(f"checked {out['checked']}, added {out['added']}, gone {out['gone']}, failed {out['failed']}")  # fmt: skip
 
 
 @discover_app.command("searches")
@@ -787,23 +859,27 @@ def discover_searches() -> None:
 
 @discover_app.command("run")
 def discover_run(
-    source: str | None = typer.Option(None, help="Only this source: jsearch or remoteyeah."),
+    source: str | None = typer.Option(
+        None, help="Only this source: remoteyeah, getonbrd, jsearch, or boards (the watchlist)."
+    ),
     no_llm: bool = typer.Option(False, "--no-llm", help="Collect and store, score later."),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Print what would be stored. Stores nothing, no LLM calls."
     ),
     rescore: bool = typer.Option(False, help="Score the recent new postings again."),
 ) -> None:
-    """Collect every enabled search (JSearch requests count against the month's quota), store
-    the new postings, then score the ones that pass the rules (paid Haiku calls)."""
+    """Collect every enabled search and every watched company's board, store the new postings,
+    then score the ones that pass the rules (paid Haiku calls; --no-llm only collects)."""
     from jobtracker.adapters.anthropic_llm import AnthropicLLM
+    from jobtracker.adapters.ats_boards import AtsBoards
+    from jobtracker.adapters.getonbrd import GetOnBoardSource
     from jobtracker.adapters.jsearch import JSearchSource
     from jobtracker.adapters.remoteyeah import RemoteYeahSource
     from jobtracker.core import discovery
 
     settings = _settings()
     clock = SystemClock()
-    sources: dict = {"remoteyeah": RemoteYeahSource()}
+    sources: dict = {"remoteyeah": RemoteYeahSource(), "getonbrd": GetOnBoardSource()}
     if settings.jsearch_api_key:
         sources["jsearch"] = JSearchSource(settings.jsearch_api_key, clock=clock)
     llm = None
@@ -812,11 +888,11 @@ def discover_run(
             raise typer.BadParameter("ANTHROPIC_API_KEY is empty (or pass --no-llm)")
         llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
     repo = _repo(settings)
-    if not repo.list_searches():
-        raise typer.BadParameter("no saved searches yet: run `jobtracker discover seed` first")
+    if not repo.list_searches() and not repo.list_watched():
+        raise typer.BadParameter("nothing to collect yet: run `jobtracker discover seed` first")
     result = discovery.run_discovery(
-        repo, sources, llm, clock, trigger="cli", only_source=source, dry_run=dry_run,
-        rescore=rescore,
+        repo, sources, llm, clock, boards=AtsBoards(), trigger="cli", only_source=source,
+        dry_run=dry_run, rescore=rescore,
     )  # fmt: skip
     r = result.run
     if dry_run:

@@ -1,4 +1,5 @@
-"""Job discovery (plan §20): cheap rules, then one LLM verdict per new posting. Pure: sources and
+"""Job discovery (plan §20, §21): collect postings from saved searches and from the job boards of
+watched companies, apply cheap rules, then one LLM verdict per new posting. Pure: sources and
 storage come in through ports.
 
 Posting text is untrusted web content. It only ever goes to the LLM as data (no tools), and what
@@ -18,13 +19,30 @@ from datetime import UTC, datetime, timedelta
 from rapidfuzz import fuzz
 
 from jobtracker.core.matching import normalize_company
-from jobtracker.core.models import DiscoveryRun, JobPosting, PostingQuery, PostingStatus
-from jobtracker.core.ports import Clock, DiscoveryRepo, JobSource, LLMClient, LLMError, SourceError
+from jobtracker.core.models import (
+    DiscoveryRun,
+    JobPosting,
+    PostingQuery,
+    PostingStatus,
+    WatchedCompany,
+)
+from jobtracker.core.ports import (
+    BoardSource,
+    Clock,
+    DiscoveryRepo,
+    JobSource,
+    LLMClient,
+    LLMError,
+    SourceError,
+)
 
 log = logging.getLogger(__name__)
 
 PROMPT_VERSION = "2026-11-14.1"  # adds the search fields (plan §20, "Search and filters")
-SOURCES = ("jsearch", "remoteyeah")
+SEARCH_SOURCES = ("jsearch", "remoteyeah", "getonbrd")  # collected through saved searches
+ATS = ("ashby", "greenhouse", "lever")  # collected from the watched companies' boards (§21)
+SOURCES = (*SEARCH_SOURCES, *ATS)
+BOARD_WORKERS = 8  # boards fetched at once
 DESCRIPTION_LIMIT = 8000  # stored
 LLM_DESCRIPTION_CHARS = 4000  # sent to the model
 MAX_OUTPUT_TOKENS = 2048
@@ -97,6 +115,7 @@ CONSULTANCIES = [
     "BairesDev", "Globant", "Stefanini", "AgileEngine", "Truelogic", "Softgic", "Endava",
     "EPAM Systems", "Accenture", "Encora", "Wizeline", "Nearsure", "Distillery", "Hexacta",
 ]  # fmt: skip
+BLOCKED = ["Bluelight Consulting"]  # floods every board with postings (plan §21)
 LOCATION_ALLOW = [
     "argentina", "buenos aires", "latin america", "latam", "south america", "americas",
     "brazil", "worldwide", "anywhere", "global",
@@ -106,21 +125,30 @@ AI_TITLE = re.compile(
     re.IGNORECASE,
 )
 
+# What a board job needs to be stored (plan §21): an engineering title, and a location the rules
+# allow (or none, or a bare "Remote"). LATAM_SIGNAL is wider: it decides whether a company from a
+# directory is worth watching at all.
+ENGINEERING_TITLE = re.compile(
+    r"engineer|developer|software|full.?stack|back.?end|front.?end|programmer|programador"
+    r"|desarrollador|ingenier|\bswe\b|\bsde\b",
+    re.IGNORECASE,
+)
+BARE_REMOTE = re.compile(r"^\W*(fully\s+)?(remote|remoto|distributed)\W*$", re.IGNORECASE)
+LATAM_SIGNAL = re.compile(
+    r"argentin|buenos aires|latam|latin america|latinoam|south america|sudam|\bamericas\b"
+    r"|bra[sz]il|s[aã]o paulo|m[eé]xico|cdmx|colombia|bogot|\bchile\b|uruguay|montevideo"
+    r"|\bper[uú]\b|costa rica|worldwide|anywhere|\bglobal",
+    re.IGNORECASE,
+)
+GETONBRD_CATEGORIES = (
+    "programming", "machine-learning-ai", "mobile-developer", "sysadmin-devops-qa",
+    "data-science-analytics", "cybersecurity", "design-ux", "innovation-agile", "other",
+)  # fmt: skip
+
+# JSearch isn't here any more (plan §21): its results were mostly reposts and spam.
 DEFAULT_SEARCHES: list[tuple[str, str, dict]] = [
-    ("jsearch", "AR · senior full stack", {"query": "senior full stack engineer", "country": "ar"}),
-    ("jsearch", "AR · senior backend", {"query": "senior backend engineer", "country": "ar"}),
-    ("jsearch", "AR · fintech", {"query": "software engineer fintech", "country": "ar"}),
-    ("jsearch", "AR · AI engineer", {"query": "ai engineer", "country": "ar"}),
-    (
-        "jsearch",
-        "US remote · LATAM",
-        {"query": "software engineer latam", "country": "us", "work_from_home": True},
-    ),
-    (
-        "jsearch",
-        "US remote · forward deployed",
-        {"query": "forward deployed engineer", "country": "us", "work_from_home": True},
-    ),
+    ("getonbrd", "getonbrd · programming", {"category": "programming"}),
+    ("getonbrd", "getonbrd · AI", {"category": "machine-learning-ai"}),
     *(
         ("remoteyeah", f"remoteyeah · {name}", {"feed": f"https://remoteyeah.com/{slug}.xml"})
         for name, slug in [
@@ -156,6 +184,7 @@ class Rules:
     agencies: list[str] = field(default_factory=lambda: list(AGENCIES))
     consultancies: list[str] = field(default_factory=lambda: list(CONSULTANCIES))
     location_allow: list[str] = field(default_factory=lambda: list(LOCATION_ALLOW))
+    blocked: list[str] = field(default_factory=lambda: list(BLOCKED))
     max_age_days: int = 21
     salary_floor_usd: int | None = None  # yearly; None = no salary filter
     jsearch_monthly_cap: int = 190
@@ -169,6 +198,7 @@ class Rules:
         r.agencies = _str_list(d.get("agencies"), r.agencies)
         r.consultancies = _str_list(d.get("consultancies"), r.consultancies)
         r.location_allow = _str_list(d.get("location_allow"), r.location_allow)
+        r.blocked = _str_list(d.get("blocked"), r.blocked)
         r.max_age_days = _int_or(d.get("max_age_days"), r.max_age_days, 1, 365) or r.max_age_days
         r.salary_floor_usd = _int_or(d.get("salary_floor_usd"), None, 0, 10_000_000) or None
         r.jsearch_monthly_cap = _int_or(d.get("jsearch_monthly_cap"), r.jsearch_monthly_cap, 0, 100_000)  # fmt: skip
@@ -181,6 +211,7 @@ class Rules:
             "agencies": self.agencies,
             "consultancies": self.consultancies,
             "location_allow": self.location_allow,
+            "blocked": self.blocked,
             "max_age_days": self.max_age_days,
             "salary_floor_usd": self.salary_floor_usd,
             "jsearch_monthly_cap": self.jsearch_monthly_cap,
@@ -258,7 +289,7 @@ def in_company_list(company_normalized: str, names: list[str]) -> bool:
 
 
 def location_allowed(location: str | None, allow: list[str]) -> bool:
-    """remoteyeah lists the places a job hires in. Empty → unknown → allowed."""
+    """The source says where the job hires. Empty → unknown → allowed."""
     if not location or not location.strip():
         return True
     low = location.lower()
@@ -276,6 +307,8 @@ def yearly_salary(posting: JobPosting) -> int | None:
 
 def rule_drop(p: JobPosting, rules: Rules, now: datetime) -> str | None:
     """Why the cheap filter hides this posting, or None to send it to the LLM."""
+    if in_company_list(p.company_normalized, rules.blocked):
+        return "blocked"
     if in_company_list(p.company_normalized, rules.agencies):
         return "agency"
     if in_company_list(p.company_normalized, rules.consultancies):
@@ -285,13 +318,25 @@ def rule_drop(p: JobPosting, rules: Rules, now: datetime) -> str | None:
     # Stack words don't drop AI roles: the user tailors the CV for those, the LLM decides.
     if not AI_TITLE.search(p.title) and (hit := title_hit(p.title, rules.title_exclude)):
         return f"title: {hit}"
-    if p.source == "remoteyeah" and not location_allowed(p.location, rules.location_allow):
+    # JSearch's location is where the listing was posted, not where it hires: the LLM reads it.
+    if p.source != "jsearch" and not location_allowed(p.location, rules.location_allow):
         return "location"
-    if p.posted_at and now - p.posted_at > timedelta(days=rules.max_age_days):
+    # A job still listed on a company's board is open, however long ago it was published.
+    if p.source not in ATS and p.posted_at and now - p.posted_at > timedelta(days=rules.max_age_days):  # fmt: skip
         return "old"
     if rules.salary_floor_usd and (yearly := yearly_salary(p)) and yearly < rules.salary_floor_usd:
         return "salary"
     return None
+
+
+def board_keep(p: JobPosting, rules: Rules) -> bool:
+    """Whether a job from a company board is stored at all (plan §21). Boards list every opening
+    (sales in New York, support in Manila); only engineering roles that might hire in an allowed
+    place are worth keeping, hidden or not."""
+    if not ENGINEERING_TITLE.search(p.title):
+        return False
+    location = p.location or ""
+    return bool(BARE_REMOTE.match(location)) or location_allowed(location, rules.location_allow)
 
 
 def is_duplicate(p: JobPosting, recent: list[tuple[str, str]]) -> bool:
@@ -625,6 +670,7 @@ def run_discovery(
     llm: LLMClient | None,
     clock: Clock,
     *,
+    boards: BoardSource | None = None,
     trigger: str = "cli",
     only_source: str | None = None,
     dry_run: bool = False,
@@ -632,8 +678,10 @@ def run_discovery(
     score_limit: int = RUN_SCORE_LIMIT,
     on_progress: ProgressFn | None = None,
 ) -> RunResult:
-    """Collect every enabled search, store what's new (hidden ones too, with the reason), then
-    score the postings that passed the rules and have no verdict yet. A dry run stores no
+    """Collect every enabled search and every watched company's board, store what's new (hidden
+    ones too, with the reason), then score the postings that passed the rules and have no verdict
+    yet (`llm=None` only collects). `only_source` is a source name, or "boards" for all three
+    ATSs. A dry run stores no
     postings and calls no LLM, but its run row is kept: the JSearch requests it used still count
     towards the month."""
     now = clock.now()
@@ -652,8 +700,40 @@ def run_discovery(
         for x in repo.list_searches()
         if x.enabled and (not only_source or x.source == only_source)
     ]
-    progress = Progress("run", now, phase_started_at=now, searches_total=len(searches))
+    companies = [
+        c
+        for c in (repo.list_watched() if boards is not None else [])
+        if c.enabled and only_source in (None, "boards", c.ats)
+    ]
+    progress = Progress(
+        "run", now, phase_started_at=now, searches_total=len(searches) + len(companies)
+    )
     _report(progress, on_progress)
+
+    def store(p: JobPosting, search_id) -> None:
+        run.fetched += 1
+        key = (p.source, p.source_id)
+        if key in seen or repo.posting_exists(*key):
+            return
+        seen.add(key)
+        prepare(p, now)
+        p.search_id = search_id
+        p.drop_reason = rule_drop(p, rules, now) or (
+            "duplicate" if is_duplicate(p, recent) else None
+        )
+        recent.append((p.company_normalized, p.title))
+        run.new += 1
+        run.dropped += p.drop_reason is not None
+        new.append(p)
+        if not dry_run:
+            with repo.transaction():
+                repo.add_posting(p)
+
+    def tick() -> None:
+        progress.searches_done += 1
+        progress.fetched, progress.new = run.fetched, run.new
+        progress.hidden, progress.errors = run.dropped, run.errors
+        _report(progress, on_progress)
 
     for search in searches:
         progress.current = search.label
@@ -680,28 +760,41 @@ def run_discovery(
                 used += result.requests
                 run.jsearch_requests += result.requests
             for p in result.postings:
-                run.fetched += 1
-                key = (p.source, p.source_id)
-                if key in seen or repo.posting_exists(*key):
-                    continue
-                seen.add(key)
-                prepare(p, now)
-                p.search_id = search.id
-                p.drop_reason = rule_drop(p, rules, now) or (
-                    "duplicate" if is_duplicate(p, recent) else None
-                )
-                recent.append((p.company_normalized, p.title))
-                run.new += 1
-                run.dropped += p.drop_reason is not None
-                new.append(p)
-                if not dry_run:
-                    with repo.transaction():
-                        repo.add_posting(p)
+                store(p, search.id)
         finally:
-            progress.searches_done += 1
-            progress.fetched, progress.new = run.fetched, run.new
-            progress.hidden, progress.errors = run.dropped, run.errors
-            _report(progress, on_progress)
+            tick()
+
+    if companies and boards is not None:
+        failed: list[str] = []
+        gone = 0
+        for company, postings, err in _fetch_boards(boards, companies):
+            progress.current = company.name
+            company.last_checked_at = clock.now()
+            if err is None:
+                kept = [p for p in postings if board_keep(p, rules)]
+                company.last_status = "ok"
+                company.jobs_total, company.jobs_kept = len(postings), len(kept)
+                for p in kept:
+                    store(p, None)
+            elif err.gone:
+                gone += 1
+                company.last_status, company.enabled = "gone", False
+            else:
+                run.errors += 1
+                failed.append(company.name)
+                company.last_status = str(err)[:200]
+                log.warning("discovery board failed: %s/%s: %s", company.ats, company.slug, err)
+            if not dry_run:
+                with repo.transaction():
+                    repo.save_watched(company)
+            tick()
+        note = f"boards: {len(companies)} checked"
+        if gone:
+            note += f", {gone} gone (now off)"
+        if failed:
+            more = f" and {len(failed) - 5} more" if len(failed) > 5 else ""
+            note += f", {len(failed)} failed ({', '.join(failed[:5])}{more})"
+        run.notes.append(note)
     progress.current = None
 
     if not dry_run:
@@ -721,6 +814,21 @@ def run_discovery(
     progress.phase, progress.finished_at = "done", run.finished_at
     _report(progress, on_progress)
     return RunResult(run, new)
+
+
+def _fetch_boards(boards: BoardSource, companies: list[WatchedCompany]):
+    """Fetch the boards a few at a time; yields (company, postings, error) as each one answers.
+    Only the HTTP calls run in threads: the caller touches the database from its own thread."""
+    pool = ThreadPoolExecutor(max_workers=BOARD_WORKERS)
+    try:
+        futures = {pool.submit(boards.fetch_board, c.ats, c.slug, c.name): c for c in companies}
+        for future in as_completed(futures):
+            try:
+                yield futures[future], future.result(), None
+            except SourceError as err:
+                yield futures[future], [], err
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def score_pending(
@@ -907,11 +1015,104 @@ def facets(rows: list[JobPosting], query: PostingQuery) -> dict:
 # Page actions
 
 
-def seed(repo: DiscoveryRepo, clock: Clock) -> dict[str, int]:
-    """Write the default criteria, rules and searches, keeping whatever already exists."""
+_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
+
+
+def import_companies(repo: DiscoveryRepo, rows: list[dict], clock: Clock) -> int:
+    """Add companies (dicts with ats, slug, name and maybe note) to the watchlist, skipping the
+    boards already on it and rows that aren't a known ATS and a plain slug. Returns how many
+    were added."""
+    have = {(c.ats, c.slug.lower()) for c in repo.list_watched()}
+    added = 0
+    with repo.transaction():
+        for row in rows:
+            ats, slug = (
+                str(row.get("ats") or "").strip().lower(),
+                str(row.get("slug") or "").strip(),
+            )
+            if ats not in ATS or not _SLUG.fullmatch(slug) or (ats, slug.lower()) in have:
+                continue
+            have.add((ats, slug.lower()))
+            name = " ".join(str(row.get("name") or "").split())[:200] or slug
+            note = str(row.get("note") or "").strip()[:200] or None
+            repo.save_watched(
+                WatchedCompany(ats=ats, slug=slug, name=name, note=note, created_at=clock.now())
+            )
+            added += 1
+    return added
+
+
+def latam_signal(postings: list[JobPosting]) -> str | None:
+    """The first Latin America (or worldwide) hint among a board's engineering jobs, lowercased:
+    the reason a company from a directory gets watched."""
+    for p in postings:
+        if not ENGINEERING_TITLE.search(p.title):
+            continue
+        if m := LATAM_SIGNAL.search(p.location or "") or LATAM_SIGNAL.search(p.title):
+            return m.group(0).lower()
+    return None
+
+
+def scan_directory(
+    repo: DiscoveryRepo,
+    boards: BoardSource,
+    rows: list[dict],
+    clock: Clock,
+    on_board: Callable[[int, int, int], None] | None = None,
+) -> dict[str, int]:
+    """Check every board in a directory (dicts with ats, slug, name) that isn't watched yet and
+    add the ones with an engineering role in Latin America or worldwide. Stores no postings: the
+    next run collects them. `on_board(done, total, added)` reports progress."""
+    have = {(c.ats, c.slug.lower()) for c in repo.list_watched()}
+    todo = [
+        WatchedCompany(
+            ats=str(r.get("ats")), slug=str(r.get("slug")), name=str(r.get("name") or "")
+        )
+        for r in rows
+        if r.get("ats") in ATS
+        and _SLUG.fullmatch(str(r.get("slug") or ""))
+        and (r.get("ats"), str(r.get("slug")).lower()) not in have
+    ]
+    out = {"checked": 0, "added": 0, "gone": 0, "failed": 0}
+    for company, postings, err in _fetch_boards(boards, todo):
+        out["checked"] += 1
+        if err is not None:
+            out["gone" if err.gone else "failed"] += 1
+        elif signal := latam_signal(postings):
+            out["added"] += import_companies(
+                repo,
+                [{"ats": company.ats, "slug": company.slug, "name": company.name,
+                  "note": f"directory scan: {signal}"}],
+                clock,
+            )  # fmt: skip
+        if on_board is not None:
+            on_board(out["checked"], len(todo), out["added"])
+    return out
+
+
+def block_company(repo: DiscoveryRepo, company: str) -> int:
+    """'Hide company' on a card: put it on the block list and hide its stored postings. Returns
+    how many postings that hid."""
+    name = " ".join(company.split())[:200]
+    normalized = normalize_company(name)
+    if not normalized:
+        raise ValueError("a company name is needed")
+    _, rules = load_settings(repo)
+    with repo.transaction():
+        if not in_company_list(normalized, rules.blocked):
+            rules.blocked.append(name)
+            repo.set_discovery_setting("rules", rules.to_dict())
+        return repo.hide_company_postings(normalized, "blocked")
+
+
+def seed(repo: DiscoveryRepo, clock: Clock, companies: list[dict] | None = None) -> dict[str, int]:
+    """Write the default criteria, rules and searches, and the starting company watchlist when
+    one is given, keeping whatever already exists."""
     from jobtracker.core.models import DiscoverySearch
 
-    added = {"criteria": 0, "rules": 0, "searches": 0}
+    added = {"criteria": 0, "rules": 0, "searches": 0, "companies": 0}
+    if companies:
+        added["companies"] = import_companies(repo, companies, clock)
     with repo.transaction():
         if repo.get_discovery_setting("criteria") is None:
             repo.set_discovery_setting("criteria", DEFAULT_CRITERIA)
@@ -981,6 +1182,11 @@ def clean_search_params(source: str, params: dict) -> dict:
                 and parts.path.endswith(".xml")):  # fmt: skip
             raise ValueError("feed must be an https://remoteyeah.com/….xml URL")
         return {"feed": feed}
+    if source == "getonbrd":
+        category = params.get("category")
+        if category not in GETONBRD_CATEGORIES:
+            raise ValueError(f"category is one of {', '.join(GETONBRD_CATEGORIES)}")
+        return {"category": category}
     if source != "jsearch":
         raise ValueError(f"unknown source {source!r}")
     out: dict = {}

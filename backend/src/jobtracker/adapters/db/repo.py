@@ -36,6 +36,7 @@ from jobtracker.core.models import (
     Stage,
     StepKind,
     StepLink,
+    WatchedCompany,
 )
 from jobtracker.core.ports import SyncState, ThreadMatch
 from jobtracker.settings import Settings
@@ -84,6 +85,10 @@ POSTING_COLUMNS = [
 RUN_COLUMNS = [
     "id", "started_at", "finished_at", "trigger", "jsearch_requests", "fetched", "new", "dropped",
     "llm_calls", "errors", "notes",
+]  # fmt: skip
+COMPANY_COLUMNS = [
+    "id", "ats", "slug", "name", "enabled", "note", "created_at", "last_checked_at",
+    "last_status", "jobs_total", "jobs_kept",
 ]  # fmt: skip
 STEP_COLUMNS = [
     "id", "application_id", "position", "name", "kind", "optional", "link", "interview_id",
@@ -900,3 +905,23 @@ class PostgresRepo:
             (since,),
         )
         return int(r["n"]) if r else 0
+
+    # company watchlist (plan §21)
+    def list_watched(self) -> list[WatchedCompany]:
+        rows = self._all("SELECT * FROM discovery_companies ORDER BY name, ats, slug")
+        return [WatchedCompany(**{c: r[c] for c in COMPANY_COLUMNS}) for r in rows]
+
+    def save_watched(self, company: WatchedCompany) -> None:
+        row = {c: getattr(company, c) for c in COMPANY_COLUMNS}
+        row["created_at"] = company.created_at or _now()
+        sets = ", ".join(f"{c} = EXCLUDED.{c}" for c in row if c not in {"id", "created_at"})
+        self.conn.execute(
+            f"{_insert('discovery_companies', row)} ON CONFLICT (id) DO UPDATE SET {sets}", row
+        )
+
+    def hide_company_postings(self, company_normalized: str, reason: str) -> int:
+        return self.conn.execute(
+            "UPDATE job_postings SET drop_reason = %s, updated_at = %s"
+            " WHERE company_normalized = %s AND drop_reason IS NULL",
+            (reason, _now(), company_normalized),
+        ).rowcount

@@ -1,6 +1,6 @@
 # Handoff: job discovery page
 
-Updated 2026-11-14. The design and its history are in `docs/plan.md` §20. Read that first; this file covers only what's done, what's next, and the traps.
+Updated 2026-11-14. The design and its history are in `docs/plan.md` §20 and §21. Read those first; this file covers only what's done, what's next, and the traps.
 
 ## Status
 
@@ -25,15 +25,39 @@ Committed and pushed; reviewed by the user. They asked for it before tuning the 
 - Runs and re-scores show live progress on the page (steps, bars, time left) from `GET /api/discover/progress`.
 - The user re-scored the 62 visible postings with the new prompt. The 177 rule-hidden ones have never been scored, so the new filters can't see them. "Re-score recent" in the Criteria & searches panel, with "hidden ones too" ticked, covers them for about $0.12. **The user presses that button**; Claude doesn't run it.
 
-## Next: new sources (the user's next request, in a new session)
+## New sources, round 1 (2026-11-14, built and committed; the user hasn't loaded the watchlist or run it yet)
 
-This is phase (c) in `docs/plan.md` §20: more boards, LinkedIn job-alert emails, and public Greenhouse/Lever/Ashby boards for a fintech watchlist. Sources are adapters behind `JobSource.fetch(params) -> FetchResult` (see `adapters/jsearch.py`, `adapters/remoteyeah.py`). Each new source needs:
-- its name in `discovery.SOURCES` and `clean_search_params`;
-- the `SearchIn.source` pattern in `api/schemas.py`;
-- an entry in `default_discovery()` (`api/app.py`) and in the CLI;
-- the page's source select (`Filters` and `Searches` in `Discover.tsx`).
+The design, the measurements and rounds 2–5 are in `docs/plan.md` §21. Read that first. The user also asked (2026-11-14) for the criteria, rules, searches and watchlist to move out of the side sheet into a proper page: that is round 6 there.
 
-Ask before any call that reads the real inbox or spends paid requests.
+What exists now:
+- **Company watchlist**: table `discovery_companies` (migration `0013`), read by every run through `adapters/ats_boards.py` (Ashby, Greenhouse, Lever public JSON). Only engineering titles in an allowed location (or no location, or a bare "Remote") are stored: `discovery.board_keep`.
+- **getonbrd**: `adapters/getonbrd.py`, saved searches by category.
+- **Block list**: `rules.blocked` (default Bluelight Consulting), "Hide company" on a card, `POST /api/discover/block`.
+- **JSearch is off**: migration `0013` disables the saved JSearch searches when it is applied (`docker compose up` runs it). The adapter, the cap and the key are still there; removing them is round 5.
+- **Collect only**: a button on the page, `score: false` on `POST /api/discover/run`, `--no-llm` on the CLI.
+- **CLI**: `jobtracker discover companies list|add|import|scan`, and `discover run --source boards`.
+- The starting watchlist (454 companies) ships in `backend/src/jobtracker/adapters/seeds/ats_watchlist.csv`; the full directory it came from is `backend/seeds/ats_directory_2026-08.csv` (CC BY 4.0, see `backend/seeds/README.md`).
+
+What the user has to do (Claude doesn't touch the real database):
+1. `docker compose up --build`, which applies migration `0013`.
+2. On the page: Criteria & searches → Company boards → **Load the starting watchlist** (or `uv run jobtracker discover seed` from `backend/`). It also adds the two getonbrd searches.
+3. **Collect only**. The first run reads ~460 boards and stores a few thousand postings, all unscored. See "First real numbers" below.
+
+First real numbers (2026-11-14, a collect-only run into an in-memory repo: no database, no LLM):
+- 131 seconds for 8 searches and 454 boards, 0 errors, no board gone.
+- 1,831 postings stored: Greenhouse 644, Ashby 376, getonbrd 347, Lever 258, remoteyeah 206.
+- 898 hidden by the rules: location 447, title 256, duplicate 79, old 57, consultancy 36, agency 20, blocked 3.
+- **933 visible, at 304 companies**: Greenhouse 425, Ashby 278, Lever 183, remoteyeah 37, getonbrd 10. Descriptions average 4,800 characters.
+- Much of the visible set is Brazil-only (Nubank, VTEX, BTG Pactual, CI&T) or "worldwide" at one company (Canonical, ~80 roles). That is the first thing for round 2 to cut before any LLM call.
+- getonbrd: only 10 of 347 visible. Most are hybrid or on-site in Chile, or "remote inside the country" with no country given; check that the rule isn't too strict there.
+
+Traps:
+- `PostgresRepo.list_companies` already existed for the email pipeline's company hints. The watchlist methods are `list_watched` / `save_watched`.
+- "Run now" still scores at most 150 new postings a run (`RUN_SCORE_LIMIT`), oldest first, so after a big collection it would work through the backlog 150 at a time. Scoring this volume is round 2; don't raise the limit before that.
+- The location rule now applies to every source but JSearch, and the 21-day rule doesn't apply to board postings.
+- A board that answers 404 is switched off (`last_status = "gone"`); other errors leave it on.
+- `create_app(discovery_factory=…)` in tests gets no real boards and no seed watchlist unless `boards_factory` is passed.
+- Postings that leave a board aren't marked closed yet (round 4).
 
 ## Later: tune the criteria
 
@@ -84,7 +108,7 @@ Feedback from 2026-11-14, not acted on yet:
 - **`job_uid` stability** across days hasn't been checked. After the second daily run, look for the same company and title stored twice from JSearch with different `source_id`s. The title + company duplicate check should catch that case anyway.
 - Re-scoring ("Run and re-score recent") also runs the searches, so it spends JSearch requests. A score-only button would be cheap to add (`reset_scores` + `score_pending`).
 - Runs are synchronous on the page, about 2.5 minutes. That's fine locally; in prod it would go through the Lambda (phase b).
-- More sources (phase c in §20): other boards, LinkedIn job-alert emails, public Greenhouse/Lever/Ashby boards for a fintech watchlist. Add a browser scraper only for a site that really needs one.
+- More sources: see `docs/plan.md` §21, rounds 3–5. LinkedIn job-alert emails are still an idea from §20.
 
 ## Rules that apply (CLAUDE.md and memory)
 

@@ -339,7 +339,7 @@ class JobPosting:
     """An open position collected from a job source. Everything in it comes from the web, so it's
     untrusted text: shown as text, given to the LLM as data, never followed or executed."""
 
-    source: str  # "jsearch" | "remoteyeah"
+    source: str  # "jsearch" | "remoteyeah" | "getonbrd" | "ashby" | "greenhouse" | "lever"
     source_id: str
     url: str
     title: str
@@ -414,6 +414,23 @@ class DiscoverySearch:
     id: uuid.UUID = field(default_factory=new_id)
     enabled: bool = True
     created_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class WatchedCompany:
+    """A company whose public ATS job board a discovery run reads (plan §21)."""
+
+    ats: str  # "ashby" | "greenhouse" | "lever"
+    slug: str  # the board's name in the ATS URL
+    name: str
+    id: uuid.UUID = field(default_factory=new_id)
+    enabled: bool = True
+    note: str | None = None  # how it got on the list
+    created_at: datetime | None = None
+    last_checked_at: datetime | None = None
+    last_status: str | None = None  # "ok" | "gone" | the error
+    jobs_total: int | None = None  # on the board at the last check
+    jobs_kept: int | None = None  # of those, engineering roles in an allowed location
 
 
 @dataclass(slots=True)

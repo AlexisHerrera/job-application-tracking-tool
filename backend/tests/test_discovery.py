@@ -358,11 +358,17 @@ def test_rescore(drepo):
 def test_seed_is_idempotent():
     repo = MemoryRepo()
     first = discovery.seed(repo, FixedClock(NOW))
-    assert first == {"criteria": 1, "rules": 1, "searches": len(discovery.DEFAULT_SEARCHES)}
+    assert first == {
+        "criteria": 1, "rules": 1, "searches": len(discovery.DEFAULT_SEARCHES), "companies": 0,
+    }  # fmt: skip
     repo.set_discovery_setting("criteria", "mine")
-    assert discovery.seed(repo, FixedClock(NOW)) == {"criteria": 0, "rules": 0, "searches": 0}
+    boards = [{"ats": "ashby", "slug": "Silver", "name": "Silver.dev"}]
+    again = discovery.seed(repo, FixedClock(NOW), boards)
+    assert again == {"criteria": 0, "rules": 0, "searches": 0, "companies": 1}
+    assert discovery.seed(repo, FixedClock(NOW), boards)["companies"] == 0
     assert repo.get_discovery_setting("criteria") == "mine"
-    assert sum(x.source == "jsearch" for x in repo.list_searches()) == 6
+    # JSearch is off by default (plan §21)
+    assert {x.source for x in repo.list_searches()} == {"getonbrd", "remoteyeah"}
 
 
 def test_search_params_validation():

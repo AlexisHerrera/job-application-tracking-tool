@@ -36,6 +36,7 @@ from jobtracker.core.matching import normalize_company
 from jobtracker.core.models import Campaign, DiscoverySearch, InterviewNote, Origin, PostingQuery
 from jobtracker.core.pipeline import Pipeline, PipelineConfig, run_incremental
 from jobtracker.core.ports import (
+    BoardSource,
     CalendarAuthError,
     CalendarSource,
     JobSource,
@@ -76,6 +77,7 @@ def create_app(
     calendar_factory: Callable[[PostgresRepo], CalendarSource | None] | None = None,
     remote_scan: Callable[[], dict] | None = None,
     discovery_factory: Callable[[], tuple[dict[str, JobSource], LLMClient | None]] | None = None,
+    boards_factory: Callable[[], BoardSource] | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     verifier = TokenVerifier(settings)
@@ -132,10 +134,14 @@ def create_app(
 
     def default_discovery() -> tuple[dict[str, JobSource], LLMClient | None]:
         from jobtracker.adapters.anthropic_llm import AnthropicLLM
+        from jobtracker.adapters.getonbrd import GetOnBoardSource
         from jobtracker.adapters.jsearch import JSearchSource
         from jobtracker.adapters.remoteyeah import RemoteYeahSource
 
-        sources: dict[str, JobSource] = {"remoteyeah": RemoteYeahSource()}
+        sources: dict[str, JobSource] = {
+            "remoteyeah": RemoteYeahSource(),
+            "getonbrd": GetOnBoardSource(),
+        }
         if settings.jsearch_api_key:
             sources["jsearch"] = JSearchSource(settings.jsearch_api_key, clock=clock)
         llm = (
@@ -149,6 +155,20 @@ def create_app(
     make_discovery = discovery_factory or (
         default_discovery if settings.app_env == "local" else None
     )
+
+    def default_boards() -> BoardSource:
+        from jobtracker.adapters.ats_boards import AtsBoards
+
+        return AtsBoards()
+
+    def default_watchlist() -> list[dict]:
+        from jobtracker.adapters import seeds
+
+        return seeds.watchlist()
+
+    # A test that passes its own discovery sources gets no real boards and no seed watchlist.
+    make_boards = boards_factory or (default_boards if discovery_factory is None else None)
+    seed_watchlist = default_watchlist if discovery_factory is None else (lambda: [])
 
     def get_repo() -> Iterator[PostgresRepo]:
         repo = make_repo()
@@ -858,6 +878,7 @@ def create_app(
             "criteria": criteria,
             "rules": rules.to_dict(),
             "searches": [s.search_json(x) for x in repo.list_searches()],
+            "companies": s.companies_json(repo.list_watched()),
             "last_run": s.run_json(repo.last_run()),
             "jsearch_used_this_month": repo.jsearch_requests_since(
                 discovery.month_start(clock.now())
@@ -884,8 +905,17 @@ def create_app(
 
     @api.post("/discover/seed")
     def seed_discovery(repo: PostgresRepo = Depends(get_repo)):
-        added = discovery.seed(repo, clock)
+        added = discovery.seed(repo, clock, seed_watchlist())
         return {**discovery_state(repo), "added": added}
+
+    @api.post("/discover/block")
+    def block_company(body: s.BlockCompanyIn, repo: PostgresRepo = Depends(get_repo)):
+        """'Hide company': add it to the block list and hide its stored postings."""
+        try:
+            hidden = discovery.block_company(repo, body.company)
+        except ValueError as err:
+            raise services.InvalidInput(str(err)) from err
+        return {**discovery_state(repo), "hidden": hidden}
 
     def _clean_params(source: str, params: dict) -> dict:
         try:
@@ -950,7 +980,8 @@ def create_app(
 
     @api.post("/discover/run")
     def run_discovery(body: s.DiscoverRunIn, repo: PostgresRepo = Depends(get_repo)):
-        """Collect now: JSearch requests (free quota) and paid LLM calls for new postings."""
+        """Collect now: the saved searches and the watched companies' boards (free), then paid
+        LLM calls for new postings unless `score` is false."""
         if make_discovery is None:
             raise HTTPException(501, "Discovery runs on its schedule here")
         if not repo.try_discovery_lock():
@@ -958,7 +989,14 @@ def create_app(
         sources, llm = make_discovery()
         try:
             result = discovery.run_discovery(
-                repo, sources, llm, clock, trigger="page", rescore=body.rescore, on_progress=report
+                repo,
+                sources,
+                llm if body.score else None,
+                clock,
+                boards=make_boards() if make_boards else None,
+                trigger="page",
+                rescore=body.rescore and body.score,
+                on_progress=report,
             )
         finally:
             finish_progress()

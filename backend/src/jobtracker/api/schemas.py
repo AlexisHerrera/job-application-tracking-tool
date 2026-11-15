@@ -21,6 +21,7 @@ from jobtracker.core.models import (
     Stage,
     StepKind,
     StepLink,
+    WatchedCompany,
 )
 from jobtracker.core.process import Node
 from jobtracker.core.services import ApplicationInput
@@ -404,6 +405,22 @@ def search_json(x: DiscoverySearch) -> dict:
     }
 
 
+def companies_json(rows: list[WatchedCompany]) -> dict:
+    """The watchlist in numbers: the page shows a summary, the CLI lists the companies."""
+    on = [c for c in rows if c.enabled]
+    checked = [c.last_checked_at for c in rows if c.last_checked_at]
+    return {
+        "total": len(rows),
+        "enabled": len(on),
+        "by_ats": {
+            ats: sum(1 for c in on if c.ats == ats) for ats in ("ashby", "greenhouse", "lever")
+        },
+        "with_jobs": sum(1 for c in on if c.jobs_kept),
+        "jobs_kept": sum(c.jobs_kept or 0 for c in on),
+        "last_checked_at": _iso(max(checked)) if checked else None,
+    }
+
+
 def run_json(r: DiscoveryRun | None) -> dict | None:
     if r is None:
         return None
@@ -459,7 +476,7 @@ class DiscoverySettingsIn(BaseModel):
 
 
 class SearchIn(BaseModel):
-    source: str = Field(pattern="^(jsearch|remoteyeah)$")
+    source: str = Field(pattern="^(jsearch|remoteyeah|getonbrd)$")
     label: str = Field(min_length=1, max_length=120)
     params: dict
     enabled: bool = True
@@ -473,6 +490,11 @@ class SearchPatch(BaseModel):
 
 class DiscoverRunIn(BaseModel):
     rescore: bool = False
+    score: bool = True  # false: collect only, no LLM calls (plan §21)
+
+
+class BlockCompanyIn(BaseModel):
+    company: str = Field(min_length=1, max_length=200)
 
 
 class DiscoverRescoreIn(BaseModel):

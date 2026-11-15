@@ -232,9 +232,11 @@ def test_discover_page_flow(repo):
     state = client.post("/api/discover/seed").json()
     assert state["added"]["searches"] == len(discovery.DEFAULT_SEARCHES)
     assert state["jsearch_configured"] and state["can_run"]
+    assert state["companies"]["total"] == 0  # a test app seeds no watchlist
     # only one search on, so the fake source answers once
-    for x in state["searches"][1:]:
+    for x in state["searches"]:
         assert client.patch(f"/api/discover/searches/{x['id']}", json={"enabled": False}).status_code == 200  # fmt: skip
+    mine = client.post("/api/discover/searches", json={"source": "jsearch", "label": "AR · fintech", "params": {"query": "fintech", "country": "ar"}}).json()  # fmt: skip
 
     run = client.post("/api/discover/run", json={}).json()
     assert (run["new"], run["dropped"], run["llm_calls"]) == (3, 1, 2)
@@ -245,7 +247,7 @@ def test_discover_page_flow(repo):
     page = client.get("/api/discover").json()
     assert [p["company"] for p in page["postings"]] == ["Northwind Pay", "Contoso"]  # by score
     assert page["counts"] == {"total": 3, "hidden": 1, "unscored": 0}
-    assert page["postings"][0]["search_label"] == state["searches"][0]["label"]
+    assert page["postings"][0]["search_label"] == mine["label"]
     hidden = client.get("/api/discover", params={"hidden": True}).json()["postings"]
     assert [(p["company"], p["drop_reason"]) for p in hidden] == [("Toptal", "agency")]
     assert [p["company"] for p in client.get("/api/discover", params={"verdict": "match"}).json()["postings"]] == ["Northwind Pay"]  # fmt: skip
@@ -302,3 +304,40 @@ def test_discover_run_is_local_only(repo):
     client = TestClient(create_app(settings, repo_factory=lambda: repo))
     assert client.get("/api/discover/settings").json()["can_run"] is True
     assert client.get("/api/discover/settings").json()["jsearch_configured"] is False
+
+
+def test_discover_boards_collect_only_and_hide_company(repo):
+    from jobtracker.core import discovery
+    from jobtracker.core.clock import SystemClock
+    from tests.fakes import FakeBoards, FakeLLM, posting
+
+    settings = Settings.from_env(
+        {"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com"}
+    )
+    discovery.import_companies(repo, [{"ats": "ashby", "slug": "mural", "name": "Mural"}], SystemClock())  # fmt: skip
+    boards = FakeBoards({
+        ("ashby", "mural"): [
+            posting(source="ashby", source_id="mural:1", company="Mural"),
+            posting(source="ashby", source_id="mural:2", company="Mural", title="Backend Engineer"),
+        ]
+    })  # fmt: skip
+    llm = FakeLLM()
+    client = TestClient(
+        create_app(settings, repo_factory=lambda: repo, discovery_factory=lambda: ({}, llm),
+                   boards_factory=lambda: boards)
+    )  # fmt: skip
+
+    run = client.post("/api/discover/run", json={"score": False}).json()
+    assert (run["new"], run["llm_calls"], llm.calls) == (2, 0, [])
+    state = client.get("/api/discover/settings").json()
+    assert state["companies"] == {
+        "total": 1, "enabled": 1, "by_ats": {"ashby": 1, "greenhouse": 0, "lever": 0},
+        "with_jobs": 1, "jobs_kept": 2, "last_checked_at": state["companies"]["last_checked_at"],
+    }  # fmt: skip
+    page = client.get("/api/discover", params={"source": "ashby"}).json()
+    assert page["counts"] == {"total": 2, "hidden": 0, "unscored": 2}
+
+    blocked = client.post("/api/discover/block", json={"company": "Mural"}).json()
+    assert blocked["hidden"] == 2 and "Mural" in blocked["rules"]["blocked"]
+    assert client.get("/api/discover").json()["postings"] == []
+    assert client.post("/api/discover/block", json={"company": "  "}).status_code == 422

@@ -26,6 +26,7 @@ from jobtracker.core.models import (
     PostingQuery,
     PostingStatus,
     ProcessStep,
+    WatchedCompany,
 )
 
 
@@ -237,13 +238,21 @@ class SourceError(Exception):
     """A job source failed (HTTP error, bad payload). The run notes it and goes on. `requests`
     is what the failed call still cost (JSearch bills some errors)."""
 
-    def __init__(self, message: str, requests: int = 0):
+    def __init__(self, message: str, requests: int = 0, gone: bool = False):
         super().__init__(message)
         self.requests = requests
+        self.gone = gone  # the board or feed doesn't exist any more
 
 
 class JobSource(Protocol):
     def fetch(self, params: dict) -> FetchResult: ...
+
+
+class BoardSource(Protocol):
+    def fetch_board(self, ats: str, slug: str, company: str) -> list[JobPosting]:
+        """Every job on a company's public ATS board. Raises SourceError; `gone` is set on it
+        when the board no longer exists."""
+        ...
 
 
 class DiscoveryRepo(Repository, Protocol):
@@ -285,3 +294,8 @@ class DiscoveryRepo(Repository, Protocol):
     def save_run(self, run: DiscoveryRun) -> None: ...
     def last_run(self) -> DiscoveryRun | None: ...
     def jsearch_requests_since(self, since: datetime) -> int: ...
+    def list_watched(self) -> list[WatchedCompany]: ...
+    def save_watched(self, company: WatchedCompany) -> None: ...
+    def hide_company_postings(self, company_normalized: str, reason: str) -> int:
+        """Set the drop reason on that company's visible postings; returns how many."""
+        ...

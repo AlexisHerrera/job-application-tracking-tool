@@ -245,7 +245,7 @@ def test_discovery_roundtrip(pg, clock):
     from datetime import timedelta
 
     from jobtracker.core import discovery
-    from jobtracker.core.models import DiscoveryRun, PostingStatus
+    from jobtracker.core.models import DiscoveryRun, DiscoverySearch, PostingStatus
     from tests.fakes import FakeSource, posting, verdict
 
     discovery.seed(pg, clock)
@@ -255,8 +255,9 @@ def test_discovery_roundtrip(pg, clock):
     assert discovery.load_settings(pg)[1].max_age_days == 7
 
     for x in pg.list_searches():
-        x.enabled = x.label == "AR · fintech"
+        x.enabled = False
         pg.save_search(x)
+    pg.save_search(DiscoverySearch(source="jsearch", label="AR · fintech", params={"query": "x"}))
     good = posting(source="jsearch", source_id="a1", company="Northwind Pay", salary_min=50000,
                    salary_max=60000, salary_period="YEAR", posted_at=clock.now())  # fmt: skip
     agency = posting(source="jsearch", source_id="a2", company="Turing")
@@ -357,3 +358,30 @@ def test_posting_search_sql_agrees_with_matches(pg, clock):
     assert len(pg.unscored_postings(10)) == 2  # visible + new
     assert len(pg.unscored_postings(10, any_status=True)) == 3
     assert len(pg.unscored_postings(10, include_hidden=True, any_status=True)) == 4  # no duplicate
+
+
+def test_watchlist_roundtrip(pg, clock):
+    from jobtracker.core import discovery
+    from tests.fakes import posting
+
+    rows = [
+        {"ats": "lever", "slug": "RyzLabs", "name": "RYZ Labs", "note": "by hand"},
+        {"ats": "ashby", "slug": "mural", "name": "Mural"},
+    ]
+    assert discovery.import_companies(pg, rows, clock) == 2
+    assert discovery.import_companies(pg, rows, clock) == 0
+    mural, ryz = pg.list_watched()  # by name
+    assert (ryz.ats, ryz.slug, ryz.note, ryz.enabled, ryz.jobs_kept) == ("lever", "RyzLabs", "by hand", True, None)  # fmt: skip
+    mural.last_checked_at, mural.last_status = clock.now(), "ok"
+    mural.jobs_total, mural.jobs_kept, mural.enabled = 40, 5, False
+    pg.save_watched(mural)
+    again = pg.list_watched()[0]
+    assert (again.id, again.jobs_total, again.jobs_kept, again.enabled) == (mural.id, 40, 5, False)
+    assert again.last_checked_at == clock.now() and again.created_at == mural.created_at
+
+    for i, company in enumerate(["Spam Co", "Spam Co", "Good Co"]):
+        pg.add_posting(discovery.prepare(posting(source_id=str(i), company=company), clock.now()))
+    assert discovery.block_company(pg, "Spam Co") == 2
+    assert discovery.block_company(pg, "Spam Co") == 0
+    assert {p.company: p.drop_reason for p in pg.list_postings()} == {"Spam Co": "blocked", "Good Co": None}  # fmt: skip
+    assert "Spam Co" in discovery.load_settings(pg)[1].blocked

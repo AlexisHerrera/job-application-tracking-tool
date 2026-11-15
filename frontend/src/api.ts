@@ -299,13 +299,15 @@ export class ApiError extends Error {
   }
 }
 
-// Job discovery (plan §20)
+// Job discovery (plan §20, §21)
+export type SearchSource = "jsearch" | "remoteyeah" | "getonbrd";
+export type PostingSource = SearchSource | "ashby" | "greenhouse" | "lever";
 export type Verdict = "match" | "maybe" | "no";
 export type PostingStatus = "new" | "interested" | "dismissed" | "applied";
 
 export interface Posting {
   id: string;
-  source: "jsearch" | "remoteyeah";
+  source: PostingSource;
   search_label: string | null;
   url: string;
   title: string;
@@ -384,6 +386,7 @@ export interface DiscoveryRules {
   agencies: string[];
   consultancies: string[];
   location_allow: string[];
+  blocked: string[];
   max_age_days: number;
   salary_floor_usd: number | null;
   jsearch_monthly_cap: number;
@@ -391,7 +394,7 @@ export interface DiscoveryRules {
 
 export interface DiscoverySearch {
   id: string;
-  source: "jsearch" | "remoteyeah";
+  source: SearchSource;
   label: string;
   params: Record<string, string | number | boolean>;
   enabled: boolean;
@@ -411,10 +414,21 @@ export interface DiscoveryRun {
   notes: string[];
 }
 
+/** The watchlist of company job boards (plan §21), in numbers. */
+export interface WatchlistSummary {
+  total: number;
+  enabled: number;
+  by_ats: { ashby: number; greenhouse: number; lever: number };
+  with_jobs: number;
+  jobs_kept: number;
+  last_checked_at: string | null;
+}
+
 export interface DiscoveryState {
   criteria: string;
   rules: DiscoveryRules;
   searches: DiscoverySearch[];
+  companies: WatchlistSummary;
   last_run: DiscoveryRun | null;
   jsearch_used_this_month: number;
   jsearch_configured: boolean;
@@ -536,12 +550,13 @@ export const api = {
   discoverySettings: () => request<DiscoveryState>("GET", "/discover/settings"),
   saveDiscoverySettings: (data: { criteria?: string; rules?: Partial<DiscoveryRules> }) =>
     request<DiscoveryState>("PUT", "/discover/settings", data),
-  seedDiscovery: () => request<DiscoveryState>("POST", "/discover/seed", {}),
+  seedDiscovery: () => request<DiscoveryState & { added: { searches: number; companies: number } }>("POST", "/discover/seed", {}),
+  blockCompany: (company: string) => request<DiscoveryState & { hidden: number }>("POST", "/discover/block", { company }),
   addSearch: (data: Omit<DiscoverySearch, "id">) => request<DiscoverySearch>("POST", "/discover/searches", data),
   updateSearch: (id: string, data: Partial<Omit<DiscoverySearch, "id" | "source">>) =>
     request<DiscoverySearch>("PATCH", `/discover/searches/${id}`, data),
   deleteSearch: (id: string) => request<void>("DELETE", `/discover/searches/${id}`),
-  runDiscovery: (rescore = false) => request<DiscoveryRun>("POST", "/discover/run", { rescore }),
+  runDiscovery: (score = true) => request<DiscoveryRun>("POST", "/discover/run", { score }),
   discoveryProgress: () => request<DiscoveryProgress>("GET", "/discover/progress"),
   /** Scores recent postings again (paid AI calls) without running the searches. */
   rescorePostings: (includeHidden = false) => request<DiscoveryRun>("POST", "/discover/rescore", { include_hidden: includeHidden }),

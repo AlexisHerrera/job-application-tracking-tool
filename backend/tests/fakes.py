@@ -55,6 +55,7 @@ class MemoryRepo:
         self.postings: dict[uuid.UUID, JobPosting] = {}
         self.searches: dict[uuid.UUID, DiscoverySearch] = {}
         self.discovery_settings: dict[str, object] = {}
+        self.watched: dict = {}
         self.runs: dict[uuid.UUID, DiscoveryRun] = {}
 
     @contextmanager
@@ -414,6 +415,47 @@ class MemoryRepo:
 
     def jsearch_requests_since(self, since):
         return sum(r.jsearch_requests for r in self.runs.values() if r.started_at >= since)
+
+    def list_watched(self):
+        rows = sorted(self.watched.values(), key=lambda c: (c.name, c.ats, c.slug))
+        return [copy.deepcopy(c) for c in rows]
+
+    def save_watched(self, company):
+        clash = [
+            c for c in self.watched.values()
+            if (c.ats, c.slug) == (company.ats, company.slug) and c.id != company.id
+        ]  # fmt: skip
+        assert not clash, "unique (ats, slug)"
+        company.created_at = company.created_at or datetime.now(UTC)
+        self.watched[company.id] = copy.deepcopy(company)
+
+    def hide_company_postings(self, company_normalized, reason):
+        n = 0
+        for p in self.postings.values():
+            if p.company_normalized == company_normalized and p.drop_reason is None:
+                p.drop_reason = reason
+                n += 1
+        return n
+
+
+class FakeBoards:
+    """Scripted company boards: `jobs` maps (ats, slug) to the postings on that board; a board
+    that isn't there is gone (404), and one in `broken` fails."""
+
+    def __init__(self, jobs=None, broken=()):
+        self.jobs = dict(jobs or {})
+        self.broken = set(broken)
+        self.calls: list[tuple[str, str]] = []
+
+    def fetch_board(self, ats, slug, company):
+        from jobtracker.core.ports import SourceError
+
+        self.calls.append((ats, slug))
+        if (ats, slug) in self.broken:
+            raise SourceError(f"{ats} HTTP 500")
+        if (ats, slug) not in self.jobs:
+            raise SourceError(f"{ats} board {slug} not found", gone=True)
+        return [copy.deepcopy(p) for p in self.jobs[(ats, slug)]]
 
 
 class FakeSource:
