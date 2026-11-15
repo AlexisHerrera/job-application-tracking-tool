@@ -11,7 +11,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 | 0 | Shared foundations (break import cycles) | helpers spread across pages | done |
 | 1 | Discover | `pages/Discover.tsx` (1,095 lines) | done |
 | 2 | Application detail | `ApplicationView.tsx` (457) + `InterviewNotes.tsx` (225) | done |
-| 3 | Process timeline | `ProcessTimeline.tsx` (393) | todo |
+| 3 | Process timeline | `ProcessTimeline.tsx` (393) | done |
 | 4 | Notes editor | `NotesEditor.tsx` (534) | todo |
 | 5 | Calendar | `pages/Calendar.tsx` (335) | todo |
 | 6 | Dashboard | `pages/Dashboard.tsx` (292) + `FlowChart` (288), `Insights` (127), `MiniCalendar` (77) | todo |
@@ -225,6 +225,10 @@ features/application/ApplicationView/ProcessTimeline/
   timeline.ts                 # KIND_LABEL, OUTCOME_ICON, OUTCOME_DOT, shortDay, reached,
                               # nodeKey, caption, stateText, parseSteps, attempt
 ```
+
+As built: as planned. `Dot` → `NodeDot`, `PlanRow` → `PlanStepRow`. The "what's next?" tail `<li>`
+stays inline in `ProcessTimeline` (it's eight lines). `ApplicationHeader` imports
+`./ProcessTimeline/ProcessTimeline`.
 
 ---
 

@@ -3,9 +3,9 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { fmtDate, type ApplicationDetail, type Stage } from "@/api";
-import { ProcessTimeline } from "@/ProcessTimeline";
 import { NeedsReviewBanner } from "./NeedsReviewBanner";
 import type { Patch } from "./patch";
+import { ProcessTimeline } from "./ProcessTimeline/ProcessTimeline";
 import { EditableText } from "./properties/EditableText";
 import { StagePicker } from "./StagePicker";
 
