@@ -5,7 +5,7 @@ import { Markdown } from "@tiptap/markdown";
 import { Placeholder } from "@tiptap/extensions";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import {
-  ArrowLeft, Bold, CalendarDays, Code, ExternalLink, Heading2, Italic, List, ListChecks, ListOrdered, Mail, Maximize2,
+  ArrowLeft, Bold, Code, ExternalLink, Heading2, Italic, List, ListChecks, ListOrdered, Maximize2,
   MessagesSquare, MoreHorizontal, PenLine, Plus, Quote, Star, Trash2, Video,
 } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -19,40 +19,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { api, errorText, fmtDate, relativeDay, type Interview, type InterviewDetail, type Note } from "./api";
-import { Field } from "./ApplicationView";
+import { Field } from "@/components/Field";
+import { TypePicker } from "@/features/interviews/TypePicker";
+import { SOURCE_ICON, interviewName, talkWith } from "@/lib/interviews";
 import { Loading } from "./components/common";
-import { interviewName, talkWith, TypePicker } from "./InterviewNotes";
 import { useRefresh } from "./lib/refresh";
 
 // The notes editor: a dialog over any page (?interview=<id>, ?note=<id>, ?note=new:<application id>)
 // and a page of its own (/interviews/:id, /notes/:id), like an application's sheet and page.
 // Notes are Markdown; every change autosaves.
-
-const SOURCE_ICON = { calendar: CalendarDays, email: Mail, manual: PenLine } as const;
-
-/** Opens the editor over the current page, keeping the rest of the URL (an open sheet, filters). */
-export function useOpenEditor() {
-  const [params, setParams] = useSearchParams();
-  return (kind: "interview" | "note", id: string) => {
-    const next = new URLSearchParams(params);
-    next.delete("interview");
-    next.delete("note");
-    next.set(kind, id);
-    setParams(next, { replace: true });
-  };
-}
-
-/** Plain text from a note's Markdown, for one-line previews. */
-export function plainText(md: string | null | undefined): string {
-  return (md ?? "")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?/gm, "")
-    .replace(/^>\s?/gm, "")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`~]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 // Saves still running, so whoever closes the editor can refresh after they land.
 const inflight = new Set<Promise<void>>();

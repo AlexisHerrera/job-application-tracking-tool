@@ -1,13 +1,12 @@
-import { CalendarDays, ChevronRight, Mail, MessagesSquare, NotebookPen, PenLine, Video } from "lucide-react";
+import { CalendarDays, ChevronRight, MessagesSquare, NotebookPen, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { SOURCE_ICON, interviewName, talkWith } from "@/lib/interviews";
+import { plainText } from "@/lib/notes";
+import { useOpenEditor } from "@/lib/useOpenEditor";
 import { api, fmtDate, label, relativeDay, type Interview } from "../api";
 import { Empty, Loading, PageHeader } from "../components/common";
-import { interviewName, talkWith } from "../InterviewNotes";
-import { plainText, useOpenEditor } from "../NotesEditor";
 import { useAsync } from "../useAsync";
-
-const SOURCE_ICON = { calendar: CalendarDays, email: Mail, manual: PenLine } as const;
 
 /** Every interview in one list: what's next, what just happened, and general recruiter talks. */
 export default function Interviews() {

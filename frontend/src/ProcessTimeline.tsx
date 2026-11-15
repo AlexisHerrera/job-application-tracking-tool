@@ -15,9 +15,9 @@ import {
   api, dayToIso, errorText, fmtDate, isoToDay, relativeDay,
   type ApplicationDetail, type Interview, type ProcessNode, type ProcessStep, type StepKind,
 } from "./api";
-import { interviewName } from "./InterviewNotes";
+import { interviewName } from "@/lib/interviews";
+import { useOpenEditor } from "@/lib/useOpenEditor";
 import { useRefresh } from "./lib/refresh";
-import { useOpenEditor } from "./NotesEditor";
 
 // The process at a glance: Applied → the steps (planned by hand, or just the interviews) → where it
 // ended. The API builds the nodes (core/process.py); this draws them and edits the plan.

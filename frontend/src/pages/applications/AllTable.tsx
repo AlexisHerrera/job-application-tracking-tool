@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, CalendarClock } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { shortAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { fmtDate, fmtSalary, type Application } from "../../api";
 import { ReviewBadge, StatusBadge } from "../../components/common";
 import { STATUS_ORDER } from "../../lib/status";
-import { shortAgo } from "./Board";
 
 type SortKey = "company" | "status" | "applied_at" | "last_event_at" | "next_interview_at" | "salary";
 

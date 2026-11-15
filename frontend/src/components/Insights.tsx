@@ -3,9 +3,10 @@ import { ChevronRight, MessagesSquare } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { fmtDate, label, type Insights, type InterviewOutcome, type TypeRow } from "../api";
-import { interviewName, TypePicker } from "../InterviewNotes";
+import { TypePicker } from "@/features/interviews/TypePicker";
+import { interviewName } from "@/lib/interviews";
+import { useOpenEditor } from "@/lib/useOpenEditor";
 import { useRefresh } from "../lib/refresh";
-import { useOpenEditor } from "../NotesEditor";
 
 // Counts are small, so rates read "x of n" and say how many are still waiting. Colors reuse the
 // flow chart's tokens (index.css, --flow-*): indigo for progress, rose for rejected, slate for no

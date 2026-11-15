@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import {
-  CalendarDays, CalendarPlus, ExternalLink, Mail, MoreHorizontal, NotebookPen, PenLine, Pencil, Trash2, Video,
+  CalendarPlus, ExternalLink, MoreHorizontal, NotebookPen, Pencil, Trash2, Video,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -14,23 +14,10 @@ import {
   api, dateTimeToIso, errorText, fmtDate, isoToDateTime, label, relativeDay,
   type ApplicationDetail, type Interview, type Note,
 } from "./api";
-import { Field } from "./ApplicationView";
-import { plainText, useOpenEditor } from "./NotesEditor";
-
-export const INTERVIEW_TYPES = ["recruiter", "technical", "system_design", "behavioral", "take_home", "onsite", "other"];
-const SOURCE_ICON = { calendar: CalendarDays, email: Mail, manual: PenLine } as const;
-const SOURCE_LABEL = { calendar: "From Google Calendar", email: "From an invite email", manual: "Added by hand" } as const;
-
-/** "silver.dev" for a general talk: who it was with, since there's no company. */
-export function talkWith(iv: Pick<Interview, "organizer" | "attendees">): string | null {
-  const addr = iv.organizer ?? iv.attendees.find((a) => !a.endsWith("@gmail.com")) ?? iv.attendees[0];
-  return addr ? addr.split("@").pop()! : null;
-}
-
-export function interviewName(iv: Pick<Interview, "title" | "interview_type" | "round">): string {
-  const base = iv.title || (iv.interview_type ? label(iv.interview_type) : "Interview");
-  return iv.round && !/round/i.test(base) ? `${base} · round ${iv.round}` : base;
-}
+import { Field } from "@/components/Field";
+import { INTERVIEW_TYPES, SOURCE_ICON, SOURCE_LABEL, interviewName } from "@/lib/interviews";
+import { plainText } from "@/lib/notes";
+import { useOpenEditor } from "@/lib/useOpenEditor";
 
 /** The application's interviews (calendar, invite emails, by hand) and its general notes. Each
  * opens in the notes editor. */
@@ -135,28 +122,6 @@ function InterviewRow({ iv, preview, onOpen, onDone }: { iv: Interview; preview:
         </DropdownMenuContent>
       </DropdownMenu>
     </li>
-  );
-}
-
-/** An interview's type, saved as soon as it changes. A guess from the title fills the empty option. */
-export function TypePicker({ id, value, guessed, onSaved, className }: { id: string; value: string | null; guessed?: string | null; onSaved?: (type: string | null) => void; className?: string }) {
-  const [v, setV] = useState(value ?? "");
-  async function change(next: string) {
-    const before = v;
-    setV(next);
-    try {
-      await api.updateInterview(id, { interview_type: next || null });
-      onSaved?.(next || null);
-    } catch (e) {
-      setV(before);
-      toast.error(errorText(e));
-    }
-  }
-  return (
-    <NativeSelect size="sm" aria-label="Interview type" value={v} onChange={(e) => void change(e.target.value)} className={className}>
-      <NativeSelectOption value="">{guessed ? `${label(guessed)} (guessed)` : "Type not set"}</NativeSelectOption>
-      {INTERVIEW_TYPES.map((t) => <NativeSelectOption key={t} value={t}>{label(t)}</NativeSelectOption>)}
-    </NativeSelect>
   );
 }
 

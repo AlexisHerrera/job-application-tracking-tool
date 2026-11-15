@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, daysAgo, errorText, fmtDate, fmtTime, relativeDay, type Interview, type Status } from "../api";
-import { interviewName, talkWith } from "../InterviewNotes";
+import { interviewName, talkWith } from "@/lib/interviews";
 import { useCampaign } from "../campaign";
 import { FlowChart } from "../components/FlowChart";
 import { InterviewTypesCard } from "../components/Insights";

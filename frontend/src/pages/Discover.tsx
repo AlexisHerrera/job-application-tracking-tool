@@ -2,7 +2,7 @@
 // job boards, scored by the LLM against the criteria. Everything in a posting comes from the web: rendered as text, links only if http(s).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Ban, Check, ChevronDown, ChevronLeft, ChevronRight, Circle, Download, ExternalLink, Loader2, Play, Plus, RefreshCw, Search, Settings2, Sparkles, Star, Telescope, ThumbsDown, Trash2, X } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useSearchParamsPatch, type ParamsPatch } from "@/lib/useSearchParamsPatch";
 import { cn } from "@/lib/utils";
 import {
   api,
@@ -132,7 +133,7 @@ const techsOf = (params: URLSearchParams) => (params.get("tech") ?? "").split(",
 const safeUrl = (url: string) => (/^https?:\/\//i.test(url) ? url : null);
 
 export default function Discover() {
-  const [params, setParams] = useSearchParams();
+  const [params, patch] = useSearchParamsPatch();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const state = useAsync(api.discoverySettings);
   const list = useAsync(() => api.postings(queryFor(params)), [params.toString()]);
@@ -141,19 +142,8 @@ export default function Discover() {
   const status = (params.get("status") ?? "open") as StatusFilter;
   const page = pageOf(params);
   // One setParams call per change: several in a row would each start from the same old params.
-  const update = (changes: Record<string, string | null>) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        for (const [key, value] of Object.entries(changes)) {
-          if (value) next.set(key, value);
-          else next.delete(key);
-        }
-        if (!("page" in changes)) next.delete("page");
-        return next;
-      },
-      { replace: true },
-    );
+  // Any change but the page itself goes back to the first page.
+  const update = (changes: ParamsPatch) => patch("page" in changes ? changes : { ...changes, page: null });
   const set = (key: string, value: string | null) => update({ [key]: value });
   const addTech = (t: string) => {
     const techs = techsOf(params);

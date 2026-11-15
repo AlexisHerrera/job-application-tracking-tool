@@ -11,7 +11,6 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,7 +19,7 @@ import {
   STAGES, api, dayToIso, daysAgo, errorText, fmtDate, fmtSalary, isoToDay, label,
   type Application, type ApplicationDetail, type Stage, type TimelineEvent,
 } from "./api";
-import { CHANNELS, SENIORITY } from "./ApplicationForm";
+import { APPLICATION_SENIORITY, CHANNELS } from "@/lib/applicationOptions";
 import { InterviewsAndNotes } from "./InterviewNotes";
 import { Loading, StatusBadge, StatusDot } from "./components/common";
 import { CLOSED_STATUSES, STATUS_META } from "./lib/status";
@@ -215,7 +214,7 @@ function Properties({ app, save, setStage }: { app: ApplicationDetail; save: (p:
         <EditableText value={app.source_ats ?? ""} placeholder="ashby, lever…" onSave={(v) => save({ source_ats: v })} />
       </Prop>
       <Prop icon={Star} label="Seniority">
-        <SelectField value={app.seniority ?? ""} options={SENIORITY} onSave={(v) => save({ seniority: v })} />
+        <SelectField value={app.seniority ?? ""} options={APPLICATION_SENIORITY} onSave={(v) => save({ seniority: v })} />
       </Prop>
       <Prop icon={Layers} label="Stack">
         <EditableText
@@ -412,19 +411,6 @@ function EventItem({ e, awaiting, onDone }: { e: TimelineEvent; awaiting: boolea
       {e.subject && <div className="text-sm">{e.subject}</div>}
       {e.summary && <div className="text-sm text-muted-foreground">{e.summary}</div>}
     </li>
-  );
-}
-
-export function Field({ label: text, id, children, hint, tag }: { label: string; id?: string; children: ReactNode; hint?: string; tag?: string }) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        <Label htmlFor={id}>{text}</Label>
-        {tag && <span className="rounded bg-indigo-500/10 px-1.5 text-xs leading-5 text-indigo-700 dark:text-indigo-300">{tag}</span>}
-      </div>
-      {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-    </div>
   );
 }
 

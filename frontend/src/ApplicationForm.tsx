@@ -4,12 +4,10 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { STAGES, dayToIso, isoToDay, label, type ApplicationInput, type StepInput } from "./api";
-import { Field } from "./ApplicationView";
+import { Field } from "@/components/Field";
+import { APPLICATION_SENIORITY, CHANNELS } from "@/lib/applicationOptions";
 import { PasteFill, type FillReport, type FillResult } from "./PasteFill";
 import { SalaryInputs, draftFrom, readSalary, type SalaryDraft } from "./SalaryInput";
-
-export const CHANNELS = ["", "direct", "linkedin", "referral", "recruiter", "other"];
-export const SENIORITY = ["", "junior", "mid", "senior", "staff", "principal", "lead"];
 
 export function ApplicationForm({
   initial,
@@ -176,7 +174,7 @@ export function ApplicationForm({
           <NativeSelect className="w-full" {...field("source_channel")}>{CHANNELS.map((c) => <NativeSelectOption key={c} value={c}>{c || "—"}</NativeSelectOption>)}</NativeSelect>
         </Field>
         <Field label="Seniority" id="app-seniority" tag={tag("seniority")}>
-          <NativeSelect className="w-full" {...field("seniority")}>{SENIORITY.map((c) => <NativeSelectOption key={c} value={c}>{c || "—"}</NativeSelectOption>)}</NativeSelect>
+          <NativeSelect className="w-full" {...field("seniority")}>{APPLICATION_SENIORITY.map((c) => <NativeSelectOption key={c} value={c}>{c || "—"}</NativeSelectOption>)}</NativeSelect>
         </Field>
         <Field label="Stack (comma separated)" id="app-stack" tag={tag("stack")}><Input placeholder="python, aws, react" {...field("stack")} /></Field>
         <Field label="Location" id="app-location" tag={tag("location")}><Input placeholder="Remote (LATAM)" {...field("location")} /></Field>

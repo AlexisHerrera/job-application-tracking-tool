@@ -3,12 +3,11 @@ import { daysAgo, fmtDate, label, type Application } from "./api";
 import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { fold } from "@/lib/text";
 import { ReviewBadge, StatusBadge } from "./components/common";
 
 // Searchable application picker (ARIA combobox). Type any part of the company, role, status,
 // source or location; every word must match. Suggested applications are listed first.
-
-export const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
 function haystack(a: Application) {
   return fold([a.company, a.role_title, label(a.status), a.source_ats, a.source_channel, a.location].filter(Boolean).join(" "));

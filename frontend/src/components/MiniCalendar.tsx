@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { api, fmtDate, fmtTime, localDay } from "../api";
-import { talkWith } from "../InterviewNotes";
+import { talkWith } from "@/lib/interviews";
 import { addDays, calendarDayLink, daysBetween, utc, weekday, WEEKDAYS } from "../lib/days";
 import { useAsync } from "../useAsync";
 

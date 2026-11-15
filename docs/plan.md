@@ -648,3 +648,7 @@ Independent of rounds 2–5; it can go first. Today all of this lives in the "Cr
 - **Runs**: the last runs with their notes and errors (`discovery_runs`), not only the latest one.
 - Split `Discover.tsx` (over 1,000 lines) while moving this out: the page keeps the list, the filters and the run buttons.
 - To decide with the user before building: tabs or one long page, and whether "Re-score recent" stays on Discover or moves here.
+
+## 22. Frontend refactor (planned 2026-11-15)
+
+Splitting the big page files into a folder per page and one component per file, no behavior changes. The plan, the rules and the per-session status live in `docs/frontend-refactor.md`; one session per page.

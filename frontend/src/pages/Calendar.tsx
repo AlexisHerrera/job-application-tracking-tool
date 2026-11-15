@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { CalendarRange, ChevronLeft, ChevronRight, GanttChart } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -8,10 +8,11 @@ import { cn } from "@/lib/utils";
 import { api, fmtDate, fmtTime, localDay, type ActivityItem, type Process } from "../api";
 import { useCampaign } from "../campaign";
 import { Loading, PageHeader, StatusDot } from "../components/common";
-import { interviewName, talkWith } from "../InterviewNotes";
+import { interviewName, talkWith } from "@/lib/interviews";
+import { useOpenEditor } from "@/lib/useOpenEditor";
+import { useSearchParamsPatch, type ParamsPatch } from "@/lib/useSearchParamsPatch";
 import { addDays, daysBetween, utc, weekday, WEEKDAYS } from "../lib/days";
 import { STATUS_META } from "../lib/status";
-import { useOpenEditor } from "../NotesEditor";
 import { useAsync } from "../useAsync";
 
 
@@ -27,18 +28,10 @@ const isMeeting = (i: ActivityItem): i is Extract<ActivityItem, { kind: "intervi
 const who = (i: ActivityItem) => (i.kind === "talk" ? `Talk · ${talkWith(i) ?? ""}` : i.company);
 
 export default function CalendarPage() {
-  const [params, setParams] = useSearchParams();
+  const [params, set] = useSearchParamsPatch();
   const view = params.get("view") === "processes" ? "processes" : "month";
   const { selected: campaign } = useCampaign();
   const { data, error, loading } = useAsync(() => api.activity(campaign), [campaign]);
-  const set = (patch: Record<string, string | null>) => {
-    const next = new URLSearchParams(params);
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) next.set(k, v);
-      else next.delete(k);
-    }
-    setParams(next, { replace: true });
-  };
 
   return (
     <>
@@ -63,7 +56,7 @@ export default function CalendarPage() {
   );
 }
 
-type Set = (patch: Record<string, string | null>) => void;
+type Set = (patch: ParamsPatch) => void;
 
 function Dot({ className }: { className: string }) {
   return <span className={cn("inline-block size-2 shrink-0 rounded-full", className)} />;

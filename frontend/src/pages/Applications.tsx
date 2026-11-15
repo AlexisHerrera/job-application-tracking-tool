@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { KanbanSquare, List, Plus, Search, Sparkles, Waypoints, X } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,8 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { api, errorText, type Application, type Stage, type Status } from "../api";
-import { fold } from "../ApplicationPicker";
+import { fold } from "@/lib/text";
+import { useSearchParamsPatch } from "@/lib/useSearchParamsPatch";
 import { ApplicationView } from "../ApplicationView";
 import { useCampaign } from "../campaign";
 import { Empty, Loading, PageHeader, StatusDot } from "../components/common";
@@ -33,7 +34,7 @@ function storedView(): string | null {
 type Filter = "all" | "active" | Status;
 
 export default function Applications() {
-  const [params, setParams] = useSearchParams();
+  const [params, set] = useSearchParamsPatch();
   const view = (params.get("view") ?? storedView()) === "all" ? "all" : "board";
   const q = params.get("q") ?? "";
   const status = (params.get("status") ?? "all") as Filter;
@@ -47,14 +48,6 @@ export default function Applications() {
   const { data, error, loading, setData } = useAsync(() => api.applications({ campaign }), [campaign]);
   const flowData = useAsync(() => (flow ? api.stats(campaign).then((s) => s.flow) : Promise.resolve(null)), [campaign, !!flow]).data;
 
-  const set = (patch: Record<string, string | null>) => {
-    const next = new URLSearchParams(params);
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) next.set(k, v);
-      else next.delete(k);
-    }
-    setParams(next, { replace: true });
-  };
   const setView = (v: string) => {
     if (!v) return;
     set({ view: v });

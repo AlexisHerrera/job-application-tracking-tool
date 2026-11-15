@@ -6,6 +6,7 @@ import {
 import { CalendarClock, Check, ChevronsLeftRight, ChevronsRightLeft, Clock, Banknote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { shortAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { fmtDate, type Application, type Stage, type Status } from "../../api";
 import { ReviewBadge, StatusDot } from "../../components/common";
@@ -231,13 +232,4 @@ function CardBody({ app, onConfirm, className }: { app: Application; onConfirm?:
       </div>
     </div>
   );
-}
-
-export function shortAgo(iso: string | null): string {
-  if (!iso) return "";
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days <= 0) return "today";
-  if (days < 7) return `${days}d`;
-  if (days < 60) return `${Math.floor(days / 7)}w`;
-  return `${Math.floor(days / 30)}mo`;
 }
