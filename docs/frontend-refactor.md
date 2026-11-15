@@ -9,7 +9,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 | # | Session | Today | Status |
 |---|---------|-------|--------|
 | 0 | Shared foundations (break import cycles) | helpers spread across pages | done |
-| 1 | Discover | `pages/Discover.tsx` (1,095 lines) | todo |
+| 1 | Discover | `pages/Discover.tsx` (1,095 lines) | done |
 | 2 | Application detail | `ApplicationView.tsx` (457) + `InterviewNotes.tsx` (225) | todo |
 | 3 | Process timeline | `ProcessTimeline.tsx` (393) | todo |
 | 4 | Notes editor | `NotesEditor.tsx` (534) | todo |
@@ -108,13 +108,12 @@ own route, and with this layout that becomes a routing change.
 pages/Discover/
   DiscoverPage.tsx            # URL params, the two useAsync calls, layout
   constants.ts                # VIEWS, PAGE_SIZE, FILTER_PARAMS, SENIORITY, COMPANY_SIZE, SECTOR,
-                              # WORK_MODE, LOCATION_FIT, EMPLOYER, POSTED, DROP_LABEL,
-                              # LIST_FIELDS, GETONBRD_CATEGORIES, the source options
+                              # WORK_MODE, LOCATION_FIT, EMPLOYER, POSTED, DROP_LABEL
   query.ts                    # View, StatusFilter, queryFor, pageOf, techsOf
-  format.ts                   # salaryOf, usdSalary, safeUrl, duration, eta, paramsSummary
+  format.ts                   # salaryOf, usdSalary, safeUrl, duration, eta
   useDiscoveryJob.ts          # Job, useDiscoveryProgress, start(), the "run ended elsewhere"
                               # effect; returns { working, progress, start, panelKind, collectOnly }
-  RunButtons.tsx              # RunButton (Collect only / Score pending / Run now)
+  RunButtons.tsx              # RunButtons, was RunButton (Collect only / Score pending / Run now)
   SeedEmptyState.tsx          # "No saved searches yet" + Load the defaults
   ListToolbar.tsx             # verdict toggle, status and sort selects
   filters/
@@ -141,7 +140,19 @@ pages/Discover/
     WatchlistSection.tsx      # Watchlist
     SearchesSection.tsx       # saved searches list (keeps the row inside)
     AddSearchForm.tsx         # the per-source inputs and their eight useState
+    constants.ts              # LIST_FIELDS, GETONBRD_CATEGORIES
+    paramsSummary.ts
 ```
+
+As built: `LIST_FIELDS`, `GETONBRD_CATEGORIES` and `paramsSummary` live in `settings/` (only the
+sheet uses them), so the folder needs nothing from the rest of the page. The two source selects
+stay hard-coded `NativeSelectOption` lists (`filters/SourceSelect.tsx`, `AddSearchForm.tsx`) rather
+than option arrays, so the JSX is unchanged. `ProgressPanel` → `RunProgressPanel`, `Step` →
+`ProgressStep`, `LastRun` → `LastRunSummary`, `Watchlist` → `WatchlistSection`, `Searches` →
+`SearchesSection` (it passes its `run` error-and-reload wrapper to `AddSearchForm`).
+`PostingActions` renders a fragment inside the card's actions row, next to the Description
+trigger, so the DOM is the same. Files in subfolders import page-level files as
+`@/pages/Discover/...`.
 
 Watch out for: `PostingCard`'s `busy` state is shared by all its buttons; it moves with the
 actions into `PostingActions`. `TextFilter`'s debounce effects stay exactly as written.

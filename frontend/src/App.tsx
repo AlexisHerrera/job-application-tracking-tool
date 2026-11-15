@@ -15,7 +15,7 @@ import Applications from "./pages/Applications";
 import CalendarPage from "./pages/Calendar";
 import Campaigns from "./pages/Campaigns";
 import DashboardPage from "./pages/Dashboard";
-import Discover from "./pages/Discover";
+import Discover from "./pages/Discover/DiscoverPage";
 import Inbox from "./pages/Inbox";
 import Interviews from "./pages/Interviews";
 import { EditorDialog, EditorPage } from "./NotesEditor";
