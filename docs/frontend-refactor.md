@@ -10,7 +10,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 |---|---------|-------|--------|
 | 0 | Shared foundations (break import cycles) | helpers spread across pages | done |
 | 1 | Discover | `pages/Discover.tsx` (1,095 lines) | done |
-| 2 | Application detail | `ApplicationView.tsx` (457) + `InterviewNotes.tsx` (225) | todo |
+| 2 | Application detail | `ApplicationView.tsx` (457) + `InterviewNotes.tsx` (225) | done |
 | 3 | Process timeline | `ProcessTimeline.tsx` (393) | todo |
 | 4 | Notes editor | `NotesEditor.tsx` (534) | todo |
 | 5 | Calendar | `pages/Calendar.tsx` (335) | todo |
@@ -196,6 +196,14 @@ pages/Application/
 
 `ghostField` (class string shared by `EditableText` and `SalaryField`) goes to
 `properties/ghostField.ts`.
+
+As built: `ProcessTimeline`, `PasteAssistant` and `SalaryInput` stay at the `src/` root for now
+(`@/ProcessTimeline` etc.) until sessions 3 and 9 move them. The `Patch` type (the body of
+`api.updateApplication`) is used by the view, `PropertiesList` and `SalaryField`, so it lives in
+`ApplicationView/patch.ts`. `Section` wraps `ActivitySection` and `InterviewsAndNotes` in
+`ApplicationView`, so those two render only their contents, as before. `NeedsReviewBanner` and
+`ApplicationHeader` get `onReviewed` (the view's `bump`). `Prop` → `PropertyRow`, `Properties` →
+`PropertiesList`, `DeleteButton` → `DeleteApplication`.
 
 ---
 

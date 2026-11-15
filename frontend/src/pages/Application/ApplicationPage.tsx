@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ApplicationView } from "../ApplicationView";
+import { ApplicationView } from "@/features/application/ApplicationView/ApplicationView";
 
 export default function ApplicationPage() {
   const { id = "" } = useParams();

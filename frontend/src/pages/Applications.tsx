@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { api, errorText, type Application, type Stage, type Status } from "../api";
 import { fold } from "@/lib/text";
 import { useSearchParamsPatch } from "@/lib/useSearchParamsPatch";
-import { ApplicationView } from "../ApplicationView";
+import { ApplicationView } from "@/features/application/ApplicationView/ApplicationView";
 import { useCampaign } from "../campaign";
 import { Empty, Loading, PageHeader, StatusDot } from "../components/common";
 import { flowLabel, inFlow } from "../components/FlowChart";

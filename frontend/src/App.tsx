@@ -10,7 +10,7 @@ import { api, errorText, timeAgo, type CalendarSyncResult, type ScanResult } fro
 import { canSignOut, signOut } from "./auth";
 import { CampaignPicker } from "./campaign";
 import AddApplication from "./pages/AddApplication";
-import ApplicationPage from "./pages/ApplicationPage";
+import ApplicationPage from "./pages/Application/ApplicationPage";
 import Applications from "./pages/Applications";
 import CalendarPage from "./pages/Calendar";
 import Campaigns from "./pages/Campaigns";
