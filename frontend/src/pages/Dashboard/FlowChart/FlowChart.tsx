@@ -1,9 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { sankey, type SankeyLink, type SankeyNode } from "d3-sankey";
+import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { sankey } from "d3-sankey";
 import { Table2, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { FlowData } from "../api";
+import type { FlowData } from "@/api";
+import { build, type FlowLink, type FlowNode } from "@/lib/flow";
+import { chainPath, color, HEIGHT, LABEL_SPACE, MIN_WIDTH, rank, WIDE_LABEL_SPACE, type LaidLink, type LaidNode } from "./layout";
+import { useWidth } from "./useWidth";
 
 // Where applications went, read left to right: one column per stage, and each stage's exits
 // (no reply, ghosted, rejected…) sit in the column right after it, so no flow crosses the chart.
@@ -11,119 +14,6 @@ import type { FlowData } from "../api";
 // Colors live in index.css (--flow-*): an indigo ramp for progress, neutral grays for "no answer",
 // hue only for offer / on hold / rejected. Every node is labelled with its count and share.
 // Clicking a node or a flow selects it: a key that `inFlow` matches against an application's path.
-
-const STAGE_COL: Record<string, number> = { applied: 0, screening: 1, interviewing: 2, offer: 3 };
-const OUTCOME_ORDER = ["in_progress", "waiting", "on_hold", "ghosted", "withdrawn", "rejected"];
-
-type Kind = "stage" | "outcome" | "via";
-type N = { id: string; key: string; label: string; kind: Kind; col: number };
-// `from` / `to` are the real endpoints, so the segments of a skipped-stage flow act as one.
-type L = { source: string; target: string; value: number; from: string; to: string; chain: string };
-type LaidNode = SankeyNode<N, L>;
-type LaidLink = SankeyLink<N, L>;
-
-const HEIGHT = 340;
-const MIN_WIDTH = 600;
-const LABEL_SPACE = 132; // room for the labels of the last column
-const WIDE_LABEL_SPACE = 196; // ... when they read "Rejected after interviews"
-// Exits sit next to the stage they left, so one outcome can appear in several columns. Then each
-// says which one, or two "Rejected 2 · 13%" read like a duplicate.
-const AFTER: Record<string, string> = {
-  applied: "after applying",
-  screening: "after screening",
-  interviewing: "after interviews",
-  offer: "after the offer",
-};
-
-const color = (key: string) => `var(--flow-${key.replace("_", "-")})`;
-
-function build(data: FlowData) {
-  const labels = Object.fromEntries(data.nodes.map((n) => [n.id, n.label]));
-  const nodes = new Map<string, N>();
-  const links: L[] = [];
-  const add = (n: N) => {
-    if (!nodes.has(n.id)) nodes.set(n.id, n);
-    return n.id;
-  };
-  for (const l of data.links) {
-    const from = STAGE_COL[l.source];
-    if (from === undefined) continue; // flows always start at a progress stage
-    const src = add({ id: l.source, key: l.source, label: labels[l.source], kind: "stage", col: from });
-    if (l.target in STAGE_COL) {
-      const to = add({ id: l.target, key: l.target, label: labels[l.target], kind: "stage", col: STAGE_COL[l.target] });
-      const chain = `${src}->${to}`;
-      let prev = src;
-      for (let c = from + 1; c < STAGE_COL[l.target]; c++) {
-        const via = add({ id: `via:${l.target}@${c}`, key: l.target, label: "", kind: "via", col: c });
-        links.push({ source: prev, target: via, value: l.value, from: src, to, chain });
-        prev = via;
-      }
-      links.push({ source: prev, target: to, value: l.value, from: src, to, chain });
-    } else {
-      const to = add({ id: `${l.target}@${l.source}`, key: l.target, label: labels[l.target], kind: "outcome", col: from + 1 });
-      links.push({ source: src, target: to, value: l.value, from: src, to, chain: `${src}->${to}` });
-    }
-  }
-  const outcomes = [...nodes.values()].filter((n) => n.kind === "outcome");
-  for (const n of outcomes) {
-    if (outcomes.filter((o) => o.key === n.key).length > 1) n.label = `${n.label} ${AFTER[n.id.split("@")[1]] ?? ""}`.trim();
-  }
-  return { nodes: [...nodes.values()], links };
-}
-
-/** Does an application's path (from `FlowData.paths`) go through a node id or a flow chain? */
-export function inFlow(path: string[] | undefined, key: string): boolean {
-  if (!path) return false;
-  const [a, b] = key.split("->");
-  const step = (id: string) => id.split("@") as [string, string | undefined];
-  if (b === undefined) {
-    const [node, after] = step(a);
-    return after === undefined ? path.includes(node) : path.at(-1) === node && path.at(-2) === after;
-  }
-  const to = step(b)[0];
-  return path.some((p, i) => p === a && path[i + 1] === to);
-}
-
-/** "Rejected after interviews", or "Applied → Interviews" for a flow. */
-export function flowLabel(data: FlowData, key: string): string {
-  const labels = new Map(build(data).nodes.map((n) => [n.id, n.label]));
-  return key.split("->").map((id) => labels.get(id) ?? id).join(" → ");
-}
-
-// Within a column: pass-through waypoints on top, then the stage, then its exits.
-function rank(n: N): number {
-  if (n.kind === "via") return 0;
-  if (n.kind === "stage") return 1;
-  return 2 + OUTCOME_ORDER.indexOf(n.key);
-}
-
-/** A horizontal sankey band through any waypoints: curve between columns, straight across them. */
-function chainPath(segs: LaidLink[]): string {
-  const x = (n: LaidNode | string | number, side: "x0" | "x1") => (n as LaidNode)[side] ?? 0;
-  const curve = (xa: number, ya: number, xb: number, yb: number) => {
-    const xm = (xa + xb) / 2;
-    return `C${xm},${ya} ${xm},${yb} ${xb},${yb}`;
-  };
-  let d = `M${x(segs[0].source, "x1")},${segs[0].y0}`;
-  segs.forEach((l, i) => {
-    const xa = x(l.source, "x1"), xb = x(l.target, "x0");
-    if (i > 0) d += `L${xa},${l.y0}`;
-    d += curve(xa, l.y0 ?? 0, xb, l.y1 ?? 0);
-  });
-  return d;
-}
-
-function useWidth() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e.contentRect.width)));
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, width] as const;
-}
 
 export function FlowChart({ data, onSelect }: { data: FlowData; onSelect?: (key: string) => void }) {
   const uid = useId().replace(/:/g, "");
@@ -141,7 +31,7 @@ export function FlowChart({ data, onSelect }: { data: FlowData; onSelect?: (key:
     if (!graph.links.length) return null;
     const lastCol = Math.max(...graph.nodes.map((n) => n.col));
     const room = graph.nodes.some((n) => n.col === lastCol && n.label.length > 14) ? WIDE_LABEL_SPACE : LABEL_SPACE;
-    return sankey<N, L>()
+    return sankey<FlowNode, FlowLink>()
       .nodeId((n) => n.id)
       .nodeAlign((n) => n.col)
       .nodeWidth(12)

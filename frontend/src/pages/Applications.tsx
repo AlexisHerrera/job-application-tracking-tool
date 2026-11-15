@@ -13,7 +13,7 @@ import { useSearchParamsPatch } from "@/lib/useSearchParamsPatch";
 import { ApplicationView } from "@/features/application/ApplicationView/ApplicationView";
 import { useCampaign } from "../campaign";
 import { Empty, Loading, PageHeader, StatusDot } from "../components/common";
-import { flowLabel, inFlow } from "../components/FlowChart";
+import { flowLabel, inFlow } from "@/lib/flow";
 import { ACTIVE_STATUSES, STATUS_META, STATUS_ORDER } from "../lib/status";
 import { useRefresh } from "../lib/refresh";
 import { ReviewDialog } from "../ReviewDialog";

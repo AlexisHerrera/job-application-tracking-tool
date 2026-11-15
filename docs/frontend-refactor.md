@@ -14,7 +14,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 | 3 | Process timeline | `ProcessTimeline.tsx` (393) | done |
 | 4 | Notes editor | `NotesEditor.tsx` (534) | done |
 | 5 | Calendar | `pages/Calendar.tsx` (335) | done |
-| 6 | Dashboard | `pages/Dashboard.tsx` (292) + `FlowChart` (288), `Insights` (127), `MiniCalendar` (77) | todo |
+| 6 | Dashboard | `pages/Dashboard.tsx` (292) + `FlowChart` (288), `Insights` (127), `MiniCalendar` (77) | done |
 | 7 | Applications (board and list) | `pages/Applications.tsx` (203) + `applications/Board.tsx` (243) + `AllTable.tsx` (94) | todo |
 | 8 | App shell and the `src/` root | `App.tsx` (194), `campaign.tsx`, `auth.ts`, `AuthGate.tsx`, `useAsync.ts` | todo |
 | 9 | Small pages and the shared application widgets | Inbox, Interviews, Campaigns, Add; `PasteAssistant` (257), `ApplicationForm` (211), `ReviewDialog` (202), `ApplicationPicker`, `PasteFill`, `SalaryInput` | todo |
@@ -348,6 +348,22 @@ pages/Dashboard/
 
 `inFlow` and `flowLabel` are used by Applications, so they go to `lib/flow.ts` (FlowChart imports
 them from there too). The name `FlowChart` stays: plan.md and the `--flow-*` colors use it.
+
+As built: `Dashboard.tsx` was `git mv`'d to `DashboardPage.tsx`, and `FlowChart.tsx`, `Insights.tsx`
+(→ `InterviewTypes/InterviewTypesCard.tsx`) and `MiniCalendar.tsx` moved out of `components/`.
+`flowLabel` needs `build`, so the graph half of the flow code lives in `lib/flow.ts` too: `build`,
+`STAGE_COL`, `AFTER` and the node and link types (`N` → `FlowNode`, `L` → `FlowLink`).
+`FlowChart/layout.ts` keeps what only the drawing needs: `OUTCOME_ORDER`, `rank`, `chainPath`,
+`color`, the sizes and the `LaidNode` / `LaidLink` types. `who` (shared by three cards) is
+`who.ts`. `TypeRowView` → `InterviewTypeRow` (`TypeRow` is the api type it renders); `Swatch` →
+`OutcomeSwatch`, its own file since the row uses it too; `Legend` → `OutcomeLegend`, which now
+builds its own item list (it only ever showed the outcomes); `Track` → `OutcomeTrack`; the
+`OUTCOMES` list, `plural` and `typeLabel` are in `InterviewTypes/outcomes.ts`. `JoinButton` →
+`JoinCallButton`, `UpcomingCard` → `UpcomingInterviewsCard`, `Row` → `ListRow`. `KpiTiles` takes
+`stats`, `campaign` and `besideCalendar` and computes `active` and the interviewing share.
+`NeedsAttentionCard` returns null when there's nothing to do; the `reviewing` state and
+`ReviewDialog` stay in the page (the card goes away once the reviews are done). `FlowCard` calls
+`useNavigate` itself. The empty "Upcoming interviews" `ListCard` stays inline in the page.
 
 ---
 

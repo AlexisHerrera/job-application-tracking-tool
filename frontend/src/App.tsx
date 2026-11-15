@@ -14,7 +14,7 @@ import ApplicationPage from "./pages/Application/ApplicationPage";
 import Applications from "./pages/Applications";
 import CalendarPage from "./pages/Calendar/CalendarPage";
 import Campaigns from "./pages/Campaigns";
-import DashboardPage from "./pages/Dashboard";
+import DashboardPage from "./pages/Dashboard/DashboardPage";
 import Discover from "./pages/Discover/DiscoverPage";
 import Inbox from "./pages/Inbox";
 import Interviews from "./pages/Interviews";
