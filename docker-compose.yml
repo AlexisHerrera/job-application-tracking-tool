@@ -29,6 +29,8 @@ services:
     volumes: &backend-src
       - ./backend/src:/app/src
       - ./backend/tests:/app/tests
+      # Your `ant auth login` session. Read-write: the SDK writes refreshed tokens back.
+      - ${HOME}/.config/anthropic:/root/.config/anthropic
     depends_on:
       db: { condition: service_healthy }
 

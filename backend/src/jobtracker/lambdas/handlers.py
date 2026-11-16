@@ -53,10 +53,10 @@ def ingest(event, context):
 
     _load_secrets()
     s = Settings.from_env()
-    if not (s.gmail_address and s.gmail_app_password and s.anthropic_api_key):
+    if not (s.gmail_address and s.gmail_app_password and s.llm_configured):
         raise ConfigError(
-            "ingest needs GMAIL_ADDRESS, GMAIL_APP_PASSWORD and ANTHROPIC_API_KEY "
-            "(the secrets live in SSM: `jobtracker aws push-secrets`)"
+            "ingest needs GMAIL_ADDRESS, GMAIL_APP_PASSWORD (SSM: `jobtracker aws push-secrets`) "
+            "and the ANTHROPIC_FEDERATION_* IDs for the LLM"
         )
     trigger = (event or {}).get("trigger", "schedule")
     repo = PostgresRepo.open(s)
@@ -74,7 +74,7 @@ def ingest(event, context):
         repo.close()
         raise
     try:
-        llm = AnthropicLLM(s.anthropic_api_key, s.llm_model, s.llm_effort)
+        llm = AnthropicLLM.from_settings(s, s.llm_effort)
         cfg = PipelineConfig(tz=s.tz, my_addresses=s.my_addresses, body_limit=s.llm_body_chars)
         report = run_incremental(Pipeline(repo, llm, SystemClock(), cfg), source)
         result = {
@@ -190,9 +190,9 @@ def _discover_run(s, repo, event, action, trigger, context) -> dict:
 
     clock = SystemClock()
     score = action == "rescore" or bool(event.get("score", True))
-    if score and not s.anthropic_api_key:
-        raise ConfigError("discover needs ANTHROPIC_API_KEY to score (it lives in SSM)")
-    llm = AnthropicLLM(s.anthropic_api_key, s.llm_model, s.llm_effort) if score else None
+    if score and not s.llm_configured:
+        raise ConfigError("discover needs the ANTHROPIC_FEDERATION_* IDs (or a key) to score")
+    llm = AnthropicLLM.from_settings(s, s.llm_effort) if score else None
     remaining = getattr(context, "get_remaining_time_in_millis", None)
     deadline = (
         clock.now() + timedelta(seconds=remaining() / 1000 - DEADLINE_MARGIN_S)

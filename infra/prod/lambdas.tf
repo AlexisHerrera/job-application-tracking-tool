@@ -3,7 +3,7 @@
 # `discover` (job discovery every 6 hours and from the Discover page, plus the daily digest).
 
 locals {
-  common_env = {
+  common_env = merge(local.anthropic_federation, {
     APP_ENV              = "prod"
     DSQL_ENDPOINT        = local.dsql_endpoint
     TIMEZONE             = "America/Buenos_Aires"
@@ -11,13 +11,41 @@ locals {
     GMAIL_ADDRESS        = var.owner_email
     GOOGLE_CALENDAR_ID   = var.owner_email # prod reads the calendar through the service account only
     SSM_PARAMETER_PREFIX = local.ssm_prefix
-  }
+  })
   api_name      = "${local.name}-api"
   ingest_name   = "${local.name}-ingest"
   discover_name = "${local.name}-discover"
 }
 
+# Every Lambda calls Claude through Workload Identity Federation: it asks STS for a web identity
+# token for its own role and the SDK trades that for an Anthropic token (main.tf has the rule's
+# IDs). Only for the Anthropic audience and short-lived, like the app requests them
+# (adapters/anthropic_llm.py: STS_TOKEN_SECONDS).
+data "aws_iam_policy_document" "anthropic_token" {
+  statement {
+    sid       = "AnthropicWorkloadIdentity"
+    actions   = ["sts:GetWebIdentityToken"]
+    resources = ["*"]
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "sts:IdentityTokenAudience"
+      values   = ["https://api.anthropic.com"]
+    }
+    condition {
+      test     = "Null"
+      variable = "sts:IdentityTokenAudience"
+      values   = ["false"]
+    }
+    condition {
+      test     = "NumericLessThanEquals"
+      variable = "sts:DurationSeconds"
+      values   = ["300"]
+    }
+  }
+}
+
 data "aws_iam_policy_document" "api" {
+  source_policy_documents = [data.aws_iam_policy_document.anthropic_token.json]
   statement {
     sid       = "ConnectToDsqlAsAppRole"
     actions   = ["dsql:DbConnect"]
@@ -41,6 +69,7 @@ data "aws_iam_policy_document" "api" {
 }
 
 data "aws_iam_policy_document" "ingest" {
+  source_policy_documents = [data.aws_iam_policy_document.anthropic_token.json]
   statement {
     sid       = "ConnectToDsqlAsAppRole"
     actions   = ["dsql:DbConnect"]
@@ -104,6 +133,7 @@ resource "aws_lambda_function_event_invoke_config" "ingest" {
 }
 
 data "aws_iam_policy_document" "discover" {
+  source_policy_documents = [data.aws_iam_policy_document.anthropic_token.json]
   statement {
     sid       = "ConnectToDsqlAsAppRole"
     actions   = ["dsql:DbConnect"]

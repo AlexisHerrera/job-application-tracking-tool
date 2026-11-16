@@ -46,9 +46,8 @@ class StubMessages:
 
 def make(outcomes):
     waits: list[float] = []
-    llm = AnthropicLLM("test-key", "claude-haiku-5-5", sleep=waits.append)
     stub = StubMessages(outcomes)
-    llm.client = SimpleNamespace(messages=stub)
+    llm = AnthropicLLM(SimpleNamespace(messages=stub), "claude-haiku-5-5", sleep=waits.append)
     return llm, stub, waits
 
 

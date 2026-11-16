@@ -77,7 +77,7 @@ def _repo(settings: Settings) -> PostgresRepo:
 def _pipeline(settings: Settings, repo: PostgresRepo, dry_run: bool) -> Pipeline:
     from jobtracker.adapters.anthropic_llm import AnthropicLLM
 
-    llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
+    llm = AnthropicLLM.from_settings(settings, settings.llm_effort)
     cfg = PipelineConfig(
         tz=settings.tz, my_addresses=settings.my_addresses, body_limit=settings.llm_body_chars
     )
@@ -374,7 +374,7 @@ def app_fill_details(
     )
     if not yes:
         typer.confirm("Go?", abort=True)
-    llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_paste_effort)
+    llm = AnthropicLLM.from_settings(settings, settings.llm_paste_effort)
     source = _imap(settings)
     filled = failed = 0
     try:
@@ -504,7 +504,7 @@ def eval_paste(
     )
     if not yes:
         typer.confirm("Run them?", abort=True)
-    llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_paste_effort)
+    llm = AnthropicLLM.from_settings(settings, settings.llm_paste_effort)
     results = []
     for path in files:
         result = paste_eval.run_case(path, llm, settings.tz, datetime.now(UTC))
@@ -569,7 +569,7 @@ def details_run(
     )
     if not yes:
         typer.confirm("Run them?", abort=True)
-    llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_paste_effort)
+    llm = AnthropicLLM.from_settings(settings, settings.llm_paste_effort)
     now = datetime.now(UTC)
     runs = [
         details_eval.run_case(directory, name, meta, llm, settings.tz, now) for name, meta in cases
@@ -918,9 +918,11 @@ def discover_run(
     sources = discovery_sources()
     llm = None
     if not (no_llm or dry_run):
-        if not settings.anthropic_api_key:
-            raise typer.BadParameter("ANTHROPIC_API_KEY is empty (or pass --no-llm)")
-        llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
+        if not settings.llm_configured:
+            raise typer.BadParameter(
+                "not logged in to Anthropic: run `ant auth login` (or pass --no-llm)"
+            )
+        llm = AnthropicLLM.from_settings(settings, settings.llm_effort)
     repo = _repo(settings)
     if no_collect and llm is None:
         raise typer.BadParameter("--no-collect only scores: it can't go with --no-llm or --dry-run")

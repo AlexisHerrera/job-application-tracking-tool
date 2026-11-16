@@ -6,9 +6,7 @@ Only open work is listed here. When something is done, it comes out of this file
 
 ### Review screen (one posting at a time)
 
-Built: the one-by-one screen (`pages/discover/review/`), discard reasons stored per posting (`job_postings.discard_reason`, `discard_note`, migration 0014; the codes are `discovery.DISCARD_REASONS`), the indigo theme. Left:
-
-- **What the discards say**: a count per reason, split by source, publisher, seniority and company, with the rule or criteria change each one points to ("12 × asks too much, 9 of them senior with 8+ years: lower `max_years`"). `closed`, `fake` and `no_apply` say more about the source than about the criteria.
+- **What the discards say** (`job_postings.discard_reason`, codes in `discovery.DISCARD_REASONS`): a count per reason, split by source, publisher, seniority and company, with the rule or criteria change each one points to ("12 × asks too much, 9 of them senior with 8+ years: lower `max_years`"). `closed`, `fake` and `no_apply` say more about the source than about the criteria.
 - **Closed by hand → closed for good**: a posting discarded as `closed` or `fake` could hide its duplicates at the same company (ties in with round 4).
 
 ### Round 4: quality of what's stored
@@ -19,9 +17,7 @@ Built: the one-by-one screen (`pages/discover/review/`), discard reasons stored 
 
 ### Round 5: AWS
 
-Deployed 2026-11-16: discovery runs in prod (`jobtracker-discover`, every 6 hours, plus the 09:00 digest). Prod is now where discovery happens; the local copy is frozen like the rest. Left:
-
-1. **Check the first runs in prod**: duration, the run notes, the first digest.
+1. **Check the first runs in prod** (`jobtracker-discover`, every 6 hours, and the 09:00 digest): duration, the run notes, the first digest.
 2. **remoteyeah from Lambda** is untested. The site is behind Cloudflare; a 403 or 503 shows up as a run note. If it's blocked, run that source from the laptop against DSQL (`discover run --source remoteyeah` needs a `--dsql` option, which doesn't exist yet).
 3. **Monthly directory scan** (`jobtracker discover companies scan`, about 20 minutes): too long for one Lambda run (15 minutes at most), so it stays a laptop command. Against prod it also needs a `--dsql` option.
 4. **DSQL's per-transaction limits** (3,000 rows, 10 MiB): `reset_scores` (Re-score) and `reapply_rules` (saving the rules) each change their rows in one transaction. That's about 800 rows today, but it grows with the postings: batch them before it gets close.
@@ -41,6 +37,12 @@ Deployed 2026-11-16: discovery runs in prod (`jobtracker-discover`, every 6 hour
 - WeRemoto and the a16z portfolio board (plain HTML pages).
 - Wellfound, Built In, the Kaszek portfolio board: bot challenges, so only through your browser, and only if the other sources fall short.
 - Adding a company by its website from the page (today only `jobtracker discover companies add <url>`): fetching a URL typed into a page needs more care than a local command.
+
+## Anthropic login (README, *Anthropic login*)
+
+1. **Try the local login**: `ant auth login`, `docker compose up -d`, then "Read with AI" locally.
+2. **Then delete the old keys** by hand: `/jobtracker/prod/ANTHROPIC_API_KEY` in SSM, and the API keys in the Console.
+3. **Redeploy the Lambdas** so prod runs the same code (only the functions' code changes).
 
 ## Rest of the app
 

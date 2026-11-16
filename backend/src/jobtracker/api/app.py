@@ -94,11 +94,9 @@ def create_app(
     def default_llm() -> LLMClient:
         from jobtracker.adapters.anthropic_llm import AnthropicLLM
 
-        if not settings.anthropic_api_key:
-            raise HTTPException(503, "ANTHROPIC_API_KEY is not configured")
-        return AnthropicLLM(
-            settings.anthropic_api_key, settings.llm_model, settings.llm_paste_effort
-        )
+        if not settings.llm_configured:
+            raise HTTPException(503, "Not logged in to Anthropic: run `ant auth login`")
+        return AnthropicLLM.from_settings(settings, settings.llm_paste_effort)
 
     make_llm = llm_factory or default_llm
 
@@ -109,9 +107,9 @@ def create_app(
 
         if not (settings.gmail_address and settings.gmail_app_password):
             raise HTTPException(503, "GMAIL_ADDRESS / GMAIL_APP_PASSWORD are not configured")
-        if not settings.anthropic_api_key:
-            raise HTTPException(503, "ANTHROPIC_API_KEY is not configured")
-        llm = AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
+        if not settings.llm_configured:
+            raise HTTPException(503, "Not logged in to Anthropic: run `ant auth login`")
+        llm = AnthropicLLM.from_settings(settings, settings.llm_effort)
         cfg = PipelineConfig(
             tz=settings.tz, my_addresses=settings.my_addresses, body_limit=settings.llm_body_chars
         )
@@ -144,8 +142,8 @@ def create_app(
 
         sources = discovery_sources()
         llm = (
-            AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
-            if settings.anthropic_api_key
+            AnthropicLLM.from_settings(settings, settings.llm_effort)
+            if settings.llm_configured
             else None
         )
         return sources, llm
@@ -894,7 +892,7 @@ def create_app(
                 repo.list_watched(), repo.get_discovery_setting("watchlist_scan")
             ),
             "last_run": s.run_json(repo.last_run()),
-            "llm_configured": bool(settings.anthropic_api_key),
+            "llm_configured": settings.llm_configured,
             "can_run": make_discovery is not None or remote_discover is not None,
             "unscored": repo.count_unscored(),
             "profile": profile.to_dict(),
@@ -1132,7 +1130,7 @@ def create_app(
             raise HTTPException(409, "A discovery run is already going")
         _, llm = make_discovery()
         if llm is None:
-            raise services.InvalidInput("ANTHROPIC_API_KEY isn't set")
+            raise services.InvalidInput("Not logged in to Anthropic: run `ant auth login`")
         try:
             run = discovery.rescore(
                 repo, llm, clock, include_hidden=body.include_hidden, on_progress=report

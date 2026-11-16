@@ -15,7 +15,8 @@ from collections.abc import Iterable, MutableMapping
 
 log = logging.getLogger(__name__)
 
-SECRET_NAMES = ("GMAIL_APP_PASSWORD", "ANTHROPIC_API_KEY", "GOOGLE_SERVICE_ACCOUNT_KEY")
+# The Anthropic API isn't here: prod reaches it through Workload Identity Federation, no key.
+SECRET_NAMES = ("GMAIL_APP_PASSWORD", "GOOGLE_SERVICE_ACCOUNT_KEY")
 DEFAULT_PREFIX = "/jobtracker/prod/"
 
 

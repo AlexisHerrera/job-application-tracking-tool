@@ -20,6 +20,13 @@ def load(name: str, *, uid: int | None = None, thread: str | None = None):
     return parse_email((FIXTURES / name).read_bytes(), uid=uid, gm_thread_id=thread)
 
 
+@pytest.fixture(autouse=True)
+def no_anthropic_login(monkeypatch, tmp_path):
+    """Tests never see the `ant auth login` session of the machine they run on."""
+    monkeypatch.setenv("ANTHROPIC_CONFIG_DIR", str(tmp_path / "anthropic-config"))
+    monkeypatch.delenv("ANTHROPIC_PROFILE", raising=False)
+
+
 @pytest.fixture
 def clock():
     return FixedClock(datetime(2026, 10, 12, 12, 0, tzinfo=UTC))

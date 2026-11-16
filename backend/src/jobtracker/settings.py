@@ -67,7 +67,6 @@ class Settings:
     imap_host: str
     imap_extra_query: str
     google_calendar_id: str
-    anthropic_api_key: str
     llm_model: str
     llm_effort: str
     llm_paste_effort: str
@@ -90,6 +89,13 @@ class Settings:
     # Prod: where the app lives (the login's return address). The SPA moves there from any other
     # host (the bare cloudfront.net name), since Cognito only returns to registered URLs.
     app_url: str = ""
+    # Prod: Workload Identity Federation, no API key. The Lambda's IAM role gets
+    # a token from STS and the SDK trades it for a short-lived Anthropic one, so there's no key to
+    # store or rotate. These IDs come from the Claude Console's federation rule; none is secret.
+    anthropic_federation_rule_id: str = ""
+    anthropic_organization_id: str = ""
+    anthropic_service_account_id: str = ""
+    anthropic_workspace_id: str = ""
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
@@ -109,7 +115,6 @@ class Settings:
             imap_host=e.get("IMAP_HOST", "imap.gmail.com"),
             imap_extra_query=e.get("IMAP_QUERY", "-category:promotions -category:social -in:chats"),
             google_calendar_id=e.get("GOOGLE_CALENDAR_ID", "primary").strip() or "primary",
-            anthropic_api_key=e.get("ANTHROPIC_API_KEY", ""),
             llm_model=e.get("LLM_MODEL", "claude-haiku-5-5"),
             llm_effort=e.get("LLM_EFFORT", "low"),
             llm_paste_effort=e.get("LLM_PASTE_EFFORT", "medium"),
@@ -124,6 +129,10 @@ class Settings:
             discover_function_name=e.get("DISCOVER_FUNCTION_NAME", "").strip(),
             smtp_host=e.get("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com",
             app_url=e.get("APP_URL", "").strip().rstrip("/"),
+            anthropic_federation_rule_id=e.get("ANTHROPIC_FEDERATION_RULE_ID", "").strip(),
+            anthropic_organization_id=e.get("ANTHROPIC_ORGANIZATION_ID", "").strip(),
+            anthropic_service_account_id=e.get("ANTHROPIC_SERVICE_ACCOUNT_ID", "").strip(),
+            anthropic_workspace_id=e.get("ANTHROPIC_WORKSPACE_ID", "").strip(),
         )
         s.validate(in_lambda=bool(e.get("AWS_LAMBDA_FUNCTION_NAME")))
         return s
@@ -142,6 +151,29 @@ class Settings:
                 "GOOGLE_SERVICE_ACCOUNT_KEY needs GOOGLE_CALENDAR_ID set to your calendar's ID "
                 "(your Gmail address for the main calendar)"
             )
+        federation = (
+            self.anthropic_federation_rule_id,
+            self.anthropic_organization_id,
+            self.anthropic_service_account_id,
+        )
+        if any(federation) and not all(federation):
+            raise ConfigError(
+                "federation needs all of ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID "
+                "and ANTHROPIC_SERVICE_ACCOUNT_ID"
+            )
+
+    @property
+    def uses_federation(self) -> bool:
+        return bool(self.anthropic_federation_rule_id)
+
+    @property
+    def llm_configured(self) -> bool:
+        """Federation (prod) or an `ant auth login` session on this machine (local)."""
+        if self.uses_federation:
+            return True
+        from jobtracker.adapters.anthropic_llm import login_profile
+
+        return login_profile() is not None
 
     @cached_property
     def tz(self) -> ZoneInfo:

@@ -100,7 +100,7 @@ uv run jobtracker db copy-to-dsql --dsql <endpoint> --dry-run   # counts only
 uv run jobtracker db copy-to-dsql --dsql <endpoint>             # the copy (asks first)
 ```
 
-- `push-secrets` writes `GMAIL_APP_PASSWORD`, `ANTHROPIC_API_KEY` and `GOOGLE_SERVICE_ACCOUNT_KEY` to `/jobtracker/prod/…` with the `aws/ssm` key. Terraform never sees them; re-run after rotating one (`--only NAME`). The Lambdas read them at cold start, so a new value takes effect on the next cold start (or redeploy).
+- `push-secrets` writes `GMAIL_APP_PASSWORD` and `GOOGLE_SERVICE_ACCOUNT_KEY` to `/jobtracker/prod/…` with the `aws/ssm` key. Prod has no Anthropic key: see *Anthropic login*. Terraform never sees them; re-run after rotating one (`--only NAME`). The Lambdas read them at cold start, so a new value takes effect on the next cold start (or redeploy).
 - `copy-to-dsql` only reads the local database. Re-running only adds missing rows; `--overwrite` updates existing ones from local. It brings the mail checkpoint (`processed_messages`, `mail_sync_state`) so the Lambda continues after the last mail the local app processed. The local Google OAuth login is never copied.
 - **After copying, pick one side.** If the local app keeps scanning, both pay for the same new mail and drift apart.
 
@@ -163,12 +163,27 @@ App passwords require 2-Step Verification.
 
 The ingester opens All Mail **read-only** (`EXAMINE` + `BODY.PEEK`), so it never marks anything as read. Revoking the app password at the same page cuts access immediately.
 
-### Anthropic API key
+### Anthropic login (no API keys)
 
-1. Sign in at https://console.anthropic.com, open *Settings → Billing*, and add credit (a few dollars lasts a long time with Haiku).
-2. *Settings → API keys → Create key*, named `jobtracker`.
-3. Put it in `.env` as `ANTHROPIC_API_KEY`. The model is set by `LLM_MODEL` (default `claude-haiku-5-5`).
-4. Optional: set a monthly spend limit under *Settings → Limits*.
+The app has no Anthropic API key, here or in prod.
+
+**On the laptop** it uses your own login, through the Anthropic CLI:
+
+1. Sign in at https://platform.claude.com, open *Settings → Billing*, and add credit (a few dollars lasts a long time with Haiku). Optional: a monthly spend limit under *Settings → Limits*.
+2. Install the CLI: `brew install anthropics/tap/ant`.
+3. `ant auth login`. It opens the browser; pick the organization and the workspace. `ant auth status` shows who you're logged in as.
+4. Start the app as usual. The backend containers mount `~/.config/anthropic` (`docker-compose.yml`) and the SDK uses that session, refreshing it on its own. The host CLI (`uv run jobtracker …`) reads the same folder.
+
+The session lasts until its refresh token expires; then the LLM calls fail with "not logged in to Anthropic" and you run `ant auth login` again. To end it yourself (say, when you stop working), run `ant auth logout`. With a named profile, set `ANTHROPIC_PROFILE` in `.env`. The model is set by `LLM_MODEL` (default `claude-haiku-5-5`).
+
+Don't run the `ingest` container and the API at the same time with a session that's about to refresh: both would refresh the same token at once.
+
+**In prod** the Lambdas use **Workload Identity Federation**. Each Lambda asks AWS STS for a short-lived web identity token for its IAM role (audience `https://api.anthropic.com`), and the SDK trades it for an Anthropic token that lasts 10 minutes. The setup:
+
+- AWS: *IAM → Account settings → Outbound web identity federation* is on. Terraform lets the three Lambda roles call `sts:GetWebIdentityToken` for that audience only (`infra/prod/lambdas.tf`).
+- Claude Console → *Workload identity*: the account's STS issuer, the service account `jobtracker-prod`, and the rule `jobtracker-lambdas`. It matches the three roles `jobtracker-{api,ingest,discover}-lambda`, one workspace.
+- The rule's IDs are plain env vars on the Lambdas (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`, `ANTHROPIC_WORKSPACE_ID`, set in `infra/prod/main.tf`).
+- A failed exchange shows up in the Console under *Workload identity → Authentication events*, with the reason.
 
 ### Google Calendar (read-only)
 

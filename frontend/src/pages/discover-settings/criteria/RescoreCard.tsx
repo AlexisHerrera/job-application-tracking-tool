@@ -27,7 +27,7 @@ export function RescoreCard({ state, unsaved, onDone }: { state: DiscoveryState;
         </label>
       </div>
       {unsaved && <p className="text-xs text-muted-foreground">Save first: re-scoring uses the saved criteria.</p>}
-      {!state.llm_configured && <p className="text-xs text-muted-foreground">ANTHROPIC_API_KEY isn't set.</p>}
+      {!state.llm_configured && <p className="text-xs text-muted-foreground">Not logged in to Anthropic: run <code>ant auth login</code>.</p>}
     </section>
   );
 }

@@ -35,11 +35,21 @@ locals {
   ssm_prefix = "/jobtracker/prod/"
   # Secret names in SSM (SecureString, aws/ssm key). Terraform never creates or reads them, so
   # their values can't end up in state: `jobtracker aws push-secrets` writes them from .env.
+  # The Anthropic API isn't among them: the Lambdas use Workload Identity Federation (below).
   secrets = {
-    api    = ["ANTHROPIC_API_KEY", "GOOGLE_SERVICE_ACCOUNT_KEY"]
-    ingest = ["GMAIL_APP_PASSWORD", "ANTHROPIC_API_KEY", "GOOGLE_SERVICE_ACCOUNT_KEY"]
-    # Scoring postings, and the digest (sent through Gmail's SMTP with the app password).
-    discover = ["ANTHROPIC_API_KEY", "GMAIL_APP_PASSWORD"]
+    api    = ["GOOGLE_SERVICE_ACCOUNT_KEY"]
+    ingest = ["GMAIL_APP_PASSWORD", "GOOGLE_SERVICE_ACCOUNT_KEY"]
+    # The digest goes out through Gmail's SMTP with the app password.
+    discover = ["GMAIL_APP_PASSWORD"]
+  }
+  # Claude Console → Workload identity: rule `jobtracker-lambdas` lets the three Lambda roles
+  # trade an STS web identity token for a short-lived Anthropic token acting as the service
+  # account `jobtracker-prod`. IDs only, nothing secret.
+  anthropic_federation = {
+    ANTHROPIC_FEDERATION_RULE_ID = "fdrl_01FtW6GSychbk9hfsMSBoeHL"
+    ANTHROPIC_ORGANIZATION_ID    = "80899ae9-fd8d-4294-b323-51d25aa4f7a6"
+    ANTHROPIC_SERVICE_ACCOUNT_ID = "svac_015wxLrZfLgvd92drPHw4Kuc"
+    ANTHROPIC_WORKSPACE_ID       = "wrkspc_01G5WFjFTUo2i3NTySkvw5wT"
   }
   dsql_endpoint = "${aws_dsql_cluster.main.identifier}.dsql.${local.region}.on.aws"
 }

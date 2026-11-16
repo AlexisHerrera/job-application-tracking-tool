@@ -27,6 +27,11 @@ from tests.fakes import MemoryRepo
 
 ENDPOINT = "abcdefghijklmnopqrstuvwxyz.dsql.us-east-1.on.aws"
 ARN = "arn:aws:iam::630773215521:role/jobtracker-api-lambda"
+FEDERATION_ENV = {
+    "ANTHROPIC_FEDERATION_RULE_ID": "fdrl_test",
+    "ANTHROPIC_ORGANIZATION_ID": "00000000-0000-0000-0000-000000000000",
+    "ANTHROPIC_SERVICE_ACCOUNT_ID": "svac_test",
+}
 
 
 # --- DSQL connection ---
@@ -200,17 +205,20 @@ class FakeSsm:
 
 
 def test_secrets_load_into_the_environment():
-    ssm = FakeSsm({"/p/ANTHROPIC_API_KEY": "sk-1"})
-    env = {"SSM_PARAMETER_PREFIX": "/p/", "SSM_SECRETS": "ANTHROPIC_API_KEY, GMAIL_APP_PASSWORD"}
+    ssm = FakeSsm({"/p/GOOGLE_SERVICE_ACCOUNT_KEY": "key-1"})
+    env = {
+        "SSM_PARAMETER_PREFIX": "/p/",
+        "SSM_SECRETS": "GOOGLE_SERVICE_ACCOUNT_KEY, GMAIL_APP_PASSWORD",
+    }
     missing = ssm_secrets.load_into_env(env, client=ssm)
-    assert env["ANTHROPIC_API_KEY"] == "sk-1" and "GMAIL_APP_PASSWORD" not in env
+    assert env["GOOGLE_SERVICE_ACCOUNT_KEY"] == "key-1" and "GMAIL_APP_PASSWORD" not in env
     assert missing == ["GMAIL_APP_PASSWORD"]
     assert ssm_secrets.load_into_env({}, client=ssm) == [] and len(ssm.calls) == 1
 
 
 def test_secrets_are_pushed_as_securestrings():
     ssm = FakeSsm({})
-    assert ssm_secrets.push(ssm, "/p/", {"ANTHROPIC_API_KEY": "sk"}) == ["/p/ANTHROPIC_API_KEY"]
+    assert ssm_secrets.push(ssm, "/p/", {"GMAIL_APP_PASSWORD": "pw"}) == ["/p/GMAIL_APP_PASSWORD"]
     assert ssm.put[0]["Type"] == "SecureString" and ssm.put[0]["KeyId"] == "alias/aws/ssm"
     assert ssm.put[0]["Overwrite"] is True
 
@@ -360,7 +368,7 @@ def test_ingest_refuses_to_run_without_secrets(monkeypatch):
     from jobtracker.settings import ConfigError
 
     monkeypatch.setattr(handlers, "_secrets_loaded", True)
-    for k in ("GMAIL_ADDRESS", "GMAIL_APP_PASSWORD", "ANTHROPIC_API_KEY"):
+    for k in ("GMAIL_ADDRESS", "GMAIL_APP_PASSWORD", "ANTHROPIC_API_KEY", *FEDERATION_ENV):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("APP_ENV", "prod")
     with pytest.raises(ConfigError, match="push-secrets"):
@@ -397,7 +405,9 @@ def ingest_env(monkeypatch):
     monkeypatch.setenv("APP_ENV", "prod")
     monkeypatch.setenv("GMAIL_ADDRESS", "me@example.com")
     monkeypatch.setenv("GMAIL_APP_PASSWORD", "not-a-real-password")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-a-real-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    for k, v in FEDERATION_ENV.items():  # like prod: no key, federation
+        monkeypatch.setenv(k, v)
 
     def use(repo):
         monkeypatch.setattr("jobtracker.adapters.db.repo.PostgresRepo.open", lambda _s: repo)
@@ -466,7 +476,7 @@ def test_discover_takes_its_own_lease_and_runs(ingest_env, monkeypatch):
     use(repo)
     monkeypatch.setattr("jobtracker.adapters.job_sources.discovery_sources", lambda: {"workable": FakeSource([posting()])})  # fmt: skip
     monkeypatch.setattr("jobtracker.adapters.ats_boards.AtsBoards", lambda: None)
-    monkeypatch.setattr("jobtracker.adapters.anthropic_llm.AnthropicLLM", lambda *_a: FakeLLM())
+    monkeypatch.setattr("jobtracker.adapters.anthropic_llm.AnthropicLLM.from_settings", lambda *_a: FakeLLM())  # fmt: skip
     out = handlers.discover({"trigger": "page", "action": "run"}, _Context())
     assert (out["trigger"], out["new"], out["llm_calls"]) == ("page", 1, 1)
     assert repo.get_discovery_setting("progress")["phase"] == "done"
