@@ -1,11 +1,10 @@
-// Job discovery (plan §20, §21): one posting at a time by default, or the list. New openings from the saved searches and the watched companies'
+// Job discovery's Review page (plan §20, §21): one posting at a time by default, or the list. New openings from the saved searches and the watched companies'
 // job boards, scored by the LLM against the criteria. Everything in a posting comes from the web: rendered as text, links only if http(s).
 import { useState } from "react";
-import { Settings2, Telescope } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Telescope } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import { Empty, Loading, PageHeader } from "@/components/common";
-import { Button } from "@/components/ui/button";
 import { useSearchParamsPatch, type ParamsPatch } from "@/lib/useSearchParamsPatch";
 import { useAsync } from "@/lib/useAsync";
 import { RunProgressPanel } from "@/features/discovery/progress/RunProgressPanel";
@@ -49,20 +48,9 @@ export default function DiscoverPage() {
   return (
     <div className={review ? "mx-auto max-w-6xl" : "mx-auto max-w-5xl"}>
       <PageHeader
-        title="Discover"
+        title="Review"
         description="New openings from your saved searches and watched companies, scored against your criteria."
-        actions={
-          s && (
-            <>
-              <RunButtons state={s} working={working} onRun={(score, collect) => void start({ kind: "run", score, collect })} />
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/discover/settings">
-                  <Settings2 /> Settings
-                </Link>
-              </Button>
-            </>
-          )
-        }
+        actions={s && <RunButtons state={s} working={working} onRun={(score, collect) => void start({ kind: "run", score, collect })} />}
       />
 
       {working ? (
@@ -72,9 +60,7 @@ export default function DiscoverPage() {
       )}
 
       {s && s.searches.length === 0 && s.companies.total === 0 ? (
-        <SeedEmptyState
-          onSeeded={() => navigate("/discover/settings")}
-        />
+        <SeedEmptyState onSeeded={() => navigate("/discover/criteria")} />
       ) : (
         <>
           <ListToolbar params={params} counts={data?.counts} set={set} filtersOpen={filtersOpen} onToggleFilters={() => setFiltersOpen((open) => !open)} />

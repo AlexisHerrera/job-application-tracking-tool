@@ -2,7 +2,7 @@ import type { DiscoveryRules } from "@/api/discovery";
 import type { CriteriaProfile } from "@/api/discoverySettings";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { SettingsCard } from "@/pages/discover-settings/SettingsCard";
+import { SettingsCard } from "@/features/discovery/SettingsCard";
 import { ChipField } from "./ChipField";
 
 /** Where you can be hired: the AI's main check. The Locations rule acts before it. */

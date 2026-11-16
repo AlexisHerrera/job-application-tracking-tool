@@ -1,4 +1,4 @@
-// The Discover settings page (plan §21, round 6)
+// The Discover Criteria and Sources pages (plan §21, round 6)
 import type { DiscoveryRules, DiscoveryState } from "./discovery";
 
 /** What the candidate is looking for, as fields; the server renders it to the criteria text. */

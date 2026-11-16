@@ -275,6 +275,9 @@ def test_discovery_roundtrip(pg, clock):
     assert pg.recent_posting_keys(clock.now() - timedelta(days=1))
     last = pg.last_run()
     assert isinstance(last, DiscoveryRun) and last.llm_calls == 1
+    pg.save_run(DiscoveryRun(started_at=clock.now() + timedelta(minutes=5), trigger="rescore"))
+    assert pg.last_run().trigger == "rescore"
+    assert pg.last_run(except_trigger="rescore").id == last.id
 
     assert pg.reset_scores((PostingStatus.NEW,), clock.now() - timedelta(days=1)) == 1
     assert [p.source_id for p in pg.unscored_postings()] == ["a1"]
@@ -342,7 +345,7 @@ def test_posting_search_sql_agrees_with_matches(pg, clock):
         expected = discovery.sort_postings([p for p in stored.values() if discovery.matches(p, q)], q.sort)  # fmt: skip
         rows, total = pg.search_postings(q)
         assert [p.id for p in rows] == [p.id for p in expected[q.offset : q.offset + q.limit]], q
-        assert total == len(expected), q
+        assert total == pg.count_postings(q) == len(expected), q
 
     light = pg.facet_postings()
     assert len(light) == len(specs) and all(p.description == "" for p in light)

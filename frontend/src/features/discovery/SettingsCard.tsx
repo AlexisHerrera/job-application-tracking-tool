@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/** One block of the settings page: a title, what it does, and its fields. */
+/** One block of the Criteria and Sources pages: a title, what it does, and its fields. */
 export function SettingsCard({ title, hint, aside, children, className }: { title: ReactNode; hint?: ReactNode; aside?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <section className={cn("space-y-3 rounded-lg border bg-card p-4", className)}>

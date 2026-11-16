@@ -393,6 +393,11 @@ class MemoryRepo:
         page = rows[query.offset : query.offset + query.limit]
         return [copy.deepcopy(p) for p in page], len(rows)
 
+    def count_postings(self, query):
+        from jobtracker.core import discovery
+
+        return sum(discovery.matches(p, query) for p in self.postings.values())
+
     def facet_postings(self):
         return [copy.deepcopy(p) for p in self.postings.values()]
 
@@ -429,8 +434,9 @@ class MemoryRepo:
     def save_run(self, run):
         self.runs[run.id] = copy.deepcopy(run)
 
-    def last_run(self):
-        return max(self.runs.values(), key=lambda r: r.started_at, default=None)
+    def last_run(self, *, except_trigger=None):
+        runs = [r for r in self.runs.values() if r.trigger != except_trigger]
+        return max(runs, key=lambda r: r.started_at, default=None)
 
     def list_runs(self, limit):
         return sorted(self.runs.values(), key=lambda r: r.started_at, reverse=True)[:limit]

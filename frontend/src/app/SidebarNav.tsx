@@ -1,29 +1,38 @@
-import { NavLink } from "react-router-dom";
-import { cn } from "@/lib/utils";
-import { NAV } from "./nav";
+import { Plus } from "lucide-react";
+import { Link } from "react-router-dom";
+import { NAV, type NavAlert, type NavCount } from "./nav";
+import { SidebarNavItem } from "./SidebarNavItem";
 
-export function SidebarNav({ inbox, onNavigate }: { inbox: number; onNavigate?: () => void }) {
+/** The pages in two labelled groups, Discover and Track. `alerts` holds what each dot says. */
+export function SidebarNav({ counts, alerts, onNavigate }: { counts: Record<NavCount, number>; alerts: Record<NavAlert, string | null>; onNavigate?: () => void }) {
   return (
-    <nav className="flex flex-col gap-0.5">
-      {NAV.map(({ to, label, icon: Icon, end, count }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            cn(
-              "flex h-8 items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              isActive && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
-            )
-          }
-        >
-          <Icon className="size-4" />
-          {label}
-          {count === "inbox" && inbox > 0 && (
-            <span className="ml-auto rounded-full bg-primary px-1.5 text-xs leading-5 font-medium text-primary-foreground tabular-nums">{inbox}</span>
-          )}
-        </NavLink>
+    <nav className="flex flex-col gap-4">
+      {NAV.map((group) => (
+        <div key={group.label} className="flex flex-col gap-0.5">
+          <div className="flex h-6 items-center justify-between px-2">
+            <h2 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{group.label}</h2>
+            {group.add && (
+              <Link
+                to={group.add.to}
+                onClick={onNavigate}
+                title={group.add.label}
+                aria-label={group.add.label}
+                className="-mr-1 grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              >
+                <Plus className="size-4" />
+              </Link>
+            )}
+          </div>
+          {group.items.map((item) => (
+            <SidebarNavItem
+              key={item.to}
+              item={item}
+              count={item.count ? counts[item.count] : 0}
+              alert={item.alert ? alerts[item.alert] : null}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
       ))}
     </nav>
   );

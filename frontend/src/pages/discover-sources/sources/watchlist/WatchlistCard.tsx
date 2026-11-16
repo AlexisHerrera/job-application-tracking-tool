@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { errorText } from "@/lib/errors";
 import { useAsync } from "@/lib/useAsync";
-import { SettingsCard } from "@/pages/discover-settings/SettingsCard";
+import { SettingsCard } from "@/features/discovery/SettingsCard";
 import { AddCompanyForm } from "./AddCompanyForm";
 import { WATCH_PAGE_SIZE } from "./constants";
 import { WatchlistFilters, type WatchFilter } from "./WatchlistFilters";

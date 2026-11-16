@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/api/client";
 import { errorText } from "@/lib/errors";
 import { type DiscoveryProgress } from "@/api/discovery";
+import { useDiscoveryStatus } from "./discoveryStatus";
 
 export type Job = { kind: "run"; score: boolean; collect: boolean } | { kind: "rescore"; includeHidden: boolean };
 
@@ -36,7 +37,13 @@ function useDiscoveryProgress(active: boolean) {
 
 /** Locally, runs and re-scores wait for one long request; meanwhile the progress endpoint says where it is.
  * In AWS the request only starts the run (`started`), and the progress endpoint alone says when it ends. */
-export function useDiscoveryJob(reloadAll: () => void) {
+export function useDiscoveryJob(reload: () => void) {
+  const status = useDiscoveryStatus();
+  // The sidebar's Review count and last run move with every run.
+  const reloadAll = () => {
+    reload();
+    status.refresh();
+  };
   const [job, setJob] = useState<Job | null>(null);
   const [progress, setProgress] = useDiscoveryProgress(job !== null);
   const working = job !== null || progress?.running === true;

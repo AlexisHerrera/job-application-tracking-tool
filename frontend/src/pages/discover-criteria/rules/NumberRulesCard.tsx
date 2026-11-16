@@ -1,7 +1,7 @@
 import type { DiscoveryRules } from "@/api/discovery";
 import type { RuleHits } from "@/api/discoverySettings";
-import { NumberField } from "@/pages/discover-settings/NumberField";
-import { SettingsCard } from "@/pages/discover-settings/SettingsCard";
+import { NumberField } from "@/pages/discover-criteria/NumberField";
+import { SettingsCard } from "@/features/discovery/SettingsCard";
 
 /** Max age and salary floor. */
 export function NumberRulesCard({ rules, onChange, hits }: { rules: DiscoveryRules; onChange: (r: DiscoveryRules) => void; hits: RuleHits | null }) {

@@ -37,7 +37,14 @@ from jobtracker.core import (
 from jobtracker.core.clock import SystemClock
 from jobtracker.core.criteria import CRITERIA_LIMIT
 from jobtracker.core.matching import normalize_company
-from jobtracker.core.models import Campaign, DiscoverySearch, InterviewNote, Origin, PostingQuery
+from jobtracker.core.models import (
+    Campaign,
+    DiscoverySearch,
+    InterviewNote,
+    Origin,
+    PostingQuery,
+    PostingStatus,
+)
 from jobtracker.core.pipeline import Pipeline, PipelineConfig, run_incremental
 from jobtracker.core.ports import (
     BoardSource,
@@ -942,6 +949,15 @@ def create_app(
     @api.get("/discover/runs")
     def list_runs(limit: int = Query(30, ge=1, le=200), repo: PostgresRepo = Depends(get_repo)):
         return [s.run_json(r) for r in repo.list_runs(limit)]
+
+    @api.get("/discover/status")
+    def discovery_status(repo: PostgresRepo = Depends(get_repo)):
+        """What the sidebar shows on every page, so two cheap queries: the postings left to look
+        at (the default review queue: let through by the rules, still new) and the last run
+        that wasn't a re-score (the "Job sources" line: a re-score reads no source)."""
+        to_review = repo.count_postings(PostingQuery(statuses=(PostingStatus.NEW.value,)))
+        last = repo.last_run(except_trigger="rescore")
+        return {"to_review": to_review, "last_run": s.run_json(last)}
 
     # the company watchlist (plan §21, round 6)
     @api.get("/discover/companies")

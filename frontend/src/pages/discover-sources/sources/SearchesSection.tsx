@@ -5,7 +5,7 @@ import { errorText } from "@/lib/errors";
 import { type DiscoverySearch } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { SettingsCard } from "@/pages/discover-settings/SettingsCard";
+import { SettingsCard } from "@/features/discovery/SettingsCard";
 import { AddSearchForm } from "./AddSearchForm";
 import { paramsSummary } from "./paramsSummary";
 

@@ -4,7 +4,7 @@ import { api } from "@/api/client";
 import type { DiscoveryRules, DiscoveryState } from "@/api/discovery";
 import { errorText } from "@/lib/errors";
 import { useAsync } from "@/lib/useAsync";
-import { SaveBar } from "@/pages/discover-settings/SaveBar";
+import { SaveBar } from "@/pages/discover-criteria/SaveBar";
 import { LIST_FIELDS } from "./constants";
 import { HiddenSummary } from "./HiddenSummary";
 import { NumberRulesCard } from "./NumberRulesCard";

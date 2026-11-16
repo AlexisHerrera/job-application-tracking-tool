@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useSearchParams } from "react-router-dom";
 import AddApplication from "@/pages/add-application/AddApplicationPage";
 import ApplicationPage from "@/pages/application/ApplicationPage";
 import Applications from "@/pages/applications/ApplicationsPage";
@@ -6,10 +6,24 @@ import CalendarPage from "@/pages/calendar/CalendarPage";
 import Campaigns from "@/pages/campaigns/CampaignsPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import Discover from "@/pages/discover/DiscoverPage";
-import DiscoverSettings from "@/pages/discover-settings/DiscoverSettingsPage";
+import DiscoverCriteria from "@/pages/discover-criteria/DiscoverCriteriaPage";
+import DiscoverSources from "@/pages/discover-sources/DiscoverSourcesPage";
 import Inbox from "@/pages/inbox/InboxPage";
 import Interviews from "@/pages/interviews/InterviewsPage";
 import { EditorPage } from "@/features/notes/EditorPage";
+
+// The old settings page's tabs, now on two pages.
+const SETTINGS_TABS = new Map([
+  ["criteria", "/discover/criteria"],
+  ["rules", "/discover/criteria?tab=rules"],
+  ["sources", "/discover/sources"],
+  ["runs", "/discover/sources?tab=runs"],
+]);
+
+function DiscoverSettingsRedirect() {
+  const [params] = useSearchParams();
+  return <Navigate replace to={SETTINGS_TABS.get(params.get("tab") ?? "") ?? "/discover/criteria"} />;
+}
 
 export function AppRoutes() {
   return (
@@ -25,7 +39,9 @@ export function AppRoutes() {
       <Route path="/add" element={<AddApplication />} />
       <Route path="/campaigns" element={<Campaigns />} />
       <Route path="/discover" element={<Discover />} />
-      <Route path="/discover/settings" element={<DiscoverSettings />} />
+      <Route path="/discover/sources" element={<DiscoverSources />} />
+      <Route path="/discover/criteria" element={<DiscoverCriteria />} />
+      <Route path="/discover/settings" element={<DiscoverSettingsRedirect />} />
       <Route path="*" element={<p className="text-muted-foreground">Not found.</p>} />
     </Routes>
   );

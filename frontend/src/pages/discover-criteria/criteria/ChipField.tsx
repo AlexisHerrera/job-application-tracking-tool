@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Label } from "@/components/ui/label";
-import { ChipListInput } from "@/pages/discover-settings/ChipListInput";
+import { ChipListInput } from "@/pages/discover-criteria/ChipListInput";
 
 /** A labelled chip list inside a criteria card. */
 export function ChipField({ label, hint, values, onChange, placeholder, mark }: { label: string; hint?: ReactNode; values: string[]; onChange: (v: string[]) => void; placeholder?: string; mark?: (v: string) => ReactNode }) {

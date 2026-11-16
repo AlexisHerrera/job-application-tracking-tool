@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { RuleListHits } from "@/api/discoverySettings";
 import { timeAgo } from "@/lib/format";
-import { ChipListInput } from "@/pages/discover-settings/ChipListInput";
-import { SettingsCard } from "@/pages/discover-settings/SettingsCard";
+import { ChipListInput } from "@/pages/discover-criteria/ChipListInput";
+import { SettingsCard } from "@/features/discovery/SettingsCard";
 
 /** "Hide company" marks on the block list. */
 function addedMark(added: { name: string; at: string }[]) {

@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/api/client";
 import type { DiscoveryState } from "@/api/discovery";
 import { errorText } from "@/lib/errors";
-import { SaveBar } from "@/pages/discover-settings/SaveBar";
+import { SaveBar } from "@/pages/discover-criteria/SaveBar";
 import { CriteriaPreview } from "./CriteriaPreview";
 import { OldCriteriaBanner } from "./OldCriteriaBanner";
 import { ProfileForm } from "./ProfileForm";

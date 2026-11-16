@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { api } from "@/api/client";
 import { errorText } from "@/lib/errors";
-import { timeAgo } from "@/lib/format";
 import { useRefresh } from "@/lib/refresh";
 import { useAsync } from "@/lib/useAsync";
 import { calendarSummary, scanSummary } from "./scanSummary";
@@ -15,10 +14,8 @@ import { calendarSummary, scanSummary } from "./scanSummary";
 // invokes the ingest Lambda (which the schedule also runs every 15 minutes).
 export function ScanButton() {
   const { bump } = useRefresh();
-  const status = useAsync(api.scanStatus).data;
   const calendar = useAsync(api.calendarStatus).data;
   const [busy, setBusy] = useState(false);
-  if (!status?.available) return null;
 
   async function scan() {
     setBusy(true);
@@ -42,12 +39,10 @@ export function ScanButton() {
     bump();
     setBusy(false);
   }
+  const label = busy ? "Scanning…" : calendar?.connected ? "Scan inbox & calendar" : "Scan inbox now";
   return (
-    <div className="space-y-1">
-      <Button variant="outline" size="sm" className="w-full justify-start" disabled={busy} onClick={scan}>
-        <RefreshCw className={cn(busy && "animate-spin")} /> {busy ? "Scanning…" : calendar?.connected ? "Scan inbox & calendar" : "Scan inbox now"}
-      </Button>
-      <p className="px-1 text-xs text-muted-foreground">Last scan: {timeAgo(status.last_scan_at)}</p>
-    </div>
+    <Button variant="ghost" size="icon-sm" className="text-muted-foreground" disabled={busy} onClick={scan} title={label} aria-label={label}>
+      <RefreshCw className={cn(busy && "animate-spin")} />
+    </Button>
   );
 }

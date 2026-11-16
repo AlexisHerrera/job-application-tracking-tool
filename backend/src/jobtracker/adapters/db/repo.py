@@ -825,13 +825,17 @@ class PostgresRepo:
 
     def search_postings(self, query: PostingQuery) -> tuple[list[JobPosting], int]:
         where, args = _posting_where(query)
-        total = self._one(f"SELECT count(*) AS n FROM job_postings WHERE {where}", tuple(args))
         order = _POSTING_ORDER.get(query.sort, _POSTING_ORDER["score"])
         rows = self._all(
             f"SELECT * FROM job_postings WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s",
             (*args, query.limit, query.offset),
         )
-        return [_posting_from(r) for r in rows], total["n"] if total else 0
+        return [_posting_from(r) for r in rows], self.count_postings(query)
+
+    def count_postings(self, query: PostingQuery) -> int:
+        where, args = _posting_where(query)
+        row = self._one(f"SELECT count(*) AS n FROM job_postings WHERE {where}", tuple(args))
+        return row["n"] if row else 0
 
     def facet_postings(self) -> list[JobPosting]:
         rows = self._all(f"SELECT {', '.join(_FACET_COLUMNS)} FROM job_postings")
@@ -919,8 +923,9 @@ class PostgresRepo:
             f"{_insert('discovery_runs', row)} ON CONFLICT (id) DO UPDATE SET {sets}", row
         )
 
-    def last_run(self) -> DiscoveryRun | None:
-        r = self._one("SELECT * FROM discovery_runs ORDER BY started_at DESC LIMIT 1")
+    def last_run(self, *, except_trigger: str | None = None) -> DiscoveryRun | None:
+        where, args = ("WHERE trigger <> %s ", (except_trigger,)) if except_trigger else ("", ())
+        r = self._one(f"SELECT * FROM discovery_runs {where}ORDER BY started_at DESC LIMIT 1", args)
         return _run_from(r) if r else None
 
     def list_runs(self, limit: int) -> list[DiscoveryRun]:

@@ -10,7 +10,7 @@ from jobtracker.api.app import create_app
 from jobtracker.core import criteria, discovery, discovery_settings
 from jobtracker.core.clock import FixedClock
 from jobtracker.core.discovery import Rules
-from jobtracker.core.models import DiscoveryRun, WatchedCompany
+from jobtracker.core.models import DiscoveryRun, PostingStatus, WatchedCompany
 from jobtracker.settings import Settings
 from tests.fakes import FakeBoards, MemoryRepo, posting
 
@@ -264,6 +264,24 @@ def test_api_runs(client, repo):
         repo.save_run(DiscoveryRun(started_at=NOW - timedelta(days=day), trigger="page", notes=[f"run {day}"]))  # fmt: skip
     runs = client.get("/api/discover/runs", params={"limit": 2}).json()
     assert [r["notes"] for r in runs] == [["run 0"], ["run 1"]]
+
+
+def test_api_status_counts_the_review_queue(client, repo):
+    assert client.get("/api/discover/status").json() == {"to_review": 0, "last_run": None}
+    stored(repo, source_id="a", title="Backend Engineer")
+    stored(repo, source_id="b", title="Platform Engineer", ai_verdict="no", ai_score=20)
+    stored(repo, source_id="c", title="Java Engineer", drop_reason="title: java")
+    stored(repo, source_id="d", title="Data Engineer", status=PostingStatus.INTERESTED)
+    stored(repo, source_id="e", title="SRE", status=PostingStatus.DISMISSED)
+    repo.save_run(DiscoveryRun(started_at=YESTERDAY, trigger="schedule"))
+    repo.save_run(DiscoveryRun(started_at=NOW, trigger="page", errors=1, notes=["getonbrd: 503"]))  # fmt: skip
+    repo.save_run(
+        DiscoveryRun(started_at=NOW + timedelta(minutes=5), trigger="rescore")
+    )  # reads no source
+    status = client.get("/api/discover/status").json()
+    queue = client.get("/api/discover", params={"status": "new"}).json()
+    assert status["to_review"] == queue["total"] == 2  # visible and new, any verdict
+    assert status["last_run"]["trigger"] == "page" and status["last_run"]["errors"] == 1
 
 
 def test_clock_is_used_for_hide_company():

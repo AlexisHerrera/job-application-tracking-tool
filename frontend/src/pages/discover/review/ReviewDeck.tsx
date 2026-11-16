@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { api } from "@/api/client";
 import type { Discard, PostingPage, PostingStatus } from "@/api/discovery";
 import { Loading } from "@/components/common";
+import { useDiscoveryStatus } from "@/features/discovery/discoveryStatus";
 import { errorText } from "@/lib/errors";
 import { safeUrl } from "@/lib/links";
 import { DiscardPanel } from "./DiscardPanel";
@@ -18,6 +19,7 @@ import { useReviewQueue } from "./useReviewQueue";
 export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPage; query: Record<string, string>; onBlocked: () => void; onTech: (tech: string) => void }) {
   const q = useReviewQueue(data, query);
   const navigate = useNavigate();
+  const status = useDiscoveryStatus();
   const [busy, setBusy] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const p = q.current;
@@ -28,6 +30,7 @@ export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPa
     setBusy(true);
     try {
       await work();
+      status.refresh(); // every action here moves the sidebar's Review count
     } catch (e) {
       toast.error(errorText(e));
     }
@@ -54,7 +57,7 @@ export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPa
     p &&
     run(async () => {
       const r = await api.blockCompany(p.company);
-      toast.success(`${p.company} is blocked: ${r.hidden} posting${r.hidden === 1 ? "" : "s"} hidden. Undo it in Discover settings, Rules tab, under "Blocked companies".`);
+      toast.success(`${p.company} is blocked: ${r.hidden} posting${r.hidden === 1 ? "" : "s"} hidden. Undo it in Criteria, Rules tab, under "Blocked companies".`);
       setDiscarding(false);
       onBlocked();
     });

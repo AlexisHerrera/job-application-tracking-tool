@@ -133,6 +133,14 @@ export interface DiscoveryRun {
   notes: string[];
 }
 
+/** GET /discover/status: what the sidebar shows on every page. */
+export interface DiscoveryStatus {
+  /** Postings left to look at: the default review queue (let through by the rules, still new). */
+  to_review: number;
+  /** The newest run that wasn't a re-score. */
+  last_run: DiscoveryRun | null;
+}
+
 /** In AWS a run starts in the discover Lambda and the request returns at once; the page then
  * follows the progress endpoint until it's done. */
 export interface DiscoveryStarted {

@@ -3,6 +3,7 @@ import { Ban, Check, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/api/client";
+import { useDiscoveryStatus } from "@/features/discovery/discoveryStatus";
 import { errorText } from "@/lib/errors";
 import { type DiscardReason, type Posting, type PostingStatus } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { DiscardMenu } from "./DiscardMenu";
 /** Applied / Save for later / Discard (with a reason) / Hide company, or Open application once applied. One `busy` for all. */
 export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChange: () => void; onBlocked: () => void }) {
   const navigate = useNavigate();
+  const status = useDiscoveryStatus();
   const [busy, setBusy] = useState(false);
 
   async function setStatus(next: PostingStatus, reason?: DiscardReason) {
@@ -18,6 +20,7 @@ export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChang
     try {
       await api.setPostingStatus(p.id, next, reason && { reason });
       onChange();
+      status.refresh();
     } catch (e) {
       toast.error(errorText(e));
     }
@@ -27,8 +30,9 @@ export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChang
     setBusy(true);
     try {
       const r = await api.blockCompany(p.company);
-      toast.success(`${p.company} is blocked: ${r.hidden} posting${r.hidden === 1 ? "" : "s"} hidden. Undo it in Discover settings, Rules tab, under "Blocked companies".`);
+      toast.success(`${p.company} is blocked: ${r.hidden} posting${r.hidden === 1 ? "" : "s"} hidden. Undo it in Criteria, Rules tab, under "Blocked companies".`);
       onBlocked();
+      status.refresh();
     } catch (e) {
       toast.error(errorText(e));
     }
@@ -42,6 +46,7 @@ export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChang
         action: { label: "Open", onClick: () => navigate(`/applications/${r.application.id}`) },
       });
       onChange();
+      status.refresh();
     } catch (e) {
       toast.error(errorText(e));
     }
