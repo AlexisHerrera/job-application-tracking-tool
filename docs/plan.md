@@ -17,11 +17,9 @@ Only open work is listed here. When something is done, it comes out of this file
 
 ### Round 5: AWS
 
-1. **Check the first runs in prod** (`jobtracker-discover`, every 6 hours, and the 09:00 digest): duration, the run notes, the first digest.
-2. **remoteyeah from Lambda** is untested. The site is behind Cloudflare; a 403 or 503 shows up as a run note. If it's blocked, run that source from the laptop against DSQL (`discover run --source remoteyeah` needs a `--dsql` option, which doesn't exist yet).
-3. **Monthly directory scan** (`jobtracker discover companies scan`, about 20 minutes): too long for one Lambda run (15 minutes at most), so it stays a laptop command. Against prod it also needs a `--dsql` option.
-4. **DSQL's per-transaction limits** (3,000 rows, 10 MiB): `reset_scores` (Re-score) and `reapply_rules` (saving the rules) each change their rows in one transaction. That's about 800 rows today, but it grows with the postings: batch them before it gets close.
-5. Remove `JSEARCH_API_KEY` from `.env` (nothing reads it any more).
+1. **Check the first scheduled run and digest in prod.** A run from the page in prod worked (2026-11-16 17:06 UTC: remoteyeah got through Cloudflare, prompt caching works). Still unchecked: a run with trigger `schedule` (02/08/14/20 Buenos Aires) and how long it takes, and the first 09:00 digest (`discovery_settings` key `digest` gets a `sent_at`).
+2. **Monthly directory scan** (`jobtracker discover companies scan`, about 20 minutes): too long for one Lambda run (15 minutes at most), so it stays a laptop command. Against prod it also needs a `--dsql` option.
+3. **DSQL's per-transaction limits** (3,000 rows, 10 MiB): `reset_scores` (Re-score) and `reapply_rules` (saving the rules) each change their rows in one transaction. That's about 800 rows today, but it grows with the postings: batch them before it gets close.
 
 ### Tuning (with you, from what the scored postings show)
 
@@ -29,7 +27,7 @@ Only open work is listed here. When something is done, it comes out of this file
 - **getonbrd**: only 10 of 347 postings were visible after the rules. Most are hybrid or onsite in Chile, or "remote inside the country" with no country given: check the location rule isn't too strict there.
 - **AI-marked consultancies** are hidden: check that list (Discover → Hidden) for false positives.
 - **Fake-looking postings** (e.g. "Javascript Engineer - Remote, Latin America" via remotejobs.dedyn.io and victorytuitions.in to Bluelight Consulting): drop postings whose apply link goes through known redirect or aggregator domains.
-- **Rate limits**: on the next large scoring run, check that the run note shows `(+N cached)` (prompt caching works). Lower `SCORE_WORKERS` (6) only if 429s keep stopping runs.
+- **Rate limits**: lower `SCORE_WORKERS` (6) only if 429s keep stopping runs ("stopped scoring after 3 LLM failures" in the run notes).
 
 ### Maybe later
 
@@ -37,12 +35,6 @@ Only open work is listed here. When something is done, it comes out of this file
 - WeRemoto and the a16z portfolio board (plain HTML pages).
 - Wellfound, Built In, the Kaszek portfolio board: bot challenges, so only through your browser, and only if the other sources fall short.
 - Adding a company by its website from the page (today only `jobtracker discover companies add <url>`): fetching a URL typed into a page needs more care than a local command.
-
-## Anthropic login (README, *Anthropic login*)
-
-1. **Try the local login**: `ant auth login`, `docker compose up -d`, then "Read with AI" locally.
-2. **Then delete the old keys** by hand: `/jobtracker/prod/ANTHROPIC_API_KEY` in SSM, and the API keys in the Console.
-3. **Redeploy the Lambdas** so prod runs the same code (only the functions' code changes).
 
 ## Rest of the app
 
