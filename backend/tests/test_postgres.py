@@ -385,3 +385,33 @@ def test_watchlist_roundtrip(pg, clock):
     assert discovery.block_company(pg, "Spam Co") == 0
     assert {p.company: p.drop_reason for p in pg.list_postings()} == {"Spam Co": "blocked", "Good Co": None}  # fmt: skip
     assert "Spam Co" in discovery.load_settings(pg)[1].blocked
+
+
+def test_settings_page_queries(pg):
+    """Rule hit counts, the postings saving the rules checks again, and the run list (§21 r6)."""
+    from datetime import UTC, datetime, timedelta
+
+    from jobtracker.core import discovery
+    from jobtracker.core.models import DiscoveryRun, PostingStatus
+    from tests.fakes import posting
+
+    now = datetime(2026, 11, 15, 12, 0, tzinfo=UTC)
+    rows = [
+        ("Spam Co", "blocked", PostingStatus.NEW), ("Spam Co", "blocked", PostingStatus.NEW),
+        ("Acme", "title: java", PostingStatus.NEW), ("Acme", None, PostingStatus.NEW),
+        ("Acme", None, PostingStatus.APPLIED), ("Acme", "duplicate", PostingStatus.NEW),
+    ]  # fmt: skip
+    for i, (company, reason, status) in enumerate(rows):
+        p = discovery.prepare(posting(source_id=str(i), company=company), now)
+        p.drop_reason, p.status = reason, status
+        pg.add_posting(p)
+    assert sorted(pg.drop_reason_counts()) == [
+        ("blocked", "spam", 2), ("duplicate", "acme", 1), ("title: java", "acme", 1),
+    ]  # fmt: skip
+    again = pg.postings_to_recheck(("title: java",))
+    assert sorted(str(p.drop_reason) for p in again) == ["None", "title: java"]
+    assert len(pg.postings_to_recheck(())) == 1
+
+    for day in range(3):
+        pg.save_run(DiscoveryRun(started_at=now - timedelta(days=day), trigger="page", notes=[str(day)]))  # fmt: skip
+    assert [r.notes for r in pg.list_runs(2)] == [["0"], ["1"]]

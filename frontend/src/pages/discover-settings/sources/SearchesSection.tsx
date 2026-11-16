@@ -5,6 +5,7 @@ import { errorText } from "@/lib/errors";
 import { type DiscoverySearch } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { SettingsCard } from "@/pages/discover-settings/SettingsCard";
 import { AddSearchForm } from "./AddSearchForm";
 import { paramsSummary } from "./paramsSummary";
 
@@ -21,16 +22,17 @@ export function SearchesSection({ searches, jsearchConfigured, onChange }: { sea
     }
   };
 
+  const hint = (
+    <>
+      remoteyeah feeds, getonbrd categories and Workable searches are free.
+      {enabledJsearch > 0 && ` ${enabledJsearch} JSearch search${enabledJsearch === 1 ? "" : "es"} on: about ${enabledJsearch * 30} of the free 200 requests a month at one run a day.`}
+      {enabledJsearch > 0 && !jsearchConfigured && " JSEARCH_API_KEY isn't set, so JSearch searches are skipped."}
+    </>
+  );
+  const on = searches.filter((x) => x.enabled).length;
+
   return (
-    <section className="space-y-3">
-      <div>
-        <h3 className="text-sm font-medium">Searches</h3>
-        <p className="text-xs text-muted-foreground">
-          remoteyeah feeds, getonbrd categories and Workable searches are free.
-          {enabledJsearch > 0 && ` ${enabledJsearch} JSearch search${enabledJsearch === 1 ? "" : "es"} on: about ${enabledJsearch * 30} of the free 200 requests a month at one run a day.`}
-          {enabledJsearch > 0 && !jsearchConfigured && " JSEARCH_API_KEY isn't set, so JSearch searches are skipped."}
-        </p>
-      </div>
+    <SettingsCard title="Saved searches" hint={hint} aside={<span className="tabular-nums">{on} of {searches.length} on</span>}>
       <ul className="divide-y rounded-lg border">
         {searches.map((x) => (
           <li key={x.id} className="flex items-center gap-3 px-3 py-2">
@@ -44,6 +46,6 @@ export function SearchesSection({ searches, jsearchConfigured, onChange }: { sea
         ))}
       </ul>
       <AddSearchForm run={run} />
-    </section>
+    </SettingsCard>
   );
 }

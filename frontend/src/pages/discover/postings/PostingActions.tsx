@@ -26,7 +26,7 @@ export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChang
     setBusy(true);
     try {
       const r = await api.blockCompany(p.company);
-      toast.success(`${p.company} is blocked: ${r.hidden} posting${r.hidden === 1 ? "" : "s"} hidden. Undo it in Criteria & searches, under "Blocked companies".`);
+      toast.success(`${p.company} is blocked: ${r.hidden} posting${r.hidden === 1 ? "" : "s"} hidden. Undo it in Discover settings, Rules tab, under "Blocked companies".`);
       onBlocked();
     } catch (e) {
       toast.error(errorText(e));

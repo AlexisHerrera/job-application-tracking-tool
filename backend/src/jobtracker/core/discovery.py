@@ -19,6 +19,8 @@ from datetime import UTC, datetime, timedelta
 
 from rapidfuzz import fuzz
 
+from jobtracker.core.criteria import DEFAULT_PROFILE
+from jobtracker.core.criteria import render as render_criteria
 from jobtracker.core.matching import normalize_company
 from jobtracker.core.models import (
     DiscoveryRun,
@@ -59,51 +61,8 @@ SCORE_WORKERS = 6  # LLM calls in flight at once
 # ---------------------------------------------------------------------------------------------
 # Defaults (editable on the Discover page; `jobtracker discover seed` writes them once)
 
-DEFAULT_CRITERIA = """\
-Candidate: lives in Buenos Aires, Argentina. About 4 years of experience.
-- Senior Software Engineer at a security startup (Python API + React): phishing and fake-app \
-detection, a GitHub App that scans npm packages for supply-chain attacks, a migration from \
-server-rendered templates to a React frontend.
-- 3 years full stack at a litigation-funding fintech (React, TypeScript, Express, Next.js): an \
-internal financial platform with $25M+ in transactions and bank reconciliation, a CRM, a data \
-labeling platform, Python scraping pipelines over 2M+ court cases (MySQL, MongoDB).
-- Earlier: REST APIs in ASP.NET for an industrial client.
-- Informatics Engineering, University of Buenos Aires. English for work, Spanish native, only a \
-little Portuguese (not enough to work in it).
-
-Roles wanted: software engineer, full stack engineer, backend engineer. AI-flavoured roles are \
-welcome too (AI product engineer, AI engineer, forward deployed engineer, product or founding \
-engineer): never mark a posting down because it is about AI.
-
-Seniority: semi senior or senior. A posting that asks for up to 5 years of experience is fine; \
-6 or more years is a "no". Junior or intern roles are a "no". Staff, principal or lead roles are \
-at most "maybe".
-
-Stack: TypeScript, React, Node.js, Next.js, Python, SQL (MySQL, Postgres), AWS. Roles that are \
-mainly Java, .NET, PHP, Ruby, native mobile, DevOps/SRE, data science or QA are a "no".
-
-Location (the most important check): can they hire someone living in Buenos Aires?
-- yes: hires in Argentina, LATAM, the Americas or worldwide; remote, hybrid or onsite anywhere in \
-the Buenos Aires area. Any contract type (employee, contractor, through an employer of record) \
-and any currency, Argentine pesos included.
-- A role open to Brazil is usually open to Argentina too ("maybe"), unless it is onsite in Brazil \
-or needs working Portuguese ("no").
-- no: US-only, requires US work authorization or a US address, onsite outside Buenos Aires, or \
-limited to Europe, India or other regions.
-- A salary above about USD 100k a year with no mention of LATAM usually means a US-local role: \
-lean towards "no" on location.
-- A location that names Buenos Aires or Argentina means the candidate can certainly apply: score \
-those higher.
-
-Salary: no minimum for now. Most LATAM roles pay USD 40-90k a year.
-
-Employers: a recruiter or staffing firm hiring for a client (Silver.dev, G2i) is fine: judge the \
-role itself. Talent marketplaces (Turing, Toptal, Crossover) and nearshore software consultancies \
-(BairesDev, Globant, Stefanini…) are not wanted. Per-task AI-training gigs (creating or labelling \
-tasks, not building a product) score lower, but are not a "no" when the rest fits.
-
-Industry: fintech first, but anything that fits the experience counts.
-"""
+# The fields behind it live in core/criteria.py; the page edits those (round 6).
+DEFAULT_CRITERIA = render_criteria(DEFAULT_PROFILE)
 
 SENIORITY_EXCLUDE = ["junior", "jr", "intern", "internship", "trainee", "pasante", "becario"]
 TITLE_EXCLUDE = [
@@ -1222,12 +1181,21 @@ def watch_company(
     if not import_companies(repo, [row], clock):
         raise ValueError(f"{ats}/{slug} is already watched")
     _, rules = load_settings(repo)
-    return len(postings), sum(1 for p in postings if board_keep(p, rules))
+    kept = sum(1 for p in postings if board_keep(p, rules))
+    # What this read found, as a run would record it, so the watchlist shows it right away.
+    for c in repo.list_watched():
+        if (c.ats, c.slug) == (ats, slug):
+            c.last_checked_at, c.last_status = clock.now(), "ok"
+            c.jobs_total, c.jobs_kept = len(postings), kept
+            with repo.transaction():
+                repo.save_watched(c)
+    return len(postings), kept
 
 
-def block_company(repo: DiscoveryRepo, company: str) -> int:
+def block_company(repo: DiscoveryRepo, company: str, now: datetime | None = None) -> int:
     """'Hide company' on a card: put it on the block list and hide its stored postings. Returns
-    how many postings that hid."""
+    how many postings that hid. The settings page marks the names added this way
+    (`blocked_added`)."""
     name = " ".join(company.split())[:200]
     normalized = normalize_company(name)
     if not normalized:
@@ -1237,6 +1205,10 @@ def block_company(repo: DiscoveryRepo, company: str) -> int:
         if not in_company_list(normalized, rules.blocked):
             rules.blocked.append(name)
             repo.set_discovery_setting("rules", rules.to_dict())
+            added = repo.get_discovery_setting("blocked_added")
+            added = [x for x in added if isinstance(x, dict)] if isinstance(added, list) else []
+            at = (now or datetime.now(UTC)).isoformat()
+            repo.set_discovery_setting("blocked_added", [*added, {"name": name, "at": at}][-300:])
         return repo.hide_company_postings(normalized, "blocked")
 
 
@@ -1251,6 +1223,7 @@ def seed(repo: DiscoveryRepo, clock: Clock, companies: list[dict] | None = None)
     with repo.transaction():
         if repo.get_discovery_setting("criteria") is None:
             repo.set_discovery_setting("criteria", DEFAULT_CRITERIA)
+            repo.set_discovery_setting("profile", DEFAULT_PROFILE.to_dict())
             added["criteria"] = 1
         if repo.get_discovery_setting("rules") is None:
             repo.set_discovery_setting("rules", Rules().to_dict())

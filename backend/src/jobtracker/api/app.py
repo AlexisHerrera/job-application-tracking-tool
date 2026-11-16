@@ -24,6 +24,7 @@ from jobtracker.api.auth import TokenVerifier, User, cognito_issuer
 from jobtracker.core import (
     campaigns,
     discovery,
+    discovery_settings,
     insights,
     interviews,
     paste,
@@ -32,6 +33,7 @@ from jobtracker.core import (
     stats,
 )
 from jobtracker.core.clock import SystemClock
+from jobtracker.core.criteria import CRITERIA_LIMIT
 from jobtracker.core.matching import normalize_company
 from jobtracker.core.models import Campaign, DiscoverySearch, InterviewNote, Origin, PostingQuery
 from jobtracker.core.pipeline import Pipeline, PipelineConfig, run_incremental
@@ -43,6 +45,7 @@ from jobtracker.core.ports import (
     LLMClient,
     LLMError,
     MailSource,
+    SourceError,
 )
 from jobtracker.core.stages import display_status
 from jobtracker.settings import Settings
@@ -876,6 +879,8 @@ def create_app(
 
     def discovery_state(repo) -> dict:
         criteria, rules = discovery.load_settings(repo)
+        profile, profile_saved = discovery_settings.load_profile(repo)
+        blocked_added = repo.get_discovery_setting("blocked_added")
         return {
             "criteria": criteria,
             "rules": rules.to_dict(),
@@ -891,6 +896,10 @@ def create_app(
             "llm_configured": bool(settings.anthropic_api_key),
             "can_run": make_discovery is not None,
             "unscored": repo.count_unscored(),
+            "profile": profile.to_dict(),
+            "profile_saved": profile_saved,
+            "criteria_limit": CRITERIA_LIMIT,
+            "blocked_added": blocked_added if isinstance(blocked_added, list) else [],
         }
 
     @api.get("/discover/settings")
@@ -899,14 +908,91 @@ def create_app(
 
     @api.put("/discover/settings")
     def put_discovery_settings(body: s.DiscoverySettingsIn, repo: PostgresRepo = Depends(get_repo)):
-        with repo.transaction():
-            if body.criteria is not None:
-                if not body.criteria.strip():
-                    raise services.InvalidInput("the criteria can't be empty")
+        """Saving rules also applies them to the stored postings (`reapplied`: how many that
+        hid and how many came back)."""
+        if body.profile is not None:
+            try:
+                discovery_settings.save_profile(repo, body.profile)
+            except ValueError as err:
+                raise services.InvalidInput(str(err)) from err
+        elif body.criteria is not None:
+            if not body.criteria.strip():
+                raise services.InvalidInput("the criteria can't be empty")
+            with repo.transaction():
                 repo.set_discovery_setting("criteria", body.criteria.strip())
-            if body.rules is not None:
-                repo.set_discovery_setting("rules", discovery.Rules.from_dict(body.rules).to_dict())
-        return discovery_state(repo)
+        reapplied = None
+        if body.rules is not None:
+            _, old = discovery.load_settings(repo)
+            new = discovery.Rules.from_dict(body.rules)
+            with repo.transaction():
+                repo.set_discovery_setting("rules", new.to_dict())
+            reapplied = discovery_settings.reapply_rules(repo, old, new, clock.now())
+        return {**discovery_state(repo), "reapplied": reapplied}
+
+    @api.post("/discover/criteria/preview")
+    def preview_criteria(body: s.CriteriaPreviewIn):
+        """The criteria text a profile renders to, before saving it."""
+        text = discovery_settings.preview(body.profile)
+        return {"text": text, "chars": len(text), "limit": CRITERIA_LIMIT}
+
+    @api.get("/discover/rules/hits")
+    def rule_hits(repo: PostgresRepo = Depends(get_repo)):
+        _, rules = discovery.load_settings(repo)
+        return discovery_settings.rule_hits(repo.drop_reason_counts(), rules)
+
+    @api.get("/discover/runs")
+    def list_runs(limit: int = Query(30, ge=1, le=200), repo: PostgresRepo = Depends(get_repo)):
+        return [s.run_json(r) for r in repo.list_runs(limit)]
+
+    # the company watchlist (plan §21, round 6)
+    @api.get("/discover/companies")
+    def list_watched(
+        q: str | None = Query(None, max_length=200),
+        ats: str | None = Query(None, pattern="^(ashby|greenhouse|lever)$"),
+        status: str | None = Query(None, pattern="^(on|off|gone|error|with_roles|unread)$"),
+        sort: str = Query("name", pattern="^(name|roles|checked)$"),
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
+        repo: PostgresRepo = Depends(get_repo),
+    ):
+        rows, total, counts = discovery_settings.query_watched(
+            repo.list_watched(), q=q, ats=ats, status=status, sort=sort, limit=limit, offset=offset
+        )
+        return {"companies": [s.watched_json(c) for c in rows], "total": total, "counts": counts}
+
+    @api.post("/discover/companies", status_code=201)
+    def add_watched(body: s.WatchedIn, repo: PostgresRepo = Depends(get_repo)):
+        """Watch one board, chosen by ATS and slug: it's read once first (no URL is fetched
+        from here; the CLI resolves websites)."""
+        if make_boards is None:
+            raise HTTPException(501, "Company boards can't be read here")
+        name = " ".join((body.name or "").split()) or None
+        try:
+            total, kept = discovery.watch_company(
+                repo, make_boards(), body.ats, body.slug, name, clock
+            )
+        except SourceError as err:
+            raise services.InvalidInput(f"{body.ats}/{body.slug} didn't answer: {err}") from err
+        except ValueError as err:
+            raise services.InvalidInput(str(err)) from err
+        c = next(c for c in repo.list_watched() if (c.ats, c.slug) == (body.ats, body.slug))
+        return {**s.watched_json(c), "jobs_total": total, "jobs_kept": kept}
+
+    @api.patch("/discover/companies/{company_id}")
+    def patch_watched(
+        company_id: str, body: s.WatchedPatch, repo: PostgresRepo = Depends(get_repo)
+    ):
+        wanted = _uuid(company_id)
+        c = next((c for c in repo.list_watched() if c.id == wanted), None)
+        if c is None:
+            raise services.NotFound(company_id)
+        if body.enabled is not None:
+            c.enabled = body.enabled
+        if body.name is not None:
+            c.name = " ".join(body.name.split())
+        with repo.transaction():
+            repo.save_watched(c)
+        return s.watched_json(c)
 
     @api.post("/discover/seed")
     def seed_discovery(repo: PostgresRepo = Depends(get_repo)):
@@ -917,7 +1003,7 @@ def create_app(
     def block_company(body: s.BlockCompanyIn, repo: PostgresRepo = Depends(get_repo)):
         """'Hide company': add it to the block list and hide its stored postings."""
         try:
-            hidden = discovery.block_company(repo, body.company)
+            hidden = discovery.block_company(repo, body.company, clock.now())
         except ValueError as err:
             raise services.InvalidInput(str(err)) from err
         return {**discovery_state(repo), "hidden": hidden}

@@ -487,7 +487,7 @@ The user wanted to look through what was collected before tuning the criteria: f
 
 ## 21. More sources: company boards and getonbrd (2026-11-14)
 
-Status: **rounds 1 and 2 built and committed; round 3 built and committed 2026-11-15.** Rounds 4–6 are independent enough to run in separate sessions; each one starts from this section and `docs/handoff-job-discovery.md`.
+Status: **rounds 1 and 2 built and committed; round 3 built and committed 2026-11-15; round 6 built 2026-11-15, waiting for the user's review.** Rounds 4–5 are independent enough to run in separate sessions; each one starts from this section and `docs/handoff-job-discovery.md`.
 
 ### Why
 
@@ -646,8 +646,20 @@ Independent of rounds 2–5; it can go first. Today all of this lives in the "Cr
 - **Company watchlist** as a real table: search by name, filter by ATS and status, turn a company on or off, add one by ATS and slug, and see what the last check found (`jobs_kept` / `jobs_total`, `last_status`, `note`). Needs `GET /api/discover/companies` (paged), `POST` and `PATCH`; today the API only returns the summary and the list is edited from the CLI.
 - **Rules**: each list as its own editor instead of seven textareas in a row; the block list shows what "Hide company" added and lets one entry be removed.
 - **Runs**: the last runs with their notes and errors (`discovery_runs`), not only the latest one.
-- Split `Discover.tsx` (over 1,000 lines) while moving this out: the page keeps the list, the filters and the run buttons.
+- Split `Discover.tsx` (over 1,000 lines) while moving this out: the page keeps the list, the filters and the run buttons. (Done by the §22 refactor; the sheet is now `pages/discover/settings/`.)
 - To decide with the user before building: tabs or one long page, and whether "Re-score recent" stays on Discover or moves here.
+
+**Built 2026-11-15, waiting for review.** **Decided with the user (2026-11-15)**: tabs, kept in the URL (`/discover/settings?tab=rules`); "Re-score recent" moves to the Criteria tab; structured criteria with free-text notes; hit counts per rule list and per entry. The complaint behind it: in the sheet you can't see how many rules apply or what they hide, and the criteria and company lists are bare text boxes.
+
+1. **Criteria as fields, rendered to the prompt.** A `profile` setting (JSON, `core/criteria.py`): home, background (free text), roles wanted, AI roles welcome, seniority ok / at most maybe / no, max years asked, stack liked, stack not wanted, locations yes / maybe / no plus location notes, a preferred salary (for the AI only; the Rules tab's floor is the hard rule), preferred industries, and other notes. `criteria.render(profile)` writes the same kind of prose the AI reads today. Saving a profile stores both the profile and the rendered `criteria` text, so scoring, `load_settings` and the CLI don't change. The page shows the rendered text as "What the AI reads", with its length against the 6,000-character cut (`POST /api/discover/criteria/preview`; over the limit → 422 on save). `DEFAULT_CRITERIA` is now `render(DEFAULT_PROFILE)`.
+   - **The user's saved text**: with no `profile` saved yet, the page starts from the default fields and puts the saved criteria text into "Other notes", with a banner: the AI keeps reading the old text until the form is saved, so trim the notes down to what the fields don't cover first.
+   - A not-wanted stack chip that is also a Stack word rule is marked, so the two lists are visibly linked (and the Locations rule is shown next to the location fields).
+2. **Rules as chip lists with hit counts.** Each list is its own card: a count, a search box, chips with × to remove, Enter or a pasted list to add. `GET /api/discover/rules/hits` groups the stored postings by `drop_reason` and company (`discovery_settings.rule_hits`): a count per list and per entry ("java · 34", "Bluelight Consulting · 510"), and a strip at the top with every hide reason (duplicate, location, old, language…). A count is what that rule hid when the posting was stored or re-checked; the first rule that matches takes it.
+   - The block list marks what "Hide company" added: `block_company` also appends `{name, at}` to a `blocked_added` setting.
+3. **Saving the rules re-applies them to what's stored** (`discovery_settings.reapply_rules`): the visible new postings go through `rule_drop` again (age rule off, as in `score_pending`), and the hidden ones whose reason a looser rule no longer holds (a removed word or company, an added location, a longer max age, a lower salary floor) are checked again and come back if nothing else hides them. The save answers how many were hidden and how many came back. Without this, removing "java" after seeing "java · 34" would change nothing you can see.
+4. **Sources tab**: the saved searches (as before) and the **company watchlist as a table**: `GET /api/discover/companies` (`q`, `ats`, `status` = on / off / gone / error / with roles / not read, `sort` = name / roles / last read, paged 50), `POST /api/discover/companies {ats, slug, name}` (reads the board once through `watch_company`; ATS and slug only, no URL fetched from the page), `PATCH /api/discover/companies/{id} {enabled, name}`. Rows link to the public board.
+5. **Runs tab**: `GET /api/discover/runs` (last 30) with counts, notes and errors.
+6. **Frontend**: `pages/discover-settings/` with a folder per tab; tabs stay mounted, so switching doesn't lose unsaved edits. `useDiscoveryJob` and the progress panel move to `features/discovery/` (Discover and the Criteria tab both use them), `TextFilter` to `components/` and `safeUrl` to `lib/links.ts` (the watchlist uses them too). Discover's header links to the page ("Settings") instead of opening the sheet, which is deleted.
 
 ## 22. Frontend refactor (done 2026-11-15)
 

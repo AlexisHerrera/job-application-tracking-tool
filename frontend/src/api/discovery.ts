@@ -1,4 +1,6 @@
 // Job discovery (plan §20, §21)
+import type { CriteriaProfile } from "./discoverySettings";
+
 export type SearchSource = "jsearch" | "remoteyeah" | "getonbrd" | "workable";
 export type PostingSource = SearchSource | "ashby" | "greenhouse" | "lever";
 export type Verdict = "match" | "maybe" | "no";
@@ -137,4 +139,10 @@ export interface DiscoveryState {
   can_run: boolean;
   /** Visible new postings waiting for a score. */
   unscored: number;
+  profile: CriteriaProfile;
+  /** False until the fields are saved once: the AI still reads the old free text. */
+  profile_saved: boolean;
+  criteria_limit: number;
+  /** What "Hide company" put on the block list, and when. */
+  blocked_added: { name: string; at: string }[];
 }

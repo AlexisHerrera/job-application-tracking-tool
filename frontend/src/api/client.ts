@@ -23,6 +23,7 @@ import type {
   PostingPage,
   PostingStatus,
 } from "./discovery";
+import type { Ats, CriteriaPreview, CriteriaProfile, RuleHits, SettingsSaved, WatchedCompany, WatchlistPage } from "./discoverySettings";
 import type { CalendarSyncResult, Interview, InterviewDetail, InterviewInput, Note, NoteDetail } from "./interviews";
 
 export class ApiError extends Error {
@@ -132,8 +133,14 @@ export const api = {
     request<{ id: string; status: PostingStatus }>("PATCH", `/discover/${id}`, { status }),
   applyPosting: (id: string) => request<{ posting_id: string; application: Application }>("POST", `/discover/${id}/apply`, {}),
   discoverySettings: () => request<DiscoveryState>("GET", "/discover/settings"),
-  saveDiscoverySettings: (data: { criteria?: string; rules?: Partial<DiscoveryRules> }) =>
-    request<DiscoveryState>("PUT", "/discover/settings", data),
+  saveDiscoverySettings: (data: { criteria?: string; profile?: CriteriaProfile; rules?: Partial<DiscoveryRules> }) =>
+    request<SettingsSaved>("PUT", "/discover/settings", data),
+  previewCriteria: (profile: CriteriaProfile) => request<CriteriaPreview>("POST", "/discover/criteria/preview", { profile }),
+  ruleHits: () => request<RuleHits>("GET", "/discover/rules/hits"),
+  discoveryRuns: (limit = 30) => request<DiscoveryRun[]>("GET", `/discover/runs?limit=${limit}`),
+  watchlist: (params: Record<string, string>) => request<WatchlistPage>("GET", `/discover/companies?${new URLSearchParams(params)}`),
+  watchCompany: (data: { ats: Ats; slug: string; name?: string }) => request<WatchedCompany>("POST", "/discover/companies", data),
+  updateWatched: (id: string, data: { enabled?: boolean; name?: string }) => request<WatchedCompany>("PATCH", `/discover/companies/${id}`, data),
   seedDiscovery: () => request<DiscoveryState & { added: { searches: number; companies: number } }>("POST", "/discover/seed", {}),
   blockCompany: (company: string) => request<DiscoveryState & { hidden: number }>("POST", "/discover/block", { company }),
   addSearch: (data: Omit<DiscoverySearch, "id">) => request<DiscoverySearch>("POST", "/discover/searches", data),

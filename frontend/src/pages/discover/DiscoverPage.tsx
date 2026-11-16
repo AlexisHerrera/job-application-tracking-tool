@@ -1,26 +1,25 @@
 // Job discovery (plan §20, §21): new openings from the saved searches and the watched companies'
 // job boards, scored by the LLM against the criteria. Everything in a posting comes from the web: rendered as text, links only if http(s).
-import { useState } from "react";
 import { Settings2, Telescope } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import { Empty, Loading, PageHeader } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { useSearchParamsPatch, type ParamsPatch } from "@/lib/useSearchParamsPatch";
 import { useAsync } from "@/lib/useAsync";
+import { RunProgressPanel } from "@/features/discovery/progress/RunProgressPanel";
+import { useDiscoveryJob } from "@/features/discovery/useDiscoveryJob";
 import { FiltersPanel } from "./filters/FiltersPanel";
 import { ListToolbar } from "./ListToolbar";
 import { PostingList } from "./postings/PostingList";
 import { LastRunSummary } from "./progress/LastRunSummary";
-import { RunProgressPanel } from "./progress/RunProgressPanel";
 import { pageOf, queryFor, techsOf } from "./query";
 import { RunButtons } from "./RunButtons";
 import { SeedEmptyState } from "./SeedEmptyState";
-import { SettingsSheet } from "./settings/SettingsSheet";
-import { useDiscoveryJob } from "./useDiscoveryJob";
 
 export default function DiscoverPage() {
   const [params, patch] = useSearchParamsPatch();
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const navigate = useNavigate();
   const state = useAsync(api.discoverySettings);
   const list = useAsync(() => api.postings(queryFor(params)), [params.toString()]);
 
@@ -51,8 +50,10 @@ export default function DiscoverPage() {
           s && (
             <>
               <RunButtons state={s} working={working} onRun={(score, collect) => void start({ kind: "run", score, collect })} />
-              <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
-                <Settings2 /> Criteria & searches
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/discover/settings">
+                  <Settings2 /> Settings
+                </Link>
               </Button>
             </>
           )
@@ -67,10 +68,7 @@ export default function DiscoverPage() {
 
       {s && s.searches.length === 0 && s.companies.total === 0 ? (
         <SeedEmptyState
-          onSeeded={() => {
-            reloadAll();
-            setSettingsOpen(true);
-          }}
+          onSeeded={() => navigate("/discover/settings")}
         />
       ) : (
         <>
@@ -90,19 +88,6 @@ export default function DiscoverPage() {
         </>
       )}
 
-      {s && (
-        <SettingsSheet
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          state={s}
-          onSaved={reloadAll}
-          working={working}
-          onRescore={(includeHidden) => {
-            setSettingsOpen(false);
-            void start({ kind: "rescore", includeHidden });
-          }}
-        />
-      )}
     </div>
   );
 }

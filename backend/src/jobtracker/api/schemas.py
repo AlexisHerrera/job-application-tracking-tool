@@ -423,6 +423,25 @@ def companies_json(rows: list[WatchedCompany], scan: object = None) -> dict:
     }
 
 
+def watched_json(c: WatchedCompany) -> dict:
+    from jobtracker.core.discovery_settings import board_url
+
+    return {
+        "id": str(c.id),
+        "ats": c.ats,
+        "slug": c.slug,
+        "name": c.name,
+        "enabled": c.enabled,
+        "note": c.note,
+        "created_at": _iso(c.created_at),
+        "last_checked_at": _iso(c.last_checked_at),
+        "last_status": c.last_status,
+        "jobs_total": c.jobs_total,
+        "jobs_kept": c.jobs_kept,
+        "board_url": board_url(c.ats, c.slug),
+    }
+
+
 def run_json(r: DiscoveryRun | None) -> dict | None:
     if r is None:
         return None
@@ -474,7 +493,23 @@ class PostingPatch(BaseModel):
 
 class DiscoverySettingsIn(BaseModel):
     criteria: str | None = Field(None, max_length=6000)
+    profile: dict | None = None  # wins over `criteria`: the text is rendered from it (round 6)
     rules: dict | None = None
+
+
+class CriteriaPreviewIn(BaseModel):
+    profile: dict
+
+
+class WatchedIn(BaseModel):
+    ats: str = Field(pattern="^(ashby|greenhouse|lever)$")
+    slug: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    name: str | None = Field(None, max_length=200)
+
+
+class WatchedPatch(BaseModel):
+    enabled: bool | None = None
+    name: str | None = Field(None, min_length=1, max_length=200)
 
 
 class SearchIn(BaseModel):

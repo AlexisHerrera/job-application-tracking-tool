@@ -369,6 +369,22 @@ class MemoryRepo:
     def count_unscored(self):
         return len(self.unscored_postings())
 
+    def drop_reason_counts(self):
+        counts: dict[tuple[str, str], int] = {}
+        for p in self.postings.values():
+            if p.drop_reason:
+                key = (p.drop_reason, p.company_normalized or "")
+                counts[key] = counts.get(key, 0) + 1
+        return [(reason, company, n) for (reason, company), n in counts.items()]
+
+    def postings_to_recheck(self, reasons):
+        rows = [
+            p for p in self.postings.values()
+            if (p.drop_reason is None and p.status == PostingStatus.NEW) or p.drop_reason in reasons
+        ]  # fmt: skip
+        rows.sort(key=lambda p: (p.fetched_at, str(p.id)))
+        return [copy.deepcopy(p) for p in rows]
+
     def search_postings(self, query):
         from jobtracker.core import discovery
 
@@ -415,6 +431,9 @@ class MemoryRepo:
 
     def last_run(self):
         return max(self.runs.values(), key=lambda r: r.started_at, default=None)
+
+    def list_runs(self, limit):
+        return sorted(self.runs.values(), key=lambda r: r.started_at, reverse=True)[:limit]
 
     def jsearch_requests_since(self, since):
         return sum(r.jsearch_requests for r in self.runs.values() if r.started_at >= since)

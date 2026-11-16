@@ -9,7 +9,7 @@ import { techsOf } from "@/pages/discover/query";
 import { FacetSelect } from "./FacetSelect";
 import { SourceSelect } from "./SourceSelect";
 import { TechPicker } from "./TechPicker";
-import { TextFilter } from "./TextFilter";
+import { TextFilter } from "@/components/TextFilter";
 
 /** Search and filters. */
 export function FiltersPanel({

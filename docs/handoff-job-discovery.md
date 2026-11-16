@@ -7,7 +7,7 @@ Updated 2026-11-15 (round 3). The design and its history are in `docs/plan.md` �
 **Phase (a) is done and merged into `main`** (2026-11-12). The worktree and branch it was built on are gone.
 
 - Backend: migration `0011_discovery.sql`, `core/discovery.py`, `adapters/jsearch.py`, `adapters/remoteyeah.py`, the `/api/discover*` routes, the `jobtracker discover seed|searches|run` CLI, and tests (`tests/test_discovery.py`, plus discovery cases in `test_api.py` and `test_postgres.py`).
-- Frontend: `/discover` page (`frontend/src/pages/Discover.tsx`) with a "Criteria & searches" side panel, in the nav as **Discover**.
+- Frontend: `/discover` page (`frontend/src/pages/discover/`), in the nav as **Discover**; its settings (criteria, rules, sources, runs) are the `/discover/settings` page (`frontend/src/pages/discover-settings/`, round 6). The "Criteria & searches" side panel named below is gone: its parts are the settings page's tabs.
 - The user reviewed the page and said it "works excellent".
 
 **First real run** (local DB, 2026-11-12 18:48 UTC, from the page):
@@ -27,7 +27,7 @@ Committed and pushed; reviewed by the user. They asked for it before tuning the 
 
 ## New sources, round 1 (2026-11-14, built and committed; the user hasn't loaded the watchlist or run it yet)
 
-The design, the measurements and rounds 2–5 are in `docs/plan.md` §21. Read that first. The user also asked (2026-11-14) for the criteria, rules, searches and watchlist to move out of the side sheet into a proper page: that is round 6 there.
+The design, the measurements and rounds 2–5 are in `docs/plan.md` §21. Read that first. The user also asked (2026-11-14) for the criteria, rules, searches and watchlist to move out of the side sheet into a proper page: that is round 6 there, built 2026-11-15.
 
 What exists now:
 - **Company watchlist**: table `discovery_companies` (migration `0013`), read by every run through `adapters/ats_boards.py` (Ashby, Greenhouse, Lever public JSON). Only engineering titles in an allowed location (or no location, or a bare "Remote") are stored: `discovery.board_keep`.

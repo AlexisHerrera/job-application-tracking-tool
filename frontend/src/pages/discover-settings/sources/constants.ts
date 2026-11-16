@@ -1,0 +1,1 @@
+export const GETONBRD_CATEGORIES = ["programming", "machine-learning-ai", "mobile-developer", "sysadmin-devops-qa", "data-science-analytics", "cybersecurity", "design-ux", "innovation-agile", "other"];

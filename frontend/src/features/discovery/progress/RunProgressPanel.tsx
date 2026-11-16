@@ -1,5 +1,5 @@
 import type { DiscoveryProgress } from "@/api/discovery";
-import { duration, eta } from "@/pages/discover/format";
+import { duration, eta } from "./timeLeft";
 import { ProgressStep, type StepState } from "./ProgressStep";
 
 function Bar({ done, total }: { done: number; total: number }) {

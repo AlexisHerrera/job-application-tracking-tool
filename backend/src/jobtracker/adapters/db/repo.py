@@ -836,6 +836,22 @@ class PostgresRepo:
         rows = self._all(f"SELECT {', '.join(_FACET_COLUMNS)} FROM job_postings")
         return [_posting_from({**r, "description": ""}) for r in rows]
 
+    def drop_reason_counts(self) -> list[tuple[str, str, int]]:
+        rows = self._all(
+            "SELECT drop_reason, company_normalized, count(*) AS n FROM job_postings"
+            " WHERE drop_reason IS NOT NULL GROUP BY drop_reason, company_normalized"
+        )
+        return [(r["drop_reason"], r["company_normalized"] or "", r["n"]) for r in rows]
+
+    def postings_to_recheck(self, reasons: tuple[str, ...]) -> list[JobPosting]:
+        hidden = f" OR drop_reason IN ({', '.join(['%s'] * len(reasons))})" if reasons else ""
+        rows = self._all(
+            f"SELECT * FROM job_postings WHERE (drop_reason IS NULL AND status = %s){hidden}"
+            " ORDER BY fetched_at, id",
+            (PostingStatus.NEW.value, *reasons),
+        )
+        return [_posting_from(r) for r in rows]
+
     def reset_scores(self, statuses: tuple[PostingStatus, ...], since: datetime) -> int:
         # Only scored rows change. A scored row hidden as a consultancy was hidden by the LLM (the
         # rule hides before scoring), so it gets a second chance too.
@@ -905,6 +921,10 @@ class PostgresRepo:
     def last_run(self) -> DiscoveryRun | None:
         r = self._one("SELECT * FROM discovery_runs ORDER BY started_at DESC LIMIT 1")
         return _run_from(r) if r else None
+
+    def list_runs(self, limit: int) -> list[DiscoveryRun]:
+        rows = self._all("SELECT * FROM discovery_runs ORDER BY started_at DESC LIMIT %s", (limit,))
+        return [_run_from(r) for r in rows]
 
     def jsearch_requests_since(self, since: datetime) -> int:
         r = self._one(
