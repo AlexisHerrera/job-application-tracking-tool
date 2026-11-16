@@ -19,6 +19,26 @@ uv pip install --quiet --target "$pkg" --python-version 3.12 \
   -r "$out/requirements.txt"
 cp -R src/jobtracker "$pkg/jobtracker"
 
+# Every package the Lambda code imports must be in the zip (the tests can't tell: they run with
+# the dev dependencies installed). The CLI and the evals don't run in Lambda.
+python3 - "$pkg" <<'PY'
+import ast, pathlib, sys
+pkg = pathlib.Path(sys.argv[1])
+have = {p.name.split(".")[0] for p in pkg.iterdir()}
+mods = set()
+for f in (pkg / "jobtracker").rglob("*.py"):
+    if f.parent.name in ("cli", "evals"):
+        continue
+    for node in ast.walk(ast.parse(f.read_text())):
+        if isinstance(node, ast.Import):
+            mods |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            mods.add(node.module.split(".")[0])
+missing = sorted(m for m in mods - have - set(sys.stdlib_module_names) if m != "jobtracker")
+if missing:
+    sys.exit(f"imported by the Lambda code but not in the zip: {missing} (a runtime dependency?)")
+PY
+
 # Bytecode, caches and test data aren't needed at runtime.
 find "$pkg" -type d \( -name __pycache__ -o -name tests \) -prune -exec rm -rf {} +
 find "$pkg" -name '*.pyc' -delete
