@@ -68,7 +68,7 @@ export default function DiscoverPage() {
       {working ? (
         <RunProgressPanel p={progress} kind={panelKind} collectOnly={collectOnly} />
       ) : (
-        s && <LastRunSummary run={s.last_run} used={s.jsearch_used_this_month} cap={s.rules.jsearch_monthly_cap} jsearchOn={s.searches.some((x) => x.enabled && x.source === "jsearch")} />
+        s && <LastRunSummary run={s.last_run} />
       )}
 
       {s && s.searches.length === 0 && s.companies.total === 0 ? (

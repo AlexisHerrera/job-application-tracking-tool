@@ -107,4 +107,4 @@ class WorkableSource:
             # A token the API doesn't know gives the first page again: stop when nothing is new.
             if not page or not isinstance(token, str) or not token:
                 break
-        return FetchResult(list(postings.values()), 0)
+        return FetchResult(list(postings.values()))

@@ -34,15 +34,19 @@ function useDiscoveryProgress(active: boolean) {
   return [progress, setProgress] as const;
 }
 
-/** Runs and re-scores wait for one long request; meanwhile the progress endpoint says where it is. */
+/** Locally, runs and re-scores wait for one long request; meanwhile the progress endpoint says where it is.
+ * In AWS the request only starts the run (`started`), and the progress endpoint alone says when it ends. */
 export function useDiscoveryJob(reloadAll: () => void) {
   const [job, setJob] = useState<Job | null>(null);
   const [progress, setProgress] = useDiscoveryProgress(job !== null);
   const working = job !== null || progress?.running === true;
   const wasRunning = useRef(false);
   useEffect(() => {
-    // A run this page didn't start (it was reloaded mid-run): refresh when it ends.
-    if (wasRunning.current && !progress?.running && job === null) reloadAll();
+    // A run this page isn't waiting on (started in AWS, by the schedule, or before a reload): refresh when it ends.
+    if (wasRunning.current && progress && !progress.running && job === null) {
+      toast.success(progress.kind === "rescore" ? `${progress.scored} postings scored` : `Run finished: ${progress.new} new · ${progress.hidden} hidden · ${progress.scored} scored`);
+      reloadAll();
+    }
     wasRunning.current = progress?.running === true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress?.running]);
@@ -53,10 +57,14 @@ export function useDiscoveryJob(reloadAll: () => void) {
     setJob(next);
     try {
       const r = next.kind === "run" ? await api.runDiscovery(next.score, next.collect) : await api.rescorePostings(next.includeHidden);
-      const msg = next.kind === "rescore" ? `${r.llm_calls} postings scored` : `${r.new} new · ${r.dropped} hidden · ${next.score ? `${r.llm_calls} scored` : "not scored"}`;
-      if (r.errors) toast.warning(`${msg}. ${r.notes.join(" · ")}`);
-      else toast.success(msg);
-      reloadAll();
+      if ("started" in r) {
+        toast.info("Started. It runs in AWS: you can leave this page, the results stay.");
+      } else {
+        const msg = next.kind === "rescore" ? `${r.llm_calls} postings scored` : `${r.new} new · ${r.dropped} hidden · ${next.score ? `${r.llm_calls} scored` : "not scored"}`;
+        if (r.errors) toast.warning(`${msg}. ${r.notes.join(" · ")}`);
+        else toast.success(msg);
+        reloadAll();
+      }
     } catch (e) {
       toast.error(errorText(e));
     }

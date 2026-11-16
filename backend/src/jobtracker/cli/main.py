@@ -177,24 +177,32 @@ def db_copy_to_dsql(
         False, help="Update rows that already exist in DSQL from local (default: only add)."
     ),
     dry_run: bool = typer.Option(False, help="Read and count only; write nothing."),
+    only: str | None = typer.Option(
+        None, help="Only `discovery`: the Discover page's tables, nothing of the applications."
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask for confirmation."),
 ) -> None:
     """Copy the local database (read-only) into Aurora DSQL, in batches. Includes the mail
     checkpoint so the ingest Lambda continues where the local app stopped."""
-    from jobtracker.adapters.db.copy import CopyError, copy_all
+    from jobtracker.adapters.db.copy import DISCOVERY_TABLES, CopyError, copy_all
 
+    if only not in (None, "discovery"):
+        raise typer.BadParameter("--only takes `discovery`")
+    tables = DISCOVERY_TABLES if only else None
     settings = _settings()
     if not (dry_run or yes):
         typer.confirm(
-            f"Copy {settings.database_url.rsplit('@', 1)[-1]} into {dsql}"
+            f"Copy {'the discovery tables of ' if only else ''}"
+            f"{settings.database_url.rsplit('@', 1)[-1]} into {dsql}"
             f"{' (overwriting existing rows)' if overwrite else ''}?",
             abort=True,
         )
     with connect_url(settings.database_url) as source, _dsql(dsql, profile) as target:
         try:
             report = copy_all(
-                source, target, overwrite=overwrite, dry_run=dry_run, progress=typer.echo
-            )
+                source, target, overwrite=overwrite, dry_run=dry_run, only=tables,
+                progress=typer.echo,
+            )  # fmt: skip
         except CopyError as err:
             raise typer.BadParameter(str(err)) from err
     typer.echo(f"mail checkpoint in DSQL: {report.mail_sync_state}")
@@ -884,7 +892,7 @@ def discover_searches() -> None:
 def discover_run(
     source: str | None = typer.Option(
         None,
-        help="Only this source: remoteyeah, getonbrd, workable, jsearch, or boards (the watchlist).",
+        help="Only this source: remoteyeah, getonbrd, workable, or boards (the watchlist).",
     ),
     no_llm: bool = typer.Option(False, "--no-llm", help="Collect and store, score later."),
     dry_run: bool = typer.Option(
@@ -902,21 +910,12 @@ def discover_run(
     then score the ones that pass the rules (paid Haiku calls; --no-llm only collects)."""
     from jobtracker.adapters.anthropic_llm import AnthropicLLM
     from jobtracker.adapters.ats_boards import AtsBoards
-    from jobtracker.adapters.getonbrd import GetOnBoardSource
-    from jobtracker.adapters.jsearch import JSearchSource
-    from jobtracker.adapters.remoteyeah import RemoteYeahSource
-    from jobtracker.adapters.workable import WorkableSource
+    from jobtracker.adapters.job_sources import discovery_sources
     from jobtracker.core import discovery
 
     settings = _settings()
     clock = SystemClock()
-    sources: dict = {
-        "remoteyeah": RemoteYeahSource(),
-        "getonbrd": GetOnBoardSource(),
-        "workable": WorkableSource(),
-    }
-    if settings.jsearch_api_key:
-        sources["jsearch"] = JSearchSource(settings.jsearch_api_key, clock=clock)
+    sources = discovery_sources()
     llm = None
     if not (no_llm or dry_run):
         if not settings.anthropic_api_key:
@@ -939,10 +938,38 @@ def discover_run(
             typer.echo(f"{mark:<22} {p.source:<10} {p.company} / {p.title} ({p.location or '?'})")
     typer.echo(
         f"fetched {r.fetched}, new {r.new}, hidden {r.dropped}, LLM calls {r.llm_calls}, "
-        f"errors {r.errors}, JSearch requests {r.jsearch_requests}"
+        f"errors {r.errors}"
     )
     for note in r.notes:
         typer.echo(f"  note: {note}")
     if llm is not None:
         u = llm.usage
         typer.echo(f"LLM tokens: {u.input_tokens} in, {u.output_tokens} out")
+
+
+@discover_app.command("digest")
+def discover_digest(
+    out: Path | None = typer.Option(None, help="Also write the email's HTML to this file."),
+    send: bool = typer.Option(
+        False, "--send", help="Send it to GMAIL_ADDRESS for real, and mark its postings as sent."
+    ),
+) -> None:
+    """The daily digest (matches and maybes not sent yet). Without --send, a preview: prints the
+    text, sends nothing and marks nothing as sent. In AWS the discover Lambda sends it at 09:00."""
+    from jobtracker.adapters.smtp_mail import GmailSmtpMailer
+    from jobtracker.core import digest
+
+    settings = _settings()
+    repo = _repo(settings)
+    mailer = None
+    if send:
+        mailer = GmailSmtpMailer(
+            settings.smtp_host, settings.gmail_address, settings.gmail_app_password
+        )
+    result = digest.send(repo, mailer, SystemClock(), settings.tz, settings.app_url)
+    if (d := result.pop("digest", None)) is not None:
+        typer.echo(d.text)
+        if out:
+            out.write_text(d.html)
+            typer.echo(f"HTML written to {out}")
+    typer.echo(result)

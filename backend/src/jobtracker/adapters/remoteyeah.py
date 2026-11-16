@@ -117,4 +117,4 @@ class RemoteYeahSource:
             raise SourceError(f"remoteyeah HTTP {r.status_code}{hint}")
         if len(r.content) > MAX_BYTES:
             raise SourceError("remoteyeah feed is larger than 5 MB")
-        return FetchResult(parse_feed(r.text), 0)
+        return FetchResult(parse_feed(r.text))

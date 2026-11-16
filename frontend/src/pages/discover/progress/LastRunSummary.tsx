@@ -1,7 +1,7 @@
 import { timeAgo } from "@/lib/format";
 import { type DiscoveryRun } from "@/api/discovery";
 
-export function LastRunSummary({ run, used, cap, jsearchOn }: { run: DiscoveryRun | null; used: number; cap: number; jsearchOn: boolean }) {
+export function LastRunSummary({ run }: { run: DiscoveryRun | null }) {
   return (
     <p className="mb-4 text-xs text-muted-foreground">
       {run ? (
@@ -12,7 +12,6 @@ export function LastRunSummary({ run, used, cap, jsearchOn }: { run: DiscoveryRu
       ) : (
         "Never run."
       )}
-      {jsearchOn && <>{" · "}JSearch this month: {used} / {cap}</>}
     </p>
   );
 }

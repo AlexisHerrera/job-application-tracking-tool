@@ -18,6 +18,7 @@ import type {
   DiscoveryProgress,
   DiscoveryRules,
   DiscoveryRun,
+  DiscoveryStarted,
   DiscoverySearch,
   DiscoveryState,
   Discard,
@@ -149,8 +150,8 @@ export const api = {
   updateSearch: (id: string, data: Partial<Omit<DiscoverySearch, "id" | "source">>) =>
     request<DiscoverySearch>("PATCH", `/discover/searches/${id}`, data),
   deleteSearch: (id: string) => request<void>("DELETE", `/discover/searches/${id}`),
-  runDiscovery: (score = true, collect = true) => request<DiscoveryRun>("POST", "/discover/run", { score, collect }),
+  runDiscovery: (score = true, collect = true) => request<DiscoveryRun | DiscoveryStarted>("POST", "/discover/run", { score, collect }),
   discoveryProgress: () => request<DiscoveryProgress>("GET", "/discover/progress"),
   /** Scores recent postings again (paid AI calls) without running the searches. */
-  rescorePostings: (includeHidden = false) => request<DiscoveryRun>("POST", "/discover/rescore", { include_hidden: includeHidden }),
+  rescorePostings: (includeHidden = false) => request<DiscoveryRun | DiscoveryStarted>("POST", "/discover/rescore", { include_hidden: includeHidden }),
 };

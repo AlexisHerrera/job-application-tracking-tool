@@ -10,9 +10,7 @@ import { AddSearchForm } from "./AddSearchForm";
 import { paramsSummary } from "./paramsSummary";
 
 /** The saved searches (enable, delete) and the form to add one. */
-export function SearchesSection({ searches, jsearchConfigured, onChange }: { searches: DiscoverySearch[]; jsearchConfigured: boolean; onChange: () => void }) {
-  const enabledJsearch = searches.filter((x) => x.enabled && x.source === "jsearch").length;
-
+export function SearchesSection({ searches, onChange }: { searches: DiscoverySearch[]; onChange: () => void }) {
   const run = async (fn: () => Promise<unknown>) => {
     try {
       await fn();
@@ -22,13 +20,7 @@ export function SearchesSection({ searches, jsearchConfigured, onChange }: { sea
     }
   };
 
-  const hint = (
-    <>
-      remoteyeah feeds, getonbrd categories and Workable searches are free.
-      {enabledJsearch > 0 && ` ${enabledJsearch} JSearch search${enabledJsearch === 1 ? "" : "es"} on: about ${enabledJsearch * 30} of the free 200 requests a month at one run a day.`}
-      {enabledJsearch > 0 && !jsearchConfigured && " JSEARCH_API_KEY isn't set, so JSearch searches are skipped."}
-    </>
-  );
+  const hint = "remoteyeah feeds, getonbrd categories and Workable searches. All free.";
   const on = searches.filter((x) => x.enabled).length;
 
   return (

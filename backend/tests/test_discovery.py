@@ -1,13 +1,11 @@
 """Job discovery (plan §20): rules, sources, the LLM verdict and a whole run, on fakes."""
 
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
 import pytest
 
-from jobtracker.adapters.jsearch import JSearchSource, parse_job
 from jobtracker.adapters.remoteyeah import RemoteYeahSource, clean_link, feed_url_ok, parse_feed
 from jobtracker.core import discovery
 from jobtracker.core.clock import FixedClock
@@ -125,7 +123,8 @@ def test_remoteyeah_location_rule():
     assert rule_drop(us, rules, NOW) == "location"
     assert rule_drop(latam, rules, NOW) is None
     assert rule_drop(unknown, rules, NOW) is None
-    # JSearch locations aren't reliable (remote LATAM jobs say "United States"): the LLM decides.
+    # Postings stored from JSearch (gone since round 5) were left to the LLM: their location is
+    # where the listing was posted.
     assert rule_drop(prepared(source="jsearch", location="United States"), rules, NOW) is None
 
 
@@ -199,60 +198,8 @@ def test_posting_prompt_keeps_the_posting_inside_its_tag():
     assert "Argentina" in discovery.system_prompt("Lives in Buenos Aires, Argentina")
 
 
-# --- JSearch -----------------------------------------------------------------------------------
-
-
-def _jsearch_jobs():
-    return json.loads((FIXTURES / "jsearch_ar.json").read_text())
-
-
-def test_jsearch_job_parsing():
-    job = _jsearch_jobs()["data"]["jobs"][2]
-    p = parse_job(job, NOW)
-    assert p.source == "jsearch" and p.source_id == "hSCKNo4Ng_mU5GmeAAAAAA=="
-    assert p.company == "Black Dragon Capital"
-    assert p.location == "Argentina"  # "• a través de JobLeads" goes to publisher
-    assert p.publisher == "JobLeads"
-    assert p.posted_at == NOW - timedelta(days=2)  # from "hace 2 días"
-    assert p.url.startswith("https://www.jobleads.com/")
-    assert parse_job({**job, "job_apply_link": "javascript:alert(1)", "job_google_link": None}, NOW) is None  # fmt: skip
-
-
 def _client(handler):
     return httpx.Client(transport=httpx.MockTransport(handler))
-
-
-def test_jsearch_fetch_sends_one_page_and_counts_the_bill():
-    seen = {}
-
-    def handler(request):
-        seen["params"] = dict(request.url.params)
-        seen["key"] = request.headers.get("x-api-key")
-        return httpx.Response(200, json=_jsearch_jobs(), headers={"x-rapidapi-billing": "Queries=1; Requests=1"})  # fmt: skip
-
-    src = JSearchSource("k-123", clock=FixedClock(NOW), client=_client(handler))
-    result = src.fetch({"query": "senior full stack engineer", "country": "ar", "work_from_home": True, "evil": "x"})  # fmt: skip
-    assert seen["key"] == "k-123"
-    assert seen["params"] == {
-        "query": "senior full stack engineer",
-        "country": "ar",
-        "work_from_home": "true",
-        "date_posted": "3days",
-        "num_pages": "1",
-    }
-    assert result.requests == 1 and len(result.postings) == 4
-
-
-def test_jsearch_errors_carry_what_they_cost():
-    def handler(_request):
-        return httpx.Response(429, json={}, headers={"x-rapidapi-billing": "Queries=1; Requests=1"})
-
-    src = JSearchSource("k", clock=FixedClock(NOW), client=_client(handler))
-    with pytest.raises(SourceError) as err:
-        src.fetch({"query": "x"})
-    assert err.value.requests == 1 and "429" in str(err.value)
-    with pytest.raises(SourceError):
-        src.fetch({"country": "ar"})
 
 
 # --- remoteyeah --------------------------------------------------------------------------------
@@ -303,22 +250,34 @@ def test_remoteyeah_rejects_entity_bombs():
 @pytest.fixture
 def drepo():
     repo = MemoryRepo()
-    repo.save_search(DiscoverySearch("jsearch", "AR · full stack", {"query": "full stack", "country": "ar"}))  # fmt: skip
+    repo.save_search(DiscoverySearch("getonbrd", "getonbrd · programming", {"category": "programming"}))  # fmt: skip
     repo.save_search(DiscoverySearch("remoteyeah", "ry backend", {"feed": "https://remoteyeah.com/a.xml"}))  # fmt: skip
     return repo
 
 
+def _board_jobs():
+    def job(company, title, days):
+        return posting(source="getonbrd", source_id=company, company=company, title=title,
+                       location="Argentina", posted_at=NOW - timedelta(days=days))  # fmt: skip
+
+    return [
+        job("Pragmatike", "Senior Full-Stack Engineer — Remote Latam (React/Ts, Ai)", 4),
+        job("Softgic", "1978 - Senior Full Stack Software Engineer (Python | React | AWS)", 6),
+        job("Black Dragon Capital", "Remote Full-Stack Engineer: NodeJS, TS & DB", 2),
+        job("Bluelight", "Senior Remote Latam Full-Stack Laravel + React Engineer (Mendoza)", 6),
+    ]
+
+
 def _sources():
-    jobs = [parse_job(j, NOW) for j in _jsearch_jobs()["data"]["jobs"]]
     feed = parse_feed((FIXTURES / "remoteyeah_backend.xml").read_text(encoding="utf-8"))
-    return {"jsearch": FakeSource(jobs, requests_per_fetch=1), "remoteyeah": FakeSource(feed, 0)}
+    return {"getonbrd": FakeSource(_board_jobs()), "remoteyeah": FakeSource(feed)}
 
 
 def test_run_stores_everything_and_scores_only_what_passes(drepo):
     llm = FakeLLM(discover={"Black Dragon": verdict(verdict="match", score=82)})
     result = discovery.run_discovery(drepo, _sources(), llm, FixedClock(NOW))
     run = result.run
-    assert (run.fetched, run.new, run.jsearch_requests) == (9, 9, 1)
+    assert (run.fetched, run.new) == (9, 9)
     by_company = {p.company: p for p in drepo.postings.values()}
     assert by_company["Pragmatike"].drop_reason == "agency"
     assert by_company["Softgic"].drop_reason == "consultancy"
@@ -333,36 +292,24 @@ def test_run_stores_everything_and_scores_only_what_passes(drepo):
 
     again = discovery.run_discovery(drepo, _sources(), llm, FixedClock(NOW + timedelta(days=1)))
     assert again.run.new == 0 and llm.calls.count("discover") == 2  # already stored, not re-paid
-    assert drepo.jsearch_requests_since(discovery.month_start(NOW)) == 2
 
 
 def test_cross_source_duplicates_are_hidden(drepo):
-    a = posting(source="jsearch", source_id="1", company="Northwind Pay", title="Senior Backend Engineer (Node.js & Postgres)")  # fmt: skip
-    sources = {"jsearch": FakeSource([a]), "remoteyeah": FakeSource(parse_feed((FIXTURES / "remoteyeah_backend.xml").read_text(encoding="utf-8")))}  # fmt: skip
+    a = posting(source="getonbrd", source_id="1", company="Northwind Pay", title="Senior Backend Engineer (Node.js & Postgres)")  # fmt: skip
+    sources = {"getonbrd": FakeSource([a]), "remoteyeah": FakeSource(parse_feed((FIXTURES / "remoteyeah_backend.xml").read_text(encoding="utf-8")))}  # fmt: skip
     discovery.run_discovery(drepo, sources, None, FixedClock(NOW))
     rows = [p for p in drepo.postings.values() if p.company == "Northwind Pay"]
     assert sorted(p.drop_reason or "-" for p in rows) == ["-", "duplicate"]
 
 
-def test_monthly_cap_skips_jsearch(drepo):
-    drepo.set_discovery_setting("rules", {**Rules().to_dict(), "jsearch_monthly_cap": 1})
-    sources = _sources()
-    discovery.run_discovery(drepo, sources, None, FixedClock(NOW))
-    second = discovery.run_discovery(drepo, sources, None, FixedClock(NOW + timedelta(hours=1)))
-    assert len(sources["jsearch"].calls) == 1
-    assert any("cap reached" in n for n in second.run.notes)
-    assert len(sources["remoteyeah"].calls) == 2  # free sources keep running
-
-
-def test_dry_run_stores_nothing_but_counts_requests(drepo):
+def test_dry_run_stores_nothing(drepo):
     result = discovery.run_discovery(drepo, _sources(), FakeLLM(), FixedClock(NOW), dry_run=True)
-    assert not drepo.postings and result.run.new == 9
-    assert drepo.jsearch_requests_since(discovery.month_start(NOW)) == 1
+    assert not drepo.postings and result.run.new == 9 and result.run.llm_calls == 0
 
 
 def test_source_failure_is_noted_and_the_rest_runs(drepo):
     sources = _sources()
-    sources["jsearch"] = FakeSource(fail=True)
+    sources["getonbrd"] = FakeSource(fail=True)
     result = discovery.run_discovery(drepo, sources, None, FixedClock(NOW))
     assert result.run.errors == 1 and "HTTP 500" in result.run.notes[0]
     assert result.run.new == 5
@@ -402,16 +349,16 @@ def test_seed_is_idempotent():
     assert again == {"criteria": 0, "rules": 0, "searches": 0, "companies": 1}
     assert discovery.seed(repo, FixedClock(NOW), boards)["companies"] == 0
     assert repo.get_discovery_setting("criteria") == "mine"
-    # JSearch is off by default (plan §21)
     assert {x.source for x in repo.list_searches()} == {"getonbrd", "remoteyeah", "workable"}
 
 
 def test_search_params_validation():
     clean = discovery.clean_search_params
-    assert clean("jsearch", {"query": " ai engineer ", "country": "AR", "x": 1}) == {"query": "ai engineer", "country": "ar"}  # fmt: skip
-    for bad in [{"country": "ar"}, {"query": "x", "num_pages": 10}, {"query": "x", "date_posted": "year"}, {"query": "x", "country": "arg"}]:  # fmt: skip
-        with pytest.raises(ValueError):
-            clean("jsearch", bad)
+    assert clean("workable", {"query": " ai  engineer ", "x": 1}) == {"query": "ai engineer"}
+    with pytest.raises(ValueError):
+        clean("workable", {})
+    with pytest.raises(ValueError):
+        clean("jsearch", {"query": "x"})  # gone since round 5
     with pytest.raises(ValueError):
         clean("remoteyeah", {"feed": "https://evil.test/x.xml"})
     with pytest.raises(ValueError):
@@ -531,7 +478,7 @@ def test_facets_follow_the_other_filters():
     assert out["technologies"] == [("Python", 1), ("React", 1)]
 
 
-def test_rescore_skips_jsearch_and_can_score_hidden_postings(drepo):
+def test_rescore_collects_nothing_and_can_score_hidden_postings(drepo):
     sources = _sources()
     discovery.run_discovery(drepo, sources, FakeLLM(), FixedClock(NOW))
     scored = sum(1 for p in drepo.postings.values() if p.ai_verdict)
@@ -539,8 +486,8 @@ def test_rescore_skips_jsearch_and_can_score_hidden_postings(drepo):
 
     llm = FakeLLM(discover={"onX": verdict(verdict="match", score=91)})
     run = discovery.rescore(drepo, llm, later)
-    assert run.llm_calls == scored and run.trigger == "rescore" and run.jsearch_requests == 0
-    assert len(sources["jsearch"].calls) == 1  # nothing collected
+    assert run.llm_calls == scored and run.trigger == "rescore"
+    assert len(sources["getonbrd"].calls) == 1  # nothing collected
 
     run = discovery.rescore(drepo, llm, later, include_hidden=True)
     on_x = next(p for p in drepo.postings.values() if p.company == "onX")
@@ -565,7 +512,7 @@ def test_progress_follows_the_run(drepo):
     discovery.run_discovery(drepo, _sources(), FakeLLM(), FixedClock(NOW), on_progress=seen.append)
     assert seen[0].phase == "collecting" and seen[-1].phase == "done"
     collecting = [p for p in seen if p.phase == "collecting"]
-    assert collecting[1].current == "AR · full stack" and collecting[1].searches_done == 0
+    assert collecting[1].current == "getonbrd · programming" and collecting[1].searches_done == 0
     assert collecting[-1].searches_done == collecting[-1].searches_total == 2
     assert collecting[-1].new == 9 and collecting[-1].hidden == 7
     scoring = [p for p in seen if p.phase == "scoring"]
@@ -587,13 +534,13 @@ def test_scoring_goes_best_location_first_and_rechecks_the_rules(drepo):
             prepared(source="lever", source_id=f"x{i}", company=f"Co {i}", location=location)
         )
     seen: list[discovery.Progress] = []
-    # Nothing is collected: the JSearch fixture is never read.
+    # Nothing is collected: no source is read.
     sources = _sources()
     result = discovery.run_discovery(
         drepo, sources, FakeLLM(), FixedClock(NOW), collect=False, score_limit=2,
         on_progress=seen.append,
     )  # fmt: skip
-    assert sources["jsearch"].calls == [] and result.run.fetched == 0
+    assert sources["getonbrd"].calls == [] and result.run.fetched == 0
     by_place = {p.location: p for p in drepo.postings.values()}
     assert by_place["São Paulo, Brazil"].drop_reason == "location: brazil onsite"  # stored earlier
     assert [x for x in places if by_place[x].ai_verdict] == ["Argentina", "LATAM"]

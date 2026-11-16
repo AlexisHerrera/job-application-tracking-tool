@@ -23,6 +23,10 @@ output "ingest_function_name" {
   value = module.ingest.function_name
 }
 
+output "discover_function_name" {
+  value = module.discover.function_name
+}
+
 output "app_url" {
   value = "https://${var.domain}"
 }
@@ -41,7 +45,8 @@ output "next_steps" {
     uv run jobtracker db migrate --dsql ${local.dsql_endpoint}
     uv run jobtracker db grant-roles --dsql ${local.dsql_endpoint} \
       --role jobtracker_api=${module.api.role_arn} \
-      --role jobtracker_ingest=${module.ingest.role_arn}
+      --role jobtracker_ingest=${module.ingest.role_arn} \
+      --role jobtracker_discover=${module.discover.role_arn}
     uv run jobtracker aws push-secrets
     uv run jobtracker db copy-to-dsql --dsql ${local.dsql_endpoint} --dry-run
   EOT

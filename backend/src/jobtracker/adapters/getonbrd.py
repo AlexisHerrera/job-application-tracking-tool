@@ -133,4 +133,4 @@ class GetOnBoardSource:
             total = meta.get("total_pages") if isinstance(meta, dict) else None
             if not isinstance(total, int) or page >= total:
                 break
-        return FetchResult(postings, 0)
+        return FetchResult(postings)

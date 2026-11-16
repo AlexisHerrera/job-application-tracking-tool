@@ -17,18 +17,22 @@ Built: the one-by-one screen (`pages/discover/review/`), discard reasons stored 
 - Dedupe the same role listed in several locations at one company.
 - Show a company's watch status on the Discover page (e.g. on a posting from a watched or unwatched company).
 
-### Round 5: AWS and cleanup
+### Round 5: AWS
 
-The app runs discovery only locally. In prod, `POST /api/discover/run` answers 501 and the page hides the run buttons (`can_run`).
+Built, not deployed yet: JSearch is gone (migration 0015 drops its saved searches; its postings stay). A `jobtracker-discover` Lambda (`handlers.discover`: `run`, `rescore`, `digest`) has its own lease, and scoring stops 2 minutes before the 900 s timeout. It runs every 6 hours (02, 08, 14 and 20 h Buenos Aires), and a daily digest goes out at 09:00 (`core/digest.py`): Gmail SMTP from and to your address, the matches and maybes not sent yet, nothing on an empty day. The page's Run now, Score pending and Re-score work in prod: an async invoke, with the progress kept in DSQL (`core/discovery_progress.py`). New: `db copy-to-dsql --only discovery`. Left:
 
-1. **Remove JSearch**: the adapter (`adapters/jsearch.py`), the monthly cap (`rules.jsearch_monthly_cap`, `discovery_runs.jsearch_requests` stays), the saved JSearch searches, `JSEARCH_API_KEY`. Its results were mostly reposts and spam, and it's switched off since round 1. With it gone, no new secret is needed in SSM.
-2. **Handler**: `handlers.ingest` routes `{"trigger": "discover"}` to `discovery.run_discovery`, or a small handler in the same zip. It needs its own lease name (`repo.acquire_lease` takes any name; the page's advisory lock is local only, and DSQL has no advisory locks), and it doesn't need the Gmail secrets.
-3. **Schedule**: a second EventBridge schedule in `infra/prod/scheduler.tf`, daily at about 09:00 Buenos Aires (12:00 UTC), input `{"trigger": "discover"}`, in the existing `jobtracker` group. Watch the duration: reading ~460 boards took about 130 s locally, scoring runs 6 calls at a time, `RUN_SCORE_LIMIT` is 1,000, and the ingest Lambda times out at 600 s.
-4. **Data**: `db migrate --dsql` first (migrations 0011–0013 aren't on DSQL; the copy refuses when the migration lists differ), then `db copy-to-dsql`, which already copies the discovery tables, `discovery_companies` included.
-5. **remoteyeah from Lambda** is untested. The site is behind Cloudflare; a 403 or 503 shows up as a run note. If it's blocked, run that source from the laptop against DSQL (`discover run --source remoteyeah` needs a `--dsql` option, which doesn't exist yet).
-6. **Page in prod** (optional): have "Run now" invoke the Lambda, like the scan button does (`adapters/lambda_ingest.py`).
-7. **Monthly directory scan** (`jobtracker discover companies scan`, about 20 minutes): too long for one Lambda run (15 minutes at most), so it stays a laptop command unless it's split up.
-8. You run `terraform apply`; Claude plans and summarizes.
+1. **Deploy**, in this order (from `backend/`; you run the apply):
+   1. `../infra/scripts/build-lambda.sh`
+   2. `uv run jobtracker db migrate --dsql <endpoint>` (0011–0015; the API's new code needs these tables), and `uv run jobtracker db migrate` locally too (0015 deletes the 6 JSearch searches; the copy wants both databases on the same migrations)
+   3. `uv run jobtracker db copy-to-dsql --dsql <endpoint> --only discovery --dry-run`, then without `--dry-run`
+   4. `terraform plan -out tfplan` in `infra/prod`, then you run `terraform apply tfplan`
+   5. `uv run jobtracker db grant-roles …` with the new `jobtracker_discover` role (the `next_steps` output prints the command)
+   6. `../infra/scripts/deploy-frontend.sh`
+   7. A first run from the page (about 170 postings waiting, ~$0.09), then check the run note for remoteyeah and the duration.
+2. **remoteyeah from Lambda** is untested. The site is behind Cloudflare; a 403 or 503 shows up as a run note. If it's blocked, run that source from the laptop against DSQL (`discover run --source remoteyeah` needs a `--dsql` option, which doesn't exist yet).
+3. **Monthly directory scan** (`jobtracker discover companies scan`, about 20 minutes): too long for one Lambda run (15 minutes at most), so it stays a laptop command. Against prod it also needs a `--dsql` option.
+4. **DSQL's per-transaction limits** (3,000 rows, 10 MiB): `reset_scores` (Re-score) and `reapply_rules` (saving the rules) each change their rows in one transaction. That's about 800 rows today, but it grows with the postings: batch them before it gets close.
+5. Remove `JSEARCH_API_KEY` from `.env` (nothing reads it any more).
 
 ### Tuning (with you, from what the scored postings show)
 

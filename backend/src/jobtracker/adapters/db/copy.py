@@ -47,8 +47,15 @@ TABLES: list[tuple[str, tuple[str, ...]]] = [
     ("discovery_settings", ("key",)),
     ("discovery_companies", ("id",)),
     ("job_postings", ("id",)),
-    ("discovery_runs", ("id",)),  # the month's JSearch request count lives here
+    ("discovery_runs", ("id",)),
 ]
+# `--only discovery`: what the Discover page needs, for moving discovery to AWS (round 5) once
+# the rest already lives there. job_postings.application_id may then name a local application
+# that prod doesn't have: the page shows it as not linked.
+DISCOVERY_TABLES = frozenset(
+    {"discovery_searches", "discovery_settings", "discovery_companies", "job_postings",
+     "discovery_runs"}
+)  # fmt: skip
 NOT_COPIED = {"oauth_credentials", "schema_migrations", "ingest_lease"}  # local-only or runtime
 
 MAX_ROWS = 500  # DSQL allows 3,000; the docs advise a few hundred per transaction
@@ -171,15 +178,19 @@ def copy_all(
     dry_run: bool = False,
     max_rows: int = MAX_ROWS,
     max_bytes: int = MAX_BYTES,
+    only: frozenset[str] | None = None,
     progress: Callable[[str], None] = log.info,
 ) -> CopyReport:
-    """`source` and `target` are autocommit connections with dict rows."""
+    """`source` and `target` are autocommit connections with dict rows. `only` limits the copy
+    to those tables."""
     check_schemas(source, target)
     report = CopyReport()
     source.read_only = True
     source.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
     with source.transaction():  # one snapshot for every table
         for table, pk in TABLES:
+            if only is not None and table not in only:
+                continue
             res = TableResult(table)
             report.tables.append(res)
             src_cols = _columns(source, table)

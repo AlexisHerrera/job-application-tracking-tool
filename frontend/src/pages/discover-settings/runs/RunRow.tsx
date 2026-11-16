@@ -28,7 +28,6 @@ export function RunRow({ run }: { run: DiscoveryRun }) {
         <Count n={run.new} label="new" />
         <Count n={run.dropped} label="hidden" />
         <Count n={run.llm_calls} label="scored" />
-        {run.jsearch_requests > 0 && <Count n={run.jsearch_requests} label="JSearch requests" />}
       </div>
       {run.notes.length > 0 && (
         <ul className={cn("space-y-0.5 rounded-md px-2.5 py-1.5 text-xs", run.errors > 0 ? "bg-destructive/5 text-destructive" : "bg-muted/50 text-muted-foreground")}>

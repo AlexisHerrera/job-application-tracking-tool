@@ -40,7 +40,7 @@ export function RulesTab({ state, onSaved }: { state: DiscoveryState; onSaved: (
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="min-w-0 space-y-4">
-        <NumberRulesCard rules={draft} onChange={setDraft} state={state} hits={hits.data} />
+        <NumberRulesCard rules={draft} onChange={setDraft} hits={hits.data} />
         {LIST_FIELDS.map((f) => (
           <RuleListCard
             key={f.key}

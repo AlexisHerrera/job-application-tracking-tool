@@ -211,9 +211,8 @@ def test_discover_page_flow(repo):
     from tests.fakes import FakeLLM, FakeSource, posting, verdict
 
     settings = Settings.from_env(
-        {"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com",
-         "JSEARCH_API_KEY": "k"}
-    )  # fmt: skip
+        {"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com"}
+    )
     now = datetime.now(UTC)
     source = FakeSource([
         posting(source_id="1", company="Northwind Pay", title="Senior Backend Engineer", posted_at=now),
@@ -226,18 +225,18 @@ def test_discover_page_flow(repo):
                                                salary_currency="USD", salary_period="year")})  # fmt: skip
     client = TestClient(
         create_app(settings, repo_factory=lambda: repo,
-                   discovery_factory=lambda: ({"jsearch": source}, llm))
+                   discovery_factory=lambda: ({"workable": source}, llm))
     )  # fmt: skip
 
     assert client.get("/api/discover/progress").json() == {"running": False}
     state = client.post("/api/discover/seed").json()
     assert state["added"]["searches"] == len(discovery.DEFAULT_SEARCHES)
-    assert state["jsearch_configured"] and state["can_run"]
+    assert state["can_run"]
     assert state["companies"]["total"] == 0  # a test app seeds no watchlist
     # only one search on, so the fake source answers once
     for x in state["searches"]:
         assert client.patch(f"/api/discover/searches/{x['id']}", json={"enabled": False}).status_code == 200  # fmt: skip
-    mine = client.post("/api/discover/searches", json={"source": "jsearch", "label": "AR · fintech", "params": {"query": "fintech", "country": "ar"}}).json()  # fmt: skip
+    mine = client.post("/api/discover/searches", json={"source": "workable", "label": "Workable · fintech", "params": {"query": "fintech"}}).json()  # fmt: skip
 
     run = client.post("/api/discover/run", json={}).json()
     assert (run["new"], run["dropped"], run["llm_calls"]) == (3, 1, 2)
@@ -269,7 +268,7 @@ def test_discover_page_flow(repo):
 
     rescored = client.post("/api/discover/rescore", json={"include_hidden": True}).json()
     assert rescored["trigger"] == "rescore" and rescored["llm_calls"] == 3
-    assert rescored["jsearch_requests"] == 0 and len(source.calls) == 1
+    assert len(source.calls) == 1
 
     top = page["postings"][0]
     r = client.post(f"/api/discover/{top['id']}/apply")
@@ -300,8 +299,10 @@ def test_discover_settings_and_searches(client):
     assert body["rules"]["title_exclude"]  # defaults kept for keys not sent
     assert client.put("/api/discover/settings", json={"criteria": " "}).status_code == 422
 
-    r = client.post("/api/discover/searches", json={"source": "jsearch", "label": "BR", "params": {"query": "backend", "country": "BR"}})  # fmt: skip
-    assert r.status_code == 201 and r.json()["params"] == {"query": "backend", "country": "br"}
+    r = client.post("/api/discover/searches", json={"source": "workable", "label": "BR", "params": {"query": " backend ", "location": "Brazil"}})  # fmt: skip
+    assert r.status_code == 201 and r.json()["params"] == {"query": "backend", "location": "Brazil"}
+    gone = client.post("/api/discover/searches", json={"source": "jsearch", "label": "x", "params": {"query": "x"}})  # fmt: skip
+    assert gone.status_code == 422
     sid = r.json()["id"]
     bad = client.post("/api/discover/searches", json={"source": "remoteyeah", "label": "x", "params": {"feed": "https://evil.test/a.xml"}})  # fmt: skip
     assert bad.status_code == 422 and "remoteyeah.com" in bad.json()["detail"]
@@ -314,7 +315,6 @@ def test_discover_run_is_local_only(repo):
     settings = Settings.from_env({"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com"})  # fmt: skip
     client = TestClient(create_app(settings, repo_factory=lambda: repo))
     assert client.get("/api/discover/settings").json()["can_run"] is True
-    assert client.get("/api/discover/settings").json()["jsearch_configured"] is False
 
 
 def test_discover_boards_collect_only_and_hide_company(repo):

@@ -1,7 +1,8 @@
 """AWS Lambda entry points. Thin: all logic lives in core/services.
 
-Both functions read their secrets from SSM once per cold start (see `adapters/ssm_secrets`) and
-open one Aurora DSQL connection per request / run (IAM token auth, `PostgresRepo.open`).
+Three functions share the zip: `api`, `ingest` (mail + calendar) and `discover` (job discovery
+and its digest). Each reads its secrets from SSM once per cold start (see `adapters/ssm_secrets`)
+and opens one Aurora DSQL connection per request / run (IAM token auth, `PostgresRepo.open`).
 """
 
 from __future__ import annotations
@@ -136,3 +137,103 @@ def _sync_calendar(s, repo) -> dict | None:
     except CalendarAuthError as err:
         logging.error("calendar sync skipped: %s", err)
         return {"error": str(err)}
+
+
+DISCOVER_LEASE = "discover"
+DEADLINE_MARGIN_S = 120  # stop scoring this long before the timeout: in-flight calls finish
+
+
+def discover(event, context):
+    """Job discovery in AWS (plan round 5). Every 6 hours from EventBridge Scheduler, or from the
+    Discover page's buttons (an async invoke: the page follows the progress row in DSQL).
+
+    `{"action": "run", "score": bool, "collect": bool}` collects and scores, `"rescore"` scores
+    the recent postings again, `"digest"` emails the day's matches. Runs and re-scores take their
+    own lease (not the mail ingest's), so they never wait on a mail scan; a second one answers
+    `{"busy": true}`. The digest reads only, apart from noting what it sent."""
+    from jobtracker.adapters.db.repo import PostgresRepo
+    from jobtracker.settings import Settings
+
+    _load_secrets()
+    s = Settings.from_env()
+    event = event or {}
+    action = event.get("action", "run")
+    trigger = event.get("trigger", "schedule")
+    repo = PostgresRepo.open(s)
+    try:
+        if action == "digest":
+            return _digest(s, repo)
+        if action not in ("run", "rescore"):
+            raise ValueError(f"unknown discover action {action!r}")
+        holder, seconds = _lease_terms(context)
+        if not repo.acquire_lease(DISCOVER_LEASE, holder, seconds):
+            logging.info("discover (%s): another run holds the lease, skipping", trigger)
+            return {"action": action, "trigger": trigger, "busy": True}
+        try:
+            return _discover_run(s, repo, event, action, trigger, context)
+        finally:
+            repo.release_lease(DISCOVER_LEASE, holder)
+    finally:
+        repo.close()
+
+
+def _discover_run(s, repo, event, action, trigger, context) -> dict:
+    from datetime import timedelta
+
+    from jobtracker.adapters.anthropic_llm import AnthropicLLM
+    from jobtracker.adapters.ats_boards import AtsBoards
+    from jobtracker.adapters.job_sources import discovery_sources
+    from jobtracker.api.schemas import run_json
+    from jobtracker.core import discovery, discovery_progress
+    from jobtracker.core.clock import SystemClock
+    from jobtracker.settings import ConfigError
+
+    clock = SystemClock()
+    score = action == "rescore" or bool(event.get("score", True))
+    if score and not s.anthropic_api_key:
+        raise ConfigError("discover needs ANTHROPIC_API_KEY to score (it lives in SSM)")
+    llm = AnthropicLLM(s.anthropic_api_key, s.llm_model, s.llm_effort) if score else None
+    remaining = getattr(context, "get_remaining_time_in_millis", None)
+    deadline = (
+        clock.now() + timedelta(seconds=remaining() / 1000 - DEADLINE_MARGIN_S)
+        if remaining
+        else None
+    )
+    writer = discovery_progress.ProgressWriter(repo, clock)
+    try:
+        if action == "rescore":
+            run = discovery.rescore(
+                repo, llm, clock, include_hidden=bool(event.get("include_hidden")),
+                deadline=deadline, on_progress=writer,
+            )  # fmt: skip
+        else:
+            run = discovery.run_discovery(
+                repo, discovery_sources(), llm, clock, boards=AtsBoards(), trigger=trigger,
+                collect=bool(event.get("collect", True)), deadline=deadline, on_progress=writer,
+            ).run  # fmt: skip
+    finally:
+        _close_progress(repo, clock)
+    result = {"action": action, **run_json(run)}
+    logging.info("discover: %s", result)
+    return result
+
+
+def _close_progress(repo, clock) -> None:
+    """A run that raised leaves its progress row unfinished: mark it done for the page."""
+    from jobtracker.core import discovery_progress
+
+    p = discovery_progress.load(repo, clock.now())
+    if p is not None and p.phase != "done":
+        p.phase, p.finished_at = "done", clock.now()
+        discovery_progress.save(repo, p, clock.now())
+
+
+def _digest(s, repo) -> dict:
+    from jobtracker.adapters.smtp_mail import GmailSmtpMailer
+    from jobtracker.core import digest
+    from jobtracker.core.clock import SystemClock
+
+    mailer = GmailSmtpMailer(s.smtp_host, s.gmail_address, s.gmail_app_password)
+    result = digest.send(repo, mailer, SystemClock(), s.tz, s.app_url)
+    logging.info("discover digest: %s", result)
+    return {"action": "digest", **result}

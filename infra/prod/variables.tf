@@ -38,6 +38,12 @@ variable "ingest_schedule_enabled" {
   description = "Every run reads the real inbox and can make paid LLM calls. Set false to pause ingest."
 }
 
+variable "discover_schedule_enabled" {
+  type        = bool
+  default     = true
+  description = "Discovery every 6 hours (paid LLM calls for new postings) and the 09:00 digest. Set false to pause both."
+}
+
 variable "monthly_budget_usd" {
   type    = number
   default = 5

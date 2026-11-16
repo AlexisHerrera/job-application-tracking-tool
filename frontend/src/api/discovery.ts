@@ -1,8 +1,9 @@
 // Job discovery (plan §20, §21)
 import type { CriteriaProfile } from "./discoverySettings";
 
-export type SearchSource = "jsearch" | "remoteyeah" | "getonbrd" | "workable";
-export type PostingSource = SearchSource | "ashby" | "greenhouse" | "lever";
+export type SearchSource = "remoteyeah" | "getonbrd" | "workable";
+/** "jsearch" only on postings stored before round 5, when it was a source. */
+export type PostingSource = SearchSource | "ashby" | "greenhouse" | "lever" | "jsearch";
 export type Verdict = "match" | "maybe" | "no";
 export type PostingStatus = "new" | "interested" | "dismissed" | "applied";
 /** Why a posting was discarded by hand (the backend's discovery.DISCARD_REASONS). */
@@ -109,7 +110,6 @@ export interface DiscoveryRules {
   blocked: string[];
   max_age_days: number;
   salary_floor_usd: number | null;
-  jsearch_monthly_cap: number;
 }
 
 export interface DiscoverySearch {
@@ -125,13 +125,18 @@ export interface DiscoveryRun {
   started_at: string;
   finished_at: string | null;
   trigger: string;
-  jsearch_requests: number;
   fetched: number;
   new: number;
   dropped: number;
   llm_calls: number;
   errors: number;
   notes: string[];
+}
+
+/** In AWS a run starts in the discover Lambda and the request returns at once; the page then
+ * follows the progress endpoint until it's done. */
+export interface DiscoveryStarted {
+  started: true;
 }
 
 /** The watchlist of company job boards (plan §21), in numbers. */
@@ -151,8 +156,6 @@ export interface DiscoveryState {
   searches: DiscoverySearch[];
   companies: WatchlistSummary;
   last_run: DiscoveryRun | null;
-  jsearch_used_this_month: number;
-  jsearch_configured: boolean;
   llm_configured: boolean;
   can_run: boolean;
   /** Visible new postings waiting for a score. */

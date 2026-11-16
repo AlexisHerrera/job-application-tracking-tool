@@ -77,13 +77,16 @@ class Settings:
     followup_days: int
     # Base64 of the service account's JSON key (or the JSON). Never printed in a repr.
     google_service_account_key: str = field(default="", repr=False)
-    # OpenWebNinja JSearch (job discovery, plan §20). Never printed in a repr.
-    jsearch_api_key: str = field(default="", repr=False)
     # Aurora DSQL (prod): when set, connections use IAM token auth instead of DATABASE_URL.
     dsql_endpoint: str = ""
     dsql_user: str = "admin"
     # Prod: the API's scan button invokes this Lambda instead of reading mail in-process.
     ingest_function_name: str = ""
+    # Prod: the Discover page's "Run now" invokes this Lambda (it also runs on its schedule).
+    discover_function_name: str = ""
+    # The daily discovery digest goes out through Gmail's SMTP, from and to GMAIL_ADDRESS, with
+    # the same app password the ingest reads mail with.
+    smtp_host: str = "smtp.gmail.com"
     # Prod: where the app lives (the login's return address). The SPA moves there from any other
     # host (the bare cloudfront.net name), since Cognito only returns to registered URLs.
     app_url: str = ""
@@ -115,10 +118,11 @@ class Settings:
             ghost_days=int(e.get("GHOST_DAYS", "14")),
             followup_days=int(e.get("FOLLOWUP_DAYS", "7")),
             google_service_account_key=e.get("GOOGLE_SERVICE_ACCOUNT_KEY", "").strip(),
-            jsearch_api_key=e.get("JSEARCH_API_KEY", "").strip(),
             dsql_endpoint=e.get("DSQL_ENDPOINT", "").strip(),
             dsql_user=e.get("DSQL_USER", "admin").strip() or "admin",
             ingest_function_name=e.get("INGEST_FUNCTION_NAME", "").strip(),
+            discover_function_name=e.get("DISCOVER_FUNCTION_NAME", "").strip(),
+            smtp_host=e.get("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com",
             app_url=e.get("APP_URL", "").strip().rstrip("/"),
         )
         s.validate(in_lambda=bool(e.get("AWS_LAMBDA_FUNCTION_NAME")))

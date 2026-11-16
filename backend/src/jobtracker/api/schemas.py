@@ -453,7 +453,6 @@ def run_json(r: DiscoveryRun | None) -> dict | None:
         "started_at": _iso(r.started_at),
         "finished_at": _iso(r.finished_at),
         "trigger": r.trigger,
-        "jsearch_requests": r.jsearch_requests,
         "fetched": r.fetched,
         "new": r.new,
         "dropped": r.dropped,
@@ -539,7 +538,7 @@ class WatchedPatch(BaseModel):
 
 
 class SearchIn(BaseModel):
-    source: str = Field(pattern="^(jsearch|remoteyeah|getonbrd|workable)$")
+    source: str = Field(pattern="^(remoteyeah|getonbrd|workable)$")
     label: str = Field(min_length=1, max_length=120)
     params: dict
     enabled: bool = True

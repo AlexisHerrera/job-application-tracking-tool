@@ -157,7 +157,6 @@ def test_getonbrd_reads_every_page():
     source = GetOnBoardSource(httpx.Client(transport=httpx.MockTransport(handler)))
     result = source.fetch({"category": "programming"})
     assert pages == [1, 2] and [p.source_id for p in result.postings] == ["job-1", "job-2"]
-    assert result.requests == 0
     with pytest.raises(SourceError):
         source.fetch({"category": "../users"})
     assert discovery.clean_search_params("getonbrd", {"category": "programming", "x": 1}) == {"category": "programming"}  # fmt: skip
@@ -415,7 +414,7 @@ def test_workable_follows_the_page_token_and_stops_on_a_repeat():
 
     source = WorkableSource(httpx.Client(transport=httpx.MockTransport(handler)))
     result = source.fetch({"query": "engineer", "location": "Argentina"})
-    assert [p.source_id for p in result.postings] == ["a"] and result.requests == 0
+    assert [p.source_id for p in result.postings] == ["a"]
     assert seen == [
         {"query": "engineer", "location": "Argentina"},
         {"query": "engineer", "location": "Argentina", "pageToken": "t1"},

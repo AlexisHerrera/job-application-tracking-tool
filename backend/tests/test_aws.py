@@ -296,6 +296,50 @@ def test_prod_api_without_jwt_is_401():
     assert client.get("/api/applications").status_code == 401
 
 
+# --- Discover buttons → discover Lambda ---
+
+
+def test_lambda_discover_starts_an_async_run():
+    from jobtracker.adapters.lambda_discover import DiscoverStartFailed, LambdaDiscover
+
+    fake = FakeLambda()
+    fake.invoke = lambda **kw: fake.calls.append(kw) or {"StatusCode": 202}
+    LambdaDiscover("discover", client=fake)({"action": "run", "score": True})
+    assert fake.calls[0]["InvocationType"] == "Event"
+    assert json.loads(fake.calls[0]["Payload"]) == {"trigger": "page", "action": "run", "score": True}  # fmt: skip
+    throttled = ClientError({"Error": {"Code": "TooManyRequestsException"}}, "Invoke")
+    with pytest.raises(DiscoverStartFailed, match="throttling"):
+        LambdaDiscover("discover", client=FakeLambda(error=throttled))({})
+
+
+def test_prod_discover_buttons_start_the_lambda_and_follow_its_progress():
+    from datetime import UTC, datetime
+
+    from jobtracker.core import discovery, discovery_progress
+
+    repo, started = MemoryRepo(), []
+    settings = Settings.from_env({"APP_ENV": "local", "AUTH_DEV_BYPASS": "true"})
+    client = TestClient(
+        create_app(settings, repo_factory=lambda: repo, remote_discover=started.append)
+    )
+    assert client.get("/api/discover/settings").json()["can_run"] is True
+    assert client.get("/api/discover/progress").json() == {"running": False}
+
+    r = client.post("/api/discover/run", json={"score": False})
+    assert r.status_code == 202 and started == [{"action": "run", "score": False, "collect": True}]
+    progress = client.get("/api/discover/progress").json()
+    assert progress["running"] is True and progress["kind"] == "run"
+    assert client.post("/api/discover/run", json={}).status_code == 409  # one at a time
+    assert client.post("/api/discover/rescore", json={}).status_code == 409
+
+    now = datetime.now(UTC)  # the Lambda finishes and writes its last report
+    done = discovery.Progress("run", now, phase="done", new=4, finished_at=now)
+    discovery_progress.save(repo, done, now)
+    assert client.get("/api/discover/progress").json()["running"] is False
+    r = client.post("/api/discover/rescore", json={"include_hidden": True})
+    assert r.status_code == 202 and started[-1] == {"action": "rescore", "include_hidden": True}
+
+
 def test_occ_conflict_becomes_409():
     settings = Settings.from_env({"APP_ENV": "local", "AUTH_DEV_BYPASS": "true"})
 
@@ -387,3 +431,54 @@ def test_ingest_releases_the_lease_when_gmail_fails(ingest_env, monkeypatch):
     with pytest.raises(OSError):
         handlers.ingest({"trigger": "schedule"}, _Context())
     assert [c[0] for c in repo.calls] == ["acquire", "release", "close"]
+
+
+class _DiscoverRepo(MemoryRepo):
+    """The in-memory repo with the lease calls the discover handler makes."""
+
+    def __init__(self, free=True):
+        super().__init__()
+        self.free, self.lease_calls = free, []
+
+    def acquire_lease(self, name, holder, seconds):
+        self.lease_calls.append(("acquire", name))
+        return self.free
+
+    def release_lease(self, name, holder):
+        self.lease_calls.append(("release", name))
+
+    def close(self):
+        self.lease_calls.append(("close",))
+
+
+def test_discover_takes_its_own_lease_and_runs(ingest_env, monkeypatch):
+    from jobtracker.core.models import DiscoverySearch
+    from tests.fakes import FakeLLM, FakeSource, posting
+
+    handlers, use = ingest_env
+    busy = _DiscoverRepo(free=False)
+    use(busy)
+    assert handlers.discover({}, _Context()) == {"action": "run", "trigger": "schedule", "busy": True}  # fmt: skip
+    assert busy.lease_calls == [("acquire", "discover"), ("close",)]
+
+    repo = _DiscoverRepo()
+    repo.save_search(DiscoverySearch("workable", "w", {"query": "engineer"}))
+    use(repo)
+    monkeypatch.setattr("jobtracker.adapters.job_sources.discovery_sources", lambda: {"workable": FakeSource([posting()])})  # fmt: skip
+    monkeypatch.setattr("jobtracker.adapters.ats_boards.AtsBoards", lambda: None)
+    monkeypatch.setattr("jobtracker.adapters.anthropic_llm.AnthropicLLM", lambda *_a: FakeLLM())
+    out = handlers.discover({"trigger": "page", "action": "run"}, _Context())
+    assert (out["trigger"], out["new"], out["llm_calls"]) == ("page", 1, 1)
+    assert repo.get_discovery_setting("progress")["phase"] == "done"
+    assert [c[0] for c in repo.lease_calls] == ["acquire", "release", "close"]
+
+
+def test_discover_digest_needs_no_lease(ingest_env, monkeypatch):
+    handlers, use = ingest_env
+    repo = _DiscoverRepo()
+    use(repo)
+    sent = []
+    monkeypatch.setattr("jobtracker.adapters.smtp_mail.GmailSmtpMailer.send", lambda self, *a: sent.append(a))  # fmt: skip
+    out = handlers.discover({"action": "digest"}, _Context())
+    assert out == {"action": "digest", "sent": False, "postings": 0, "reason": "nothing new to send"}  # fmt: skip
+    assert sent == [] and repo.lease_calls == [("close",)]

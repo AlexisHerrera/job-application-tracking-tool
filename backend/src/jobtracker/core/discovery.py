@@ -42,7 +42,7 @@ from jobtracker.core.ports import (
 log = logging.getLogger(__name__)
 
 PROMPT_VERSION = "2026-11-14.2"  # intermediaries pass, Argentina bonus, full description (§21)
-SEARCH_SOURCES = ("jsearch", "remoteyeah", "getonbrd", "workable")  # through saved searches
+SEARCH_SOURCES = ("remoteyeah", "getonbrd", "workable")  # through saved searches
 ATS = ("ashby", "greenhouse", "lever")  # collected from the watched companies' boards (§21)
 SOURCES = (*SEARCH_SOURCES, *ATS)
 # Sources that list only open jobs, so the "too old" rule doesn't apply to them.
@@ -131,7 +131,6 @@ GETONBRD_CATEGORIES = (
     "data-science-analytics", "cybersecurity", "design-ux", "innovation-agile", "other",
 )  # fmt: skip
 
-# JSearch isn't here any more (plan §21): its results were mostly reposts and spam.
 DEFAULT_SEARCHES: list[tuple[str, str, dict]] = [
     ("getonbrd", "getonbrd · programming", {"category": "programming"}),
     ("getonbrd", "getonbrd · AI", {"category": "machine-learning-ai"}),
@@ -184,7 +183,6 @@ class Rules:
     blocked: list[str] = field(default_factory=lambda: list(BLOCKED))
     max_age_days: int = 21
     salary_floor_usd: int | None = None  # yearly; None = no salary filter
-    jsearch_monthly_cap: int = 190
 
     @classmethod
     def from_dict(cls, data: dict | None) -> Rules:
@@ -199,7 +197,6 @@ class Rules:
         r.blocked = _str_list(d.get("blocked"), r.blocked)
         r.max_age_days = _int_or(d.get("max_age_days"), r.max_age_days, 1, 365) or r.max_age_days
         r.salary_floor_usd = _int_or(d.get("salary_floor_usd"), None, 0, 10_000_000) or None
-        r.jsearch_monthly_cap = _int_or(d.get("jsearch_monthly_cap"), r.jsearch_monthly_cap, 0, 100_000)  # fmt: skip
         return r
 
     def to_dict(self) -> dict:
@@ -213,7 +210,6 @@ class Rules:
             "blocked": self.blocked,
             "max_age_days": self.max_age_days,
             "salary_floor_usd": self.salary_floor_usd,
-            "jsearch_monthly_cap": self.jsearch_monthly_cap,
         }
 
 
@@ -345,7 +341,8 @@ def rule_drop(p: JobPosting, rules: Rules, now: datetime, *, age: bool = True) -
     # Stack words don't drop AI roles: the user tailors the CV for those, the LLM decides.
     if not AI_TITLE.search(p.title) and (hit := title_hit(p.title, rules.title_exclude)):
         return f"title: {hit}"
-    # JSearch's location is where the listing was posted, not where it hires: the LLM reads it.
+    # Postings stored from JSearch (a source until round 5) give where the listing was posted,
+    # not where it hires: the LLM read those.
     if p.source != "jsearch" and not location_allowed(p.location, rules.location_allow):
         return "location"
     if p.source != "jsearch" and brazil_onsite(p, rules.location_allow):
@@ -610,7 +607,7 @@ def sync_search_fields(p: JobPosting) -> None:
     """Copy what the page filters on from ai_result into plain columns (migration 0012).
 
     Salary: the LLM's reading when it found one in USD; otherwise the source's own fields, taken
-    as USD (JSearch states salaries only for US listings: none of the Argentine ones had one)."""
+    as USD."""
     ai = p.ai_result or {}
     p.seniority = ai.get("seniority")
     p.years_required = ai.get("years_required")
@@ -654,11 +651,6 @@ def score_posting(llm: LLMClient, criteria: str, p: JobPosting, now: datetime) -
 
 # ---------------------------------------------------------------------------------------------
 # One run
-
-
-def month_start(now: datetime) -> datetime:
-    utc = now.astimezone(UTC)
-    return utc.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 def prepare(p: JobPosting, now: datetime) -> JobPosting:
@@ -720,18 +712,18 @@ def run_discovery(
     rescore: bool = False,
     collect: bool = True,
     score_limit: int = RUN_SCORE_LIMIT,
+    deadline: datetime | None = None,
     on_progress: ProgressFn | None = None,
 ) -> RunResult:
     """Collect every enabled search and every watched company's board, store what's new (hidden
     ones too, with the reason), then score the postings that passed the rules and have no verdict
     yet (`llm=None` only collects). `only_source` is a source name, or "boards" for all three
     ATSs. `collect=False` reads no source and only scores what is waiting. A dry run stores no
-    postings and calls no LLM, but its run row is kept: the JSearch requests it used still count
-    towards the month."""
+    postings and calls no LLM, but its run row is kept. Scoring stops at `deadline` (the Lambda's
+    timeout): what's left waits for the next run."""
     now = clock.now()
     run = DiscoveryRun(started_at=now, trigger=trigger)
     criteria, rules = load_settings(repo)
-    used = repo.jsearch_requests_since(month_start(now))
     recent = repo.recent_posting_keys(now - DUPLICATE_WINDOW)
     seen: set[tuple[str, str]] = set()
     new: list[JobPosting] = []
@@ -790,22 +782,13 @@ def run_discovery(
             if source is None:
                 run.notes.append(f"{search.label}: source {search.source} not configured")
                 continue
-            if search.source == "jsearch" and used >= rules.jsearch_monthly_cap:
-                run.notes.append(f"{search.label}: skipped, JSearch monthly cap reached ({used})")
-                continue
             try:
                 result = source.fetch(search.params)
             except SourceError as err:
-                if search.source == "jsearch":
-                    used += err.requests
-                    run.jsearch_requests += err.requests
                 run.errors += 1
                 run.notes.append(f"{search.label}: {err}")
                 log.warning("discovery source failed: %s: %s", search.label, err)
                 continue
-            if search.source == "jsearch":
-                used += result.requests
-                run.jsearch_requests += result.requests
             for p in result.postings:
                 # Workable's search matches on the whole posting: "developer" also brings
                 # business developers. Like a board, only engineering titles are stored.
@@ -855,7 +838,7 @@ def run_discovery(
         if llm is not None:
             score_pending(
                 repo, llm, criteria, clock, run, score_limit,
-                rules=rules, progress=progress, on_progress=on_progress,
+                rules=rules, deadline=deadline, progress=progress, on_progress=on_progress,
             )  # fmt: skip
 
     run.finished_at = clock.now()
@@ -892,6 +875,7 @@ def score_pending(
     include_hidden: bool = False,
     any_status: bool = False,
     rules: Rules | None = None,
+    deadline: datetime | None = None,
     progress: Progress | None = None,
     on_progress: ProgressFn | None = None,
 ) -> None:
@@ -926,7 +910,7 @@ def score_pending(
         return
     system = system_prompt(criteria)
     model = getattr(llm, "model", None)
-    failures = 0
+    failures = answered = 0
     kinds: Counter[str] = Counter()
     pool = ThreadPoolExecutor(max_workers=SCORE_WORKERS)
     try:
@@ -934,6 +918,7 @@ def score_pending(
         for future in as_completed(futures):
             p = futures[future]
             run.llm_calls += 1
+            answered += 1
             if progress is not None:
                 progress.scored += 1
             try:
@@ -954,6 +939,10 @@ def score_pending(
             with repo.transaction():
                 repo.update_posting(p)
             _report(progress, on_progress)
+            if deadline is not None and clock.now() >= deadline:
+                left = len(pending) - answered
+                run.notes.append(f"stopped scoring at the time limit; {left} left for the next run")
+                break
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
         used = llm.usage
@@ -977,10 +966,11 @@ def rescore(
     *,
     include_hidden: bool = False,
     limit: int = RESCORE_LIMIT,
+    deadline: datetime | None = None,
     on_progress: ProgressFn | None = None,
 ) -> DiscoveryRun:
-    """Score the recent postings again with the current criteria, without collecting anything
-    (no JSearch requests). Every status counts, so applied and dismissed postings get the search
+    """Score the recent postings again with the current criteria, without collecting anything.
+    Every status counts, so applied and dismissed postings get the search
     fields too. `include_hidden` also scores the ones the rules hid (not the duplicates): their
     verdict shows whether a rule hides something worth seeing; they stay hidden."""
     now = clock.now()
@@ -996,7 +986,8 @@ def rescore(
     _report(progress, on_progress)
     score_pending(
         repo, llm, criteria, clock, run, limit,
-        include_hidden=include_hidden, any_status=True, progress=progress, on_progress=on_progress,
+        include_hidden=include_hidden, any_status=True, deadline=deadline, progress=progress,
+        on_progress=on_progress,
     )  # fmt: skip
     run.finished_at = clock.now()
     with repo.transaction():
@@ -1281,14 +1272,6 @@ def apply_to(repo: DiscoveryRepo, clock: Clock, posting_id) -> tuple[JobPosting,
     return p, app
 
 
-JSEARCH_PARAMS = {
-    "query": str, "country": str, "language": str, "date_posted": str, "work_from_home": bool,
-    "employment_types": str, "job_requirements": str, "exclude_job_publishers": str,
-    "num_pages": int,
-}  # fmt: skip
-DATE_POSTED = {"all", "today", "3days", "week", "month"}
-
-
 def clean_search_params(source: str, params: dict) -> dict:
     """What a saved search may hold. Raises ValueError with a message for the page."""
     from urllib.parse import urlsplit
@@ -1318,29 +1301,4 @@ def clean_search_params(source: str, params: dict) -> dict:
         if not out:
             raise ValueError("a Workable search needs a query or a location")
         return out
-    if source != "jsearch":
-        raise ValueError(f"unknown source {source!r}")
-    out: dict = {}
-    for key, kind in JSEARCH_PARAMS.items():
-        value = params.get(key)
-        if value is None or value == "":
-            continue
-        if kind is bool:
-            out[key] = bool(value)
-        elif kind is int:
-            if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 3:
-                raise ValueError("num_pages must be 1, 2 or 3 (each page is one paid request)")
-            out[key] = value
-        else:
-            if not isinstance(value, str) or len(value) > 200:
-                raise ValueError(f"{key} must be a short text")
-            out[key] = value.strip()
-    if not out.get("query"):
-        raise ValueError("a JSearch search needs a query")
-    if "country" in out and not re.fullmatch(r"[a-z]{2}", out["country"].lower()):
-        raise ValueError("country is a two-letter code (ar, us, br…)")
-    if "country" in out:
-        out["country"] = out["country"].lower()
-    if "date_posted" in out and out["date_posted"] not in DATE_POSTED:
-        raise ValueError(f"date_posted is one of {', '.join(sorted(DATE_POSTED))}")
-    return out
+    raise ValueError(f"unknown source {source!r}")

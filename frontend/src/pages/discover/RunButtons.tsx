@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 export function RunButtons({ state, working, onRun }: { state: DiscoveryState; working: boolean; onRun: (score: boolean, collect: boolean) => void }) {
   if (!state.can_run) return null;
   const enabled = state.searches.filter((x) => x.enabled);
-  const jsearch = state.jsearch_configured ? enabled.filter((x) => x.source === "jsearch").length : 0;
   const nothing = enabled.length === 0 && state.companies.enabled === 0;
   const sources = `${enabled.length} search${enabled.length === 1 ? "" : "es"} and ${state.companies.enabled} company board${state.companies.enabled === 1 ? "" : "s"}`;
   return (
@@ -20,7 +19,7 @@ export function RunButtons({ state, working, onRun }: { state: DiscoveryState; w
           <Sparkles /> Score pending ({state.unscored})
         </Button>
       )}
-      <Button size="sm" disabled={working || nothing} onClick={() => onRun(true, true)} title={`Reads ${sources}${jsearch ? ` (about ${jsearch} JSearch request${jsearch === 1 ? "" : "s"})` : ""}, then scores up to 1,000 waiting postings with AI (paid, about $0.0005 each)`}>
+      <Button size="sm" disabled={working || nothing} onClick={() => onRun(true, true)} title={`Reads ${sources}, then scores up to 1,000 waiting postings with AI (paid, about $0.0005 each)`}>
         <Play className={cn(working && "animate-pulse")} /> {working ? "Running…" : "Run now"}
       </Button>
     </>

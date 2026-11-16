@@ -339,7 +339,9 @@ class JobPosting:
     """An open position collected from a job source. Everything in it comes from the web, so it's
     untrusted text: shown as text, given to the LLM as data, never followed or executed."""
 
-    source: str  # a search source ("remoteyeah", "getonbrd", "workable", "jsearch") or an ATS
+    source: (
+        str  # a search source ("remoteyeah", "getonbrd", "workable"), an ATS, or "jsearch" (gone)
+    )
     source_id: str
     url: str
     title: str
@@ -442,7 +444,7 @@ class DiscoveryRun:
     trigger: str
     id: uuid.UUID = field(default_factory=new_id)
     finished_at: datetime | None = None
-    jsearch_requests: int = 0
+    jsearch_requests: int = 0  # JSearch is gone (round 5); the column stays, always 0 now
     fetched: int = 0
     new: int = 0
     dropped: int = 0

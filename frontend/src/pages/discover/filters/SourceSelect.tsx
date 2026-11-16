@@ -11,7 +11,6 @@ export function SourceSelect({ value, onChange }: { value: string; onChange: (v:
       <NativeSelectOption value="ashby">Company boards · Ashby</NativeSelectOption>
       <NativeSelectOption value="greenhouse">Company boards · Greenhouse</NativeSelectOption>
       <NativeSelectOption value="lever">Company boards · Lever</NativeSelectOption>
-      <NativeSelectOption value="jsearch">JSearch</NativeSelectOption>
     </NativeSelect>
   );
 }

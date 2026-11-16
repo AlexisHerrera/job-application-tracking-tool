@@ -927,14 +927,6 @@ class PostgresRepo:
         rows = self._all("SELECT * FROM discovery_runs ORDER BY started_at DESC LIMIT %s", (limit,))
         return [_run_from(r) for r in rows]
 
-    def jsearch_requests_since(self, since: datetime) -> int:
-        r = self._one(
-            "SELECT coalesce(sum(jsearch_requests), 0) AS n FROM discovery_runs"
-            " WHERE started_at >= %s",
-            (since,),
-        )
-        return int(r["n"]) if r else 0
-
     # company watchlist (plan §21)
     def list_watched(self) -> list[WatchedCompany]:
         rows = self._all("SELECT * FROM discovery_companies ORDER BY name, ats, slug")

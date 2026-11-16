@@ -257,14 +257,14 @@ def test_discovery_roundtrip(pg, clock):
     for x in pg.list_searches():
         x.enabled = False
         pg.save_search(x)
-    pg.save_search(DiscoverySearch(source="jsearch", label="AR · fintech", params={"query": "x"}))
-    good = posting(source="jsearch", source_id="a1", company="Northwind Pay", salary_min=50000,
+    pg.save_search(DiscoverySearch(source="workable", label="fintech", params={"query": "x"}))
+    good = posting(source="workable", source_id="a1", company="Northwind Pay", salary_min=50000,
                    salary_max=60000, salary_period="YEAR", posted_at=clock.now())  # fmt: skip
-    agency = posting(source="jsearch", source_id="a2", company="Turing")
+    agency = posting(source="workable", source_id="a2", company="Turing")
     llm = FakeLLM(discover={"Northwind": verdict(verdict="match", score=80, stack_overlap=["React"])})  # fmt: skip
-    result = discovery.run_discovery(pg, {"jsearch": FakeSource([good, agency])}, llm, clock)
+    result = discovery.run_discovery(pg, {"workable": FakeSource([good, agency])}, llm, clock)
     assert (result.run.new, result.run.dropped, result.run.llm_calls) == (2, 1, 1)
-    assert pg.posting_exists("jsearch", "a1") and not pg.posting_exists("jsearch", "zz")
+    assert pg.posting_exists("workable", "a1") and not pg.posting_exists("workable", "zz")
 
     stored = {p.source_id: p for p in pg.list_postings()}
     assert stored["a1"].ai_verdict == "match" and stored["a1"].ai_result["stack_overlap"] == [
@@ -273,7 +273,6 @@ def test_discovery_roundtrip(pg, clock):
     assert stored["a2"].drop_reason == "agency"
     assert pg.unscored_postings() == [] and pg.count_unscored() == 0
     assert pg.recent_posting_keys(clock.now() - timedelta(days=1))
-    assert pg.jsearch_requests_since(discovery.month_start(clock.now())) == 1
     last = pg.last_run()
     assert isinstance(last, DiscoveryRun) and last.llm_calls == 1
 

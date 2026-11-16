@@ -1,7 +1,7 @@
 # Prod stack (plan §1, §9 Phase 3), us-east-1. State lives in the bucket from ../bootstrap with
 # S3's native lockfile (no DynamoDB table).
 #
-#   ../scripts/build-lambda.sh          # → ../build/lambda.zip (both functions)
+#   ../scripts/build-lambda.sh          # → ../build/lambda.zip (all three functions)
 #   terraform init && terraform plan -out tfplan && terraform apply tfplan
 
 terraform {
@@ -38,6 +38,8 @@ locals {
   secrets = {
     api    = ["ANTHROPIC_API_KEY", "GOOGLE_SERVICE_ACCOUNT_KEY"]
     ingest = ["GMAIL_APP_PASSWORD", "ANTHROPIC_API_KEY", "GOOGLE_SERVICE_ACCOUNT_KEY"]
+    # Scoring postings, and the digest (sent through Gmail's SMTP with the app password).
+    discover = ["ANTHROPIC_API_KEY", "GMAIL_APP_PASSWORD"]
   }
   dsql_endpoint = "${aws_dsql_cluster.main.identifier}.dsql.${local.region}.on.aws"
 }

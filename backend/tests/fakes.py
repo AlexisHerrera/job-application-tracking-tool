@@ -435,9 +435,6 @@ class MemoryRepo:
     def list_runs(self, limit):
         return sorted(self.runs.values(), key=lambda r: r.started_at, reverse=True)[:limit]
 
-    def jsearch_requests_since(self, since):
-        return sum(r.jsearch_requests for r in self.runs.values() if r.started_at >= since)
-
     def list_watched(self):
         rows = sorted(self.watched.values(), key=lambda c: (c.name, c.ats, c.slug))
         return [copy.deepcopy(c) for c in rows]
@@ -483,9 +480,8 @@ class FakeBoards:
 class FakeSource:
     """A job source returning scripted postings per search `query`/`feed`."""
 
-    def __init__(self, postings=(), requests_per_fetch=1, fail=False):
+    def __init__(self, postings=(), fail=False):
         self.postings = list(postings)
-        self.requests_per_fetch = requests_per_fetch
         self.fail = fail
         self.calls: list[dict] = []
 
@@ -495,7 +491,7 @@ class FakeSource:
         self.calls.append(params)
         if self.fail:
             raise SourceError("HTTP 500")
-        return FetchResult([copy.deepcopy(p) for p in self.postings], self.requests_per_fetch)
+        return FetchResult([copy.deepcopy(p) for p in self.postings])
 
 
 class FakeCalendar:
@@ -613,7 +609,7 @@ def verdict(**overrides) -> dict:
 
 def posting(**overrides) -> JobPosting:
     base = {
-        "source": "jsearch",
+        "source": "getonbrd",
         "source_id": overrides.pop("source_id", str(uuid.uuid4())),
         "url": "https://jobs.example.test/1",
         "title": "Senior Full Stack Engineer",

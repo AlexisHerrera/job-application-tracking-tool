@@ -114,3 +114,21 @@ def test_every_table_is_covered(urls):
             "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
         ).fetchall()
     assert {r["table_name"] for r in rows} == {t for t, _ in TABLES} | NOT_COPIED
+
+
+def test_only_discovery_leaves_the_applications_alone(urls, clock):
+    from jobtracker.adapters.db.copy import DISCOVERY_TABLES
+
+    src, dst = urls
+    app_id = _seed(src, clock)
+    repo = PostgresRepo.connect(src)
+    try:
+        repo.set_discovery_setting("criteria", "Lives in Buenos Aires")
+    finally:
+        repo.close()
+    with connect_url(src) as s, connect_url(dst) as d:
+        report = copy_all(s, d, only=DISCOVERY_TABLES)
+        assert {t.table for t in report.tables} == DISCOVERY_TABLES
+        assert d.execute("SELECT count(*) AS n FROM applications WHERE id = %s", (app_id,)).fetchone()["n"] == 0  # fmt: skip
+        row = d.execute("SELECT value FROM discovery_settings WHERE key = 'criteria'").fetchone()
+        assert row["value"] == "Lives in Buenos Aires"

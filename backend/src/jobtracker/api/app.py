@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from jobtracker.adapters.db.repo import PostgresRepo
+from jobtracker.adapters.lambda_discover import DiscoverStartFailed, LambdaDiscover
 from jobtracker.adapters.lambda_ingest import (
     IngestBusy,
     IngestFailed,
@@ -24,6 +25,7 @@ from jobtracker.api.auth import TokenVerifier, User, cognito_issuer
 from jobtracker.core import (
     campaigns,
     discovery,
+    discovery_progress,
     discovery_settings,
     insights,
     interviews,
@@ -81,6 +83,7 @@ def create_app(
     remote_scan: Callable[[], dict] | None = None,
     discovery_factory: Callable[[], tuple[dict[str, JobSource], LLMClient | None]] | None = None,
     boards_factory: Callable[[], BoardSource] | None = None,
+    remote_discover: Callable[[dict], None] | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     verifier = TokenVerifier(settings)
@@ -137,18 +140,9 @@ def create_app(
 
     def default_discovery() -> tuple[dict[str, JobSource], LLMClient | None]:
         from jobtracker.adapters.anthropic_llm import AnthropicLLM
-        from jobtracker.adapters.getonbrd import GetOnBoardSource
-        from jobtracker.adapters.jsearch import JSearchSource
-        from jobtracker.adapters.remoteyeah import RemoteYeahSource
-        from jobtracker.adapters.workable import WorkableSource
+        from jobtracker.adapters.job_sources import discovery_sources
 
-        sources: dict[str, JobSource] = {
-            "remoteyeah": RemoteYeahSource(),
-            "getonbrd": GetOnBoardSource(),
-            "workable": WorkableSource(),
-        }
-        if settings.jsearch_api_key:
-            sources["jsearch"] = JSearchSource(settings.jsearch_api_key, clock=clock)
+        sources = discovery_sources()
         llm = (
             AnthropicLLM(settings.anthropic_api_key, settings.llm_model, settings.llm_effort)
             if settings.anthropic_api_key
@@ -156,9 +150,12 @@ def create_app(
         )
         return sources, llm
 
-    # Local only for now: in AWS the daily schedule runs it (plan §20, phase b).
+    # Locally a run happens in this process. In AWS the discover Lambda runs it (on its schedule,
+    # or started from the page), and the page follows its progress row in DSQL.
+    if remote_discover is None and settings.app_env == "prod" and settings.discover_function_name:
+        remote_discover = LambdaDiscover(settings.discover_function_name)
     make_discovery = discovery_factory or (
-        default_discovery if settings.app_env == "local" else None
+        default_discovery if settings.app_env == "local" and remote_discover is None else None
     )
 
     def default_boards() -> BoardSource:
@@ -897,12 +894,8 @@ def create_app(
                 repo.list_watched(), repo.get_discovery_setting("watchlist_scan")
             ),
             "last_run": s.run_json(repo.last_run()),
-            "jsearch_used_this_month": repo.jsearch_requests_since(
-                discovery.month_start(clock.now())
-            ),
-            "jsearch_configured": bool(settings.jsearch_api_key),
             "llm_configured": bool(settings.anthropic_api_key),
-            "can_run": make_discovery is not None,
+            "can_run": make_discovery is not None or remote_discover is not None,
             "unscored": repo.count_unscored(),
             "profile": profile.to_dict(),
             "profile_saved": profile_saved,
@@ -1072,20 +1065,41 @@ def create_app(
                 p.phase, p.finished_at = "done", clock.now()
 
     @api.get("/discover/progress")
-    def discovery_progress():
+    def get_discovery_progress(repo: PostgresRepo = Depends(get_repo)):
+        if make_discovery is None and remote_discover is not None:
+            return s.progress_json(discovery_progress.load(repo, clock.now()), clock.now())
         with progress_lock:
             p = progress_now["latest"]
         return s.progress_json(p, clock.now())
+
+    def start_remote(repo: PostgresRepo, kind: str, payload: dict) -> JSONResponse:
+        """AWS: start the discover Lambda and answer 202 right away. The progress row is written
+        first, so the page sees the run as going from the start."""
+        if discovery_progress.running(repo, clock.now()):
+            raise HTTPException(409, "A discovery run is already going")
+        now = clock.now()
+        discovery_progress.save(repo, discovery.Progress(kind, now, phase_started_at=now), now)
+        try:
+            remote_discover(payload)
+        except DiscoverStartFailed as err:
+            discovery_progress.save(
+                repo, discovery.Progress(kind, now, phase="done", finished_at=now), now
+            )
+            raise HTTPException(503, str(err)) from err
+        return JSONResponse({"started": True}, status_code=202)
 
     @api.post("/discover/run")
     def run_discovery(body: s.DiscoverRunIn, repo: PostgresRepo = Depends(get_repo)):
         """Collect now: the saved searches and the watched companies' boards (free), then paid
         LLM calls for new postings unless `score` is false. `collect: false` only scores what
         is waiting."""
-        if make_discovery is None:
-            raise HTTPException(501, "Discovery runs on its schedule here")
         if not (body.collect or body.score):
             raise services.InvalidInput("nothing to do: collect and score are both off")
+        if make_discovery is None:
+            if remote_discover is None:
+                raise HTTPException(501, "Discovery runs on its schedule here")
+            payload = {"action": "run", "score": body.score, "collect": body.collect}
+            return start_remote(repo, "run" if body.collect else "score", payload)
         if not repo.try_discovery_lock():
             raise HTTPException(409, "A discovery run is already going")
         sources, llm = make_discovery()
@@ -1110,7 +1124,10 @@ def create_app(
     def rescore_postings(body: s.DiscoverRescoreIn, repo: PostgresRepo = Depends(get_repo)):
         """Score the recent postings again (paid LLM calls), without collecting: no JSearch."""
         if make_discovery is None:
-            raise HTTPException(501, "Discovery runs on its schedule here")
+            if remote_discover is None:
+                raise HTTPException(501, "Discovery runs on its schedule here")
+            payload = {"action": "rescore", "include_hidden": body.include_hidden}
+            return start_remote(repo, "rescore", payload)
         if not repo.try_discovery_lock():
             raise HTTPException(409, "A discovery run is already going")
         _, llm = make_discovery()

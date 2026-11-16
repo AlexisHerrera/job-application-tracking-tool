@@ -6,7 +6,7 @@ import { WatchlistCard } from "./watchlist/WatchlistCard";
 export function SourcesTab({ state, onChange }: { state: DiscoveryState; onChange: () => void }) {
   return (
     <div className="space-y-4">
-      <SearchesSection searches={state.searches} jsearchConfigured={state.jsearch_configured} onChange={onChange} />
+      <SearchesSection searches={state.searches} onChange={onChange} />
       <WatchlistCard state={state} onChange={onChange} />
     </div>
   );
