@@ -2,7 +2,7 @@
 
 A personal, near-zero-cost tracker for job applications. It reads Gmail over IMAP, picks out job-process emails (confirmations, interviews, rejections…), attaches them to the right application, and shows stats so you know what to practice.
 
-Design and decisions: [`docs/plan.md`](docs/plan.md).
+Open work: [`docs/plan.md`](docs/plan.md). The design and decisions behind what's built are in git: `git show 95af9fb:docs/plan.md`.
 
 ```
 backend/    Python 3.12 package `jobtracker` (core domain + adapters + API + CLI), uv / ruff / pytest
@@ -50,7 +50,7 @@ All tests use **fake fixture emails** (`backend/tests/fixtures/emails`). They ne
 
 ## Deploying to AWS
 
-Everything lives in us-east-1, account 630773215521, through the AWS profile `jobtracker` (SSO session `personal`). Design and decisions: [`docs/plan.md` §18](docs/plan.md). Requirements: Terraform ≥ 1.10, AWS CLI v2, uv.
+Everything lives in us-east-1, account 630773215521, through the AWS profile `jobtracker` (SSO session `personal`). Design and decisions: §18 of `git show 95af9fb:docs/plan.md`. Requirements: Terraform ≥ 1.10, AWS CLI v2, uv.
 
 ⚠️ Each step below touches the AWS account. `terraform apply` only ever runs a plan file you've read.
 
