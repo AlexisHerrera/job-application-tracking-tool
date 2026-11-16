@@ -15,7 +15,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 | 4 | Notes editor | `NotesEditor.tsx` (534) | done |
 | 5 | Calendar | `pages/Calendar.tsx` (335) | done |
 | 6 | Dashboard | `pages/Dashboard.tsx` (292) + `FlowChart` (288), `Insights` (127), `MiniCalendar` (77) | done |
-| 7 | Applications (board and list) | `pages/Applications.tsx` (203) + `applications/Board.tsx` (243) + `AllTable.tsx` (94) | todo |
+| 7 | Applications (board and list) | `pages/Applications.tsx` (203) + `applications/Board.tsx` (243) + `AllTable.tsx` (94) | done |
 | 8 | App shell and the `src/` root | `App.tsx` (194), `campaign.tsx`, `auth.ts`, `AuthGate.tsx`, `useAsync.ts` | todo |
 | 9 | Small pages and the shared application widgets | Inbox, Interviews, Campaigns, Add; `PasteAssistant` (257), `ApplicationForm` (211), `ReviewDialog` (202), `ApplicationPicker`, `PasteFill`, `SalaryInput` | todo |
 | 10 | Optional: split `api.ts` | `api.ts` (637) | todo |
@@ -31,11 +31,11 @@ src/
   index.css
   app/                      # the shell: layout, sidebar, routes (session 8)
   pages/                    # one folder per route; only that route uses what's inside
-    Dashboard/
+    dashboard/
       DashboardPage.tsx     # the route component (default export)
       KpiTiles.tsx
       ...
-    Discover/
+    discover/
     ...
   features/                 # domain pieces used by two or more pages, or by the shell
     application/            # ApplicationView, ApplicationForm, PasteAssistant, ReviewDialog...
@@ -60,8 +60,12 @@ src/
 3. **Names say what it is.** Rename generic names when they move: `Card` → `BoardCard` (it
    clashes with shadcn's `Card`), `Row` → `ListRow`, `Header` → `EditorHeader`, `AllTable` →
    `ApplicationsTable`, `Filters` → `FiltersPanel`, `Dot` → `NodeDot`.
-4. **Pages** live in `pages/<Name>/<Name>Page.tsx` with a default export, every page in a folder
-   even if it's one file for now. Everything else uses named exports. No `index.ts` barrels.
+4. **Folders are lowercase kebab-case** (`pages/dashboard/`, `flow-chart/`, `application-view/`),
+   the usual convention in React projects (like `components/ui`). Files keep the name of what they
+   export: PascalCase for components (`DashboardPage.tsx`), camelCase for hooks and helpers
+   (`useWidth.ts`, `layout.ts`). Sessions 1–6 first used PascalCase folders; they were all renamed
+   with session 7. **Pages** live in `pages/<name>/<Name>Page.tsx` with a default export, every page
+   in a folder even if it's one file for now. Everything else uses named exports. No `index.ts` barrels.
 5. **Non-component code** gets its own file in the folder: constants (`constants.ts`), pure helpers
    (a name like `format.ts` or `query.ts`), hooks (`useX.ts`).
 6. **Shared only when shared.** Something goes to `features/`, `components/` or `lib/` only if two
@@ -105,7 +109,7 @@ The biggest file. Keep `settings/` self-contained: plan §21 round 6 later turns
 own route, and with this layout that becomes a routing change.
 
 ```
-pages/Discover/
+pages/discover/
   DiscoverPage.tsx            # URL params, the two useAsync calls, layout
   constants.ts                # VIEWS, PAGE_SIZE, FILTER_PARAMS, SENIORITY, COMPANY_SIZE, SECTOR,
                               # WORK_MODE, LOCATION_FIT, EMPLOYER, POSTED, DROP_LABEL
@@ -152,7 +156,7 @@ than option arrays, so the JSX is unchanged. `ProgressPanel` → `RunProgressPan
 `SearchesSection` (it passes its `run` error-and-reload wrapper to `AddSearchForm`).
 `PostingActions` renders a fragment inside the card's actions row, next to the Description
 trigger, so the DOM is the same. Files in subfolders import page-level files as
-`@/pages/Discover/...`.
+`@/pages/discover/...`.
 
 Watch out for: `PostingCard`'s `busy` state is shared by all its buttons; it moves with the
 actions into `PostingActions`. `TextFilter`'s debounce effects stay exactly as written.
@@ -166,7 +170,7 @@ Applications), so it goes to `features/`. `InterviewNotes.tsx` is only its "Inte
 section.
 
 ```
-features/application/ApplicationView/
+features/application/application-view/
   ApplicationView.tsx         # load, save(), setStage(), compose the sections
   ApplicationHeader.tsx       # eyebrow + Open page, company, role, stage, next interview,
                               # posting link, ProcessTimeline, review banner
@@ -190,7 +194,7 @@ features/application/ApplicationView/
     NoteCard.tsx
   PasteMoreInfo.tsx           # the collapsible around PasteAssistant
   DeleteApplication.tsx       # DeleteButton
-pages/Application/
+pages/application/
   ApplicationPage.tsx         # was pages/ApplicationPage.tsx
 ```
 
@@ -200,7 +204,7 @@ pages/Application/
 As built: `ProcessTimeline`, `PasteAssistant` and `SalaryInput` stay at the `src/` root for now
 (`@/ProcessTimeline` etc.) until sessions 3 and 9 move them. The `Patch` type (the body of
 `api.updateApplication`) is used by the view, `PropertiesList` and `SalaryField`, so it lives in
-`ApplicationView/patch.ts`. `Section` wraps `ActivitySection` and `InterviewsAndNotes` in
+`application-view/patch.ts`. `Section` wraps `ActivitySection` and `InterviewsAndNotes` in
 `ApplicationView`, so those two render only their contents, as before. `NeedsReviewBanner` and
 `ApplicationHeader` get `onReviewed` (the view's `bump`). `Prop` → `PropertyRow`, `Properties` →
 `PropertiesList`, `DeleteButton` → `DeleteApplication`.
@@ -212,7 +216,7 @@ As built: `ProcessTimeline`, `PasteAssistant` and `SalaryInput` stay at the `src
 Only `ApplicationHeader` uses it, so it lives inside the application folder.
 
 ```
-features/application/ApplicationView/ProcessTimeline/
+features/application/application-view/process-timeline/
   ProcessTimeline.tsx         # the row of steps, the "what's next?" tail, opens PlanDialog
   TimelineStep.tsx            # one node with its connector and popover
   NodeDot.tsx                 # Dot
@@ -228,7 +232,7 @@ features/application/ApplicationView/ProcessTimeline/
 
 As built: as planned. `Dot` → `NodeDot`, `PlanRow` → `PlanStepRow`. The "what's next?" tail `<li>`
 stays inline in `ProcessTimeline` (it's eight lines). `ApplicationHeader` imports
-`./ProcessTimeline/ProcessTimeline`.
+`./process-timeline/ProcessTimeline`.
 
 ---
 
@@ -253,7 +257,7 @@ features/notes/
   SaveIndicator.tsx
   useAutosave.ts              # with the module-level `inflight` set and `settled()`
   draft.ts                    # Draft, draftOf, isEmpty, and the Draft → Note data mapping
-  RichEditor/
+  rich-editor/
     RichEditor.tsx
     EditorToolbar.tsx         # Toolbar
 ```
@@ -277,7 +281,7 @@ Calendar buttons stay inline in `InterviewEditor` (both its headers use them). `
 ## Session 5: Calendar
 
 ```
-pages/Calendar/
+pages/calendar/
   CalendarPage.tsx            # view toggle, data, picks the view
   calendar.ts                 # KIND, isMeeting, who, meetingChip, END_CAP, OUTCOME_TEXT
   Dot.tsx
@@ -313,14 +317,14 @@ fragment became a private `Ticks` inside `ProcessBar.tsx` (same DOM, drawn once 
 `ProcessBar` computes `applied`, `endDay` and `lastNews` (only the bar reads them).
 `useOpenEditor` is now called in `DayAgendaItem` and `ProcessBar` instead of once per view.
 `MiniCalendar` uses `shiftMonth` and `monthDays` from `lib/days.ts`; it moves to the Dashboard folder
-in session 6. `App.tsx` imports `./pages/Calendar/CalendarPage`.
+in session 6. `App.tsx` imports `./pages/calendar/CalendarPage`.
 
 ---
 
 ## Session 6: Dashboard
 
 ```
-pages/Dashboard/
+pages/dashboard/
   DashboardPage.tsx           # the three useAsync calls, layout
   KpiTiles.tsx                # the four tiles (keeps Tile inside)
   UpcomingInterviewsCard.tsx
@@ -335,11 +339,11 @@ pages/Dashboard/
   ListCard.tsx
   ListRow.tsx                 # Row
   MiniCalendar.tsx            # from components/
-  FlowChart/                  # from components/FlowChart.tsx
+  flow-chart/                  # from components/FlowChart.tsx
     FlowChart.tsx
     layout.ts                 # build, rank, chainPath, AFTER, sizes, color
     useWidth.ts
-  InterviewTypes/             # from components/Insights.tsx
+  interview-types/             # from components/Insights.tsx
     InterviewTypesCard.tsx
     TypeRow.tsx               # TypeRowView
     OutcomeLegend.tsx         # Legend + Swatch
@@ -350,15 +354,15 @@ pages/Dashboard/
 them from there too). The name `FlowChart` stays: plan.md and the `--flow-*` colors use it.
 
 As built: `Dashboard.tsx` was `git mv`'d to `DashboardPage.tsx`, and `FlowChart.tsx`, `Insights.tsx`
-(→ `InterviewTypes/InterviewTypesCard.tsx`) and `MiniCalendar.tsx` moved out of `components/`.
+(→ `interview-types/InterviewTypesCard.tsx`) and `MiniCalendar.tsx` moved out of `components/`.
 `flowLabel` needs `build`, so the graph half of the flow code lives in `lib/flow.ts` too: `build`,
 `STAGE_COL`, `AFTER` and the node and link types (`N` → `FlowNode`, `L` → `FlowLink`).
-`FlowChart/layout.ts` keeps what only the drawing needs: `OUTCOME_ORDER`, `rank`, `chainPath`,
+`flow-chart/layout.ts` keeps what only the drawing needs: `OUTCOME_ORDER`, `rank`, `chainPath`,
 `color`, the sizes and the `LaidNode` / `LaidLink` types. `who` (shared by three cards) is
 `who.ts`. `TypeRowView` → `InterviewTypeRow` (`TypeRow` is the api type it renders); `Swatch` →
 `OutcomeSwatch`, its own file since the row uses it too; `Legend` → `OutcomeLegend`, which now
 builds its own item list (it only ever showed the outcomes); `Track` → `OutcomeTrack`; the
-`OUTCOMES` list, `plural` and `typeLabel` are in `InterviewTypes/outcomes.ts`. `JoinButton` →
+`OUTCOMES` list, `plural` and `typeLabel` are in `interview-types/outcomes.ts`. `JoinButton` →
 `JoinCallButton`, `UpcomingCard` → `UpcomingInterviewsCard`, `Row` → `ListRow`. `KpiTiles` takes
 `stats`, `campaign` and `besideCalendar` and computes `active` and the interviewing share.
 `NeedsAttentionCard` returns null when there's nothing to do; the `reviewing` state and
@@ -370,7 +374,7 @@ builds its own item list (it only ever showed the outcomes); `Track` → `Outcom
 ## Session 7: Applications (board and list)
 
 ```
-pages/Applications/
+pages/applications/
   ApplicationsPage.tsx
   viewPreference.ts           # VIEW_KEY, storedView, saving it
   useApplicationFilters.ts    # q, status, needs_review, flow → searched, counts, listed
@@ -389,6 +393,28 @@ pages/Applications/
   table/
     ApplicationsTable.tsx     # AllTable
 ```
+
+As built: `Applications.tsx` was `git mv`'d to `ApplicationsPage.tsx`, `Board.tsx` to `board/Board.tsx`
+and `AllTable.tsx` to `table/ApplicationsTable.tsx` (through a temporary name, since macOS doesn't
+tell `applications/` from `Applications/`). The page and the board shrank too much for git to
+still call them renames. `Filter` → `StatusFilter` (exported from `useApplicationFilters.ts`, which
+`StatusFilterChips` also uses; the chip list is a module-level `FILTERS`). `viewPreference.ts`
+exports `storedView` and `saveView`; `setView` stays in the page. `useApplicationFilters(data,
+flowData, { q, status, reviewOnly, flow })` returns `{ searched, counts, listed }`; the URL params,
+the two `useAsync` calls and `toReview` stay in the page. `useBoardActions(data, setData)` calls
+`useRefresh` itself and returns `{ move, confirm }`. `ApplicationsToolbar` and `StatusFilterChips`
+get the page's URL `set` (as Calendar's views do); `FlowFilterChip` gets `onClear`, and
+`ApplicationSheet` gets `openId` and `onClose`. `useCollapsedColumns()` returns `{ collapsed,
+toggle }`. `Column` → `BoardColumn`, `Card` → `BoardCard`, `CardBody` → `BoardCardBody`, `AllTable`
+→ `ApplicationsTable` (its `COLUMNS`, `SortKey` and `value` stay in the file, only it uses them).
+`App.tsx` imports `./pages/applications/ApplicationsPage`.
+
+Also in this session: every PascalCase folder from sessions 1–6 became kebab-case (rule 4):
+`pages/application/`, `calendar/`, `dashboard/` (with `flow-chart/` and `interview-types/`),
+`discover/`, `features/application/application-view/` (with `process-timeline/`) and
+`features/notes/rich-editor/`. Case-only renames went through a temporary name for the same macOS
+reason. After the rename, `tsc -b` still remembered the old casing in `tsconfig.tsbuildinfo`
+(untracked) and failed with "differs only in casing"; deleting that file fixed it.
 
 ---
 
@@ -422,27 +448,27 @@ Update `main.tsx` imports. After this the `src/` root only holds `main.tsx`, `in
 ## Session 9: small pages and the shared application widgets
 
 ```
-pages/Inbox/
+pages/inbox/
   InboxPage.tsx
   CalendarMatchSection.tsx
   CalendarMatchItem.tsx       # CalendarItem
   UnmatchedEmailItem.tsx      # InboxItem
-pages/Interviews/
+pages/interviews/
   InterviewsPage.tsx
   InterviewGroup.tsx          # Group
   InterviewLink.tsx           # with When and NotesBadge (small, private)
   GeneralTalkRow.tsx          # GeneralRow
-pages/Campaigns/
+pages/campaigns/
   CampaignsPage.tsx
   NewCampaignForm.tsx         # if the form is inline in the page
   CampaignCard.tsx
-pages/AddApplication/
+pages/add-application/
   AddApplicationPage.tsx
 features/application/
-  ApplicationForm/
+  application-form/
     ApplicationForm.tsx       # state, fill/undo, submit
     (split into field groups only if it's still long after the move)
-  PasteAssistant/
+  paste-assistant/
     PasteAssistant.tsx        # text box, read(), apply()
     PasteRecordCard.tsx       # one record: option, fields, stage, skip
     PasteSummary.tsx          # the "what will change" box

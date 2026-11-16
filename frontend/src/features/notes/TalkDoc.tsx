@@ -1,5 +1,5 @@
 import { api, type Interview } from "@/api";
-import { RichEditor } from "./RichEditor/RichEditor";
+import { RichEditor } from "./rich-editor/RichEditor";
 import { SaveIndicator } from "./SaveIndicator";
 import { useAutosave } from "./useAutosave";
 

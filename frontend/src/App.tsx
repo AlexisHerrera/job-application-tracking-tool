@@ -10,12 +10,12 @@ import { api, errorText, timeAgo, type CalendarSyncResult, type ScanResult } fro
 import { canSignOut, signOut } from "./auth";
 import { CampaignPicker } from "./campaign";
 import AddApplication from "./pages/AddApplication";
-import ApplicationPage from "./pages/Application/ApplicationPage";
-import Applications from "./pages/Applications";
-import CalendarPage from "./pages/Calendar/CalendarPage";
+import ApplicationPage from "./pages/application/ApplicationPage";
+import Applications from "./pages/applications/ApplicationsPage";
+import CalendarPage from "./pages/calendar/CalendarPage";
 import Campaigns from "./pages/Campaigns";
-import DashboardPage from "./pages/Dashboard/DashboardPage";
-import Discover from "./pages/Discover/DiscoverPage";
+import DashboardPage from "./pages/dashboard/DashboardPage";
+import Discover from "./pages/discover/DiscoverPage";
 import Inbox from "./pages/Inbox";
 import Interviews from "./pages/Interviews";
 import { EditorDialog } from "@/features/notes/EditorDialog";

@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { api, type Interview, type Note } from "@/api";
 import { draftOf, isEmpty, noteData, type Draft } from "./draft";
 import { NoteDetailsPanel } from "./NoteDetailsPanel";
-import { RichEditor } from "./RichEditor/RichEditor";
+import { RichEditor } from "./rich-editor/RichEditor";
 import { SaveIndicator } from "./SaveIndicator";
 import { useAutosave } from "./useAutosave";
 
