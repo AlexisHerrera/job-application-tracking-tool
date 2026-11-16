@@ -300,6 +300,34 @@ def test_discover_page_flow(repo):
     assert client.patch(f"/api/discover/{contoso['id']}", json={"status": "bogus"}).status_code == 422  # fmt: skip
 
 
+def test_discover_insights(client, repo):
+    from datetime import UTC, datetime, timedelta
+
+    from tests.fakes import posting
+
+    now = datetime.now(UTC)
+    staff = posting(source="workable", fetched_at=now, title="Staff Engineer")
+    hidden = posting(source="workable", fetched_at=now, drop_reason="location")
+    old = posting(source="ashby", fetched_at=now - timedelta(days=40))  # before the window
+    for p in (staff, hidden, old):
+        repo.add_posting(p)
+
+    empty = client.get("/api/discover/insights").json()
+    assert len(empty["days"]) == 30 and empty["reviews"]["total"] == 0
+    assert (empty["postings"]["total"], empty["postings"]["hidden"]) == (2, 1)
+    assert empty["reviews"]["waiting"] == 2  # the queue now, whenever the postings came
+    assert empty["discards"] == {"total": 0, "without_reason": 0, "reasons": [], "sources": []}
+
+    body = {"status": "dismissed", "discard_reason": "too_senior", "discard_note": "staff"}
+    client.patch(f"/api/discover/{staff.id}", json=body)
+    out = client.get("/api/discover/insights", params={"days": 7}).json()
+    assert len(out["days"]) == 7 and out["reviews"]["days"][-1]["discarded"] == 1
+    reason = out["discards"]["reasons"][0]
+    assert (reason["reason"], reason["count"], reason["hints"]) == ("too_senior", 1, [])
+    assert reason["notes"][0]["note"] == "staff" and reason["splits"]["source"] == [["workable", 1]]
+    assert client.get("/api/discover/insights", params={"days": 0}).status_code == 422
+
+
 def test_discover_settings_and_searches(client):
     r = client.put("/api/discover/settings", json={"criteria": "  Lives in BA  ", "rules": {"max_age_days": 10, "agencies": ["Acme Talent"]}})  # fmt: skip
     body = r.json()

@@ -9,17 +9,3 @@ export const LIST_FIELDS: { key: RuleListKey; label: string; hint: string; place
   { key: "agencies", label: "Agencies & talent marketplaces", hint: "Hidden as agencies.", placeholder: "Toptal" },
   { key: "consultancies", label: "Consultancies", hint: "Hidden. The AI also hides consultancies it recognizes; those count in the total, not on a name.", placeholder: "Globant" },
 ];
-
-/** A drop reason as the page names it; "title: <word>" reasons are grouped. */
-export const REASON_LABELS: Record<string, string> = {
-  title: "Title words",
-  location: "Location",
-  "location: brazil onsite": "Onsite in Brazil",
-  "language: portuguese": "In Portuguese",
-  blocked: "Blocked",
-  agency: "Agencies",
-  consultancy: "Consultancies",
-  duplicate: "Duplicates",
-  old: "Too old",
-  salary: "Below the salary floor",
-};

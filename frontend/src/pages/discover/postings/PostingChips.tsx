@@ -3,8 +3,9 @@ import { Check, Sparkles, Star } from "lucide-react";
 import { label } from "@/lib/format";
 import { type Posting } from "@/api/discovery";
 import { cn } from "@/lib/utils";
-import { DISCARD_LABEL } from "@/pages/discover/discardReasons";
-import { COMPANY_SIZE, DROP_LABEL, SECTOR, WORK_MODE } from "@/pages/discover/constants";
+import { DISCARD_LABEL } from "@/features/discovery/discardReasons";
+import { COMPANY_SIZE, SECTOR, WORK_MODE } from "@/features/discovery/postingLabels";
+import { DROP_LABEL } from "@/pages/discover/constants";
 
 function Chip({ children, className }: { children: ReactNode; className?: string }) {
   return <span className={cn("inline-flex h-5 items-center rounded-full border px-2 text-xs whitespace-nowrap", className)}>{children}</span>;

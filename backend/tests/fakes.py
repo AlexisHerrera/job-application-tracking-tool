@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import uuid
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from jobtracker.core.models import (
@@ -378,6 +379,20 @@ class MemoryRepo:
                 key = (p.drop_reason, p.company_normalized or "")
                 counts[key] = counts.get(key, 0) + 1
         return [(reason, company, n) for (reason, company), n in counts.items()]
+
+    def insight_postings(self, since):
+        kept = (PostingStatus.INTERESTED, PostingStatus.APPLIED)
+        rows = [
+            p for p in self.postings.values()
+            if (p.fetched_at and p.fetched_at >= since)
+            or (p.reviewed_at and p.reviewed_at >= since)
+            or p.status in kept
+        ]  # fmt: skip
+        # Like the SQL, which reads only the columns the page uses.
+        return [
+            replace(copy.deepcopy(p), description="", url="", source_id="", ai_result=None)
+            for p in rows
+        ]
 
     def postings_to_recheck(self, reasons):
         rows = [

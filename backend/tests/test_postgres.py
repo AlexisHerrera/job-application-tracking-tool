@@ -301,6 +301,42 @@ def test_discovery_roundtrip(pg, clock):
     assert fintech.id not in {x.id for x in pg.list_searches()}
 
 
+def test_insight_postings(pg, clock):
+    from datetime import timedelta
+
+    from jobtracker.core import discovery, discovery_insights
+    from jobtracker.core.criteria import DEFAULT_PROFILE
+    from jobtracker.core.models import PostingStatus
+    from tests.fakes import posting
+
+    now, since = clock.now(), clock.now() - timedelta(days=7)
+    recent = posting(source_id="recent", fetched_at=now, technologies=["Java", "React"],
+                     drop_reason="title: java")  # fmt: skip
+    reviewed = posting(source_id="reviewed", fetched_at=now - timedelta(days=30))
+    discovery.set_status(reviewed, PostingStatus.DISMISSED, now, "too_senior", "8 years")
+    saved = posting(source_id="saved", fetched_at=now - timedelta(days=90), salary_usd_max=50000)
+    discovery.set_status(saved, PostingStatus.INTERESTED, now - timedelta(days=60))
+    old = posting(source_id="old", fetched_at=now - timedelta(days=30))
+    with pg.transaction():
+        for p in (recent, reviewed, saved, old):
+            p.updated_at = p.updated_at or p.fetched_at
+            pg.add_posting(p)
+
+    rows = {p.id: p for p in pg.insight_postings(since)}
+    assert set(rows) == {recent.id, reviewed.id, saved.id}  # the saved one whenever it was saved
+    got = rows[reviewed.id]
+    assert (got.status, got.discard_reason, got.discard_note, got.reviewed_at) == (PostingStatus.DISMISSED, "too_senior", "8 years", now)  # fmt: skip
+    assert got.description == "" and got.ai_result is None and got.url == ""  # not read
+    assert (
+        rows[recent.id].technologies == ["Java", "React"] and rows[saved.id].salary_usd_max == 50000
+    )
+    out = discovery_insights.summary(
+        list(rows.values()), today=now.astimezone(TZ).date(), days=7, tz=TZ,
+        profile=DEFAULT_PROFILE, rules=discovery.Rules(), waiting=0,
+    )  # fmt: skip
+    assert (out["postings"]["total"], out["reviews"]["discarded"]) == (1, 1)
+
+
 def test_posting_search_sql_agrees_with_matches(pg, clock):
     """PostgresRepo.search_postings (SQL) and discovery.matches / sort_postings (Python, used by
     the test repo) are the same filter written twice: check them against each other."""

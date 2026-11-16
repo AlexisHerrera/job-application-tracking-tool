@@ -28,6 +28,7 @@ import type {
   PostingStatus,
   PostingStatusSaved,
 } from "./discovery";
+import type { DiscoveryInsights } from "./discoveryInsights";
 import type { Ats, CriteriaPreview, CriteriaProfile, RuleHits, SettingsSaved, WatchedCompany, WatchlistPage } from "./discoverySettings";
 import type { CalendarSyncResult, Interview, InterviewDetail, InterviewInput, Note, NoteDetail } from "./interviews";
 
@@ -143,6 +144,7 @@ export const api = {
   previewCriteria: (profile: CriteriaProfile) => request<CriteriaPreview>("POST", "/discover/criteria/preview", { profile }),
   ruleHits: () => request<RuleHits>("GET", "/discover/rules/hits"),
   discoveryStatus: () => request<DiscoveryStatus>("GET", "/discover/status"),
+  discoveryInsights: (days: number) => request<DiscoveryInsights>("GET", `/discover/insights?days=${days}`),
   discoveryRuns: (limit = 30) => request<DiscoveryRun[]>("GET", `/discover/runs?limit=${limit}`),
   watchlist: (params: Record<string, string>) => request<WatchlistPage>("GET", `/discover/companies?${new URLSearchParams(params)}`),
   watchCompany: (data: { ats: Ats; slug: string; name?: string }) => request<WatchedCompany>("POST", "/discover/companies", data),

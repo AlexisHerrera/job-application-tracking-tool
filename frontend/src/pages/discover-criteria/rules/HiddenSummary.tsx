@@ -1,5 +1,5 @@
 import type { RuleHits } from "@/api/discoverySettings";
-import { REASON_LABELS } from "./constants";
+import { HIDE_REASON_LABELS } from "@/features/discovery/hideReasons";
 
 /** Every hide reason among the stored postings, biggest first ("title: java" ones grouped). */
 function grouped(reasons: Record<string, number>): [string, number][] {
@@ -29,7 +29,7 @@ export function HiddenSummary({ hits }: { hits: RuleHits | null }) {
           {rows.map(([key, n]) => (
             <li key={key} className="text-xs">
               <span className="block text-base font-semibold tabular-nums">{n.toLocaleString()}</span>
-              <span className="text-muted-foreground">{REASON_LABELS[key] ?? key}</span>
+              <span className="text-muted-foreground">{HIDE_REASON_LABELS[key] ?? key}</span>
             </li>
           ))}
         </ul>

@@ -1,6 +1,6 @@
 import { Banknote, Building2, Factory, GraduationCap, Handshake, Laptop, MapPin } from "lucide-react";
 import type { Posting } from "@/api/discovery";
-import { COMPANY_SIZE, EMPLOYER, SECTOR, SENIORITY, WORK_MODE } from "@/pages/discover/constants";
+import { COMPANY_SIZE, EMPLOYER, SECTOR, SENIORITY, WORK_MODE } from "@/features/discovery/postingLabels";
 import { salaryOf, usdSalary } from "@/pages/discover/format";
 import { FactTile, type FactTone } from "./FactTile";
 

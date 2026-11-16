@@ -4,7 +4,7 @@ import type { Posting } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
-import { DISCARD_LABEL } from "@/pages/discover/discardReasons";
+import { DISCARD_LABEL } from "@/features/discovery/discardReasons";
 
 const BIG = "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border px-4 text-base font-semibold transition-all outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-5";
 

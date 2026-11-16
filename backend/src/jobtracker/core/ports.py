@@ -307,6 +307,12 @@ class DiscoveryRepo(Repository, Protocol):
         """(drop_reason, company_normalized, how many) over the hidden postings."""
         ...
 
+    def insight_postings(self, since: datetime) -> list[JobPosting]:
+        """For the Insights page: the postings fetched or reviewed since then, and every one
+        saved or applied to (whenever). Only what discovery_insights reads is filled: no
+        description, url, source_id or ai_result."""
+        ...
+
     def postings_to_recheck(self, reasons: tuple[str, ...]) -> list[JobPosting]:
         """The visible postings with status new, and the hidden ones with one of these drop
         reasons: what saving the rules checks again (discovery_settings.reapply_rules)."""

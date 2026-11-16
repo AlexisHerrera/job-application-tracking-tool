@@ -4,7 +4,7 @@ import type { Discard, DiscardReason } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
-import { DISCARD_REASONS } from "@/pages/discover/discardReasons";
+import { DISCARD_REASONS } from "@/features/discovery/discardReasons";
 import { useReviewKeys } from "./useReviewKeys";
 
 /** Why this one is out: one click (or 1–9) on a reason discards it. The note is optional. */

@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { StatTile } from "@/components/StatTile";
 import { cn } from "@/lib/utils";
 import type { CampaignSummary } from "@/api/campaigns";
 import type { Stats } from "@/api/dashboard";
@@ -14,30 +13,18 @@ export function KpiTiles({ stats, campaign: c, besideCalendar }: { stats: Stats 
   // Beside the calendar the column is narrower, so four across waits for xl.
   return (
     <div className={cn("grid grid-cols-2 gap-3", besideCalendar ? "xl:grid-cols-4" : "lg:grid-cols-4")}>
-      <Tile label="Applications" value={stats?.total ?? c?.applications ?? "—"} sub={c ? `day ${c.day} · ${c.per_week} per week` : undefined} />
-      <Tile label="Active" value={active ?? "—"} sub="applied, screening, interviewing, on hold" />
-      <Tile
+      <StatTile label="Applications" value={stats?.total ?? c?.applications ?? "—"} sub={c ? `day ${c.day} · ${c.per_week} per week` : undefined} />
+      <StatTile label="Active" value={active ?? "—"} sub="applied, screening, interviewing, on hold" />
+      <StatTile
         label="Interviews done"
         value={stats?.interviews.done ?? "—"}
         sub={stats ? `${stats.interviews.upcoming} upcoming${interviews ? ` · ${interviews.pct}% of applications got one` : ""}` : undefined}
       />
-      <Tile
+      <StatTile
         label="Days to 1st interview"
         value={c?.days_to_first_interview ?? "—"}
         sub={stats?.time_to_first_response.median_days != null ? `first reply in ${stats.time_to_first_response.median_days} days (median)` : undefined}
       />
     </div>
-  );
-}
-
-function Tile({ label, value, sub }: { label: string; value: ReactNode; sub?: string }) {
-  return (
-    <Card className="gap-1 py-4">
-      <CardContent className="px-4">
-        <div className="text-sm text-muted-foreground">{label}</div>
-        <div className="mt-1 text-3xl font-semibold tracking-tight">{value}</div>
-        {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
-      </CardContent>
-    </Card>
   );
 }

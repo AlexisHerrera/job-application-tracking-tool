@@ -2,7 +2,7 @@ import { ThumbsDown } from "lucide-react";
 import type { DiscardReason } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { DISCARD_REASONS } from "@/pages/discover/discardReasons";
+import { DISCARD_REASONS } from "@/features/discovery/discardReasons";
 
 /** "Not for me" in the list: pick why. */
 export function DiscardMenu({ disabled, onPick }: { disabled: boolean; onPick: (reason: DiscardReason) => void }) {

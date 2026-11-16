@@ -160,6 +160,24 @@
   --flow-rejected: #f43f5e;
 }
 
+/* Insights page charts (Discover → Insights), checked with the dataviz palette validator against
+   the card surface. Saved → applied is a two-step indigo ramp (applied is the strong end, and
+   "reached the queue" shares it); the gray is the de-emphasis slot for what was set aside
+   (hidden by the rules, discarded). Adjacent fills pass the CVD and normal-vision floors; the
+   light fills sit under 3:1 on the card, so every chart has a legend, a tooltip and a table view. */
+:root {
+  --insight-queue: #4f46e5;
+  --insight-applied: #4f46e5;
+  --insight-saved: #818cf8;
+  --insight-aside: #cbd5e1;
+}
+.dark {
+  --insight-queue: #6366f1;
+  --insight-applied: #6366f1;
+  --insight-saved: #a5b4fc;
+  --insight-aside: #475569;
+}
+
 @layer base {
   html {
     color-scheme: light;

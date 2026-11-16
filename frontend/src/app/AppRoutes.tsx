@@ -7,6 +7,7 @@ import Campaigns from "@/pages/campaigns/CampaignsPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import Discover from "@/pages/discover/DiscoverPage";
 import DiscoverCriteria from "@/pages/discover-criteria/DiscoverCriteriaPage";
+import DiscoverInsights from "@/pages/discover-insights/DiscoverInsightsPage";
 import DiscoverSources from "@/pages/discover-sources/DiscoverSourcesPage";
 import Inbox from "@/pages/inbox/InboxPage";
 import Interviews from "@/pages/interviews/InterviewsPage";
@@ -41,6 +42,7 @@ export function AppRoutes() {
       <Route path="/discover" element={<Discover />} />
       <Route path="/discover/sources" element={<DiscoverSources />} />
       <Route path="/discover/criteria" element={<DiscoverCriteria />} />
+      <Route path="/discover/insights" element={<DiscoverInsights />} />
       <Route path="/discover/settings" element={<DiscoverSettingsRedirect />} />
       <Route path="*" element={<p className="text-muted-foreground">Not found.</p>} />
     </Routes>

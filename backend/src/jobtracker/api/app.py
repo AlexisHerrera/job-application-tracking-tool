@@ -25,6 +25,7 @@ from jobtracker.api.auth import TokenVerifier, User, cognito_issuer
 from jobtracker.core import (
     campaigns,
     discovery,
+    discovery_insights,
     discovery_progress,
     discovery_settings,
     insights,
@@ -948,6 +949,27 @@ def create_app(
     @api.get("/discover/runs")
     def list_runs(limit: int = Query(30, ge=1, le=200), repo: PostgresRepo = Depends(get_repo)):
         return [s.run_json(r) for r in repo.list_runs(limit)]
+
+    @api.get("/discover/insights")
+    def get_discovery_insights(
+        days: int = Query(discovery_insights.WINDOW_DEFAULT, ge=1, le=365),
+        repo: PostgresRepo = Depends(get_repo),
+    ):
+        """The Insights page over the last `days` days (today included, Buenos Aires days): new
+        postings per day and source, reviews per day, and the discards by reason with the change
+        each points to."""
+        start = today() - timedelta(days=days - 1)
+        profile, _ = discovery_settings.load_profile(repo)
+        _, rules = discovery.load_settings(repo)
+        return discovery_insights.summary(
+            repo.insight_postings(services.day_start(start, tz)),
+            today=today(),
+            days=days,
+            tz=tz,
+            profile=profile,
+            rules=rules,
+            waiting=repo.count_postings(PostingQuery(statuses=(PostingStatus.NEW.value,))),
+        )
 
     @api.get("/discover/status")
     def discovery_status(repo: PostgresRepo = Depends(get_repo)):

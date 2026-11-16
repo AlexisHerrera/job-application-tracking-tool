@@ -251,6 +251,13 @@ _POSTING_ORDER = {
     "salary": f"salary_usd_max DESC NULLS LAST, ai_score DESC NULLS LAST, {_POSTED} DESC, id",
 }
 _FACET_COLUMNS = [c for c in POSTING_COLUMNS if c not in {"description", "ai_result"}]
+# What discovery_insights reads (the Insights page).
+_INSIGHT_COLUMNS = [
+    "id", "source", "title", "company", "company_normalized", "location", "employment_type",
+    "publisher", "fetched_at", "drop_reason", "ai_verdict", "status", "reviewed_at",
+    "discard_reason", "discard_note", "seniority", "years_required", "work_mode", "employer_kind",
+    "location_fit", "technologies", "salary_usd_max",
+]  # fmt: skip
 
 
 def _posting_where(q: PostingQuery) -> tuple[str, list]:
@@ -850,6 +857,14 @@ class PostgresRepo:
             " WHERE drop_reason IS NOT NULL GROUP BY drop_reason, company_normalized"
         )
         return [(r["drop_reason"], r["company_normalized"] or "", r["n"]) for r in rows]
+
+    def insight_postings(self, since: datetime) -> list[JobPosting]:
+        rows = self._all(
+            f"SELECT {', '.join(_INSIGHT_COLUMNS)} FROM job_postings"
+            " WHERE fetched_at >= %s OR reviewed_at >= %s OR status IN (%s, %s)",
+            (since, since, PostingStatus.INTERESTED.value, PostingStatus.APPLIED.value),
+        )
+        return [_posting_from({**r, "source_id": "", "url": ""}) for r in rows]
 
     def postings_to_recheck(self, reasons: tuple[str, ...]) -> list[JobPosting]:
         hidden = f" OR drop_reason IN ({', '.join(['%s'] * len(reasons))})" if reasons else ""

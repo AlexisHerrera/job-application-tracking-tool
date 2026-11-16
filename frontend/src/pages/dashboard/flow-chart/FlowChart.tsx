@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { FlowData } from "@/api/dashboard";
 import { build, type FlowLink, type FlowNode } from "@/lib/flow";
 import { chainPath, color, HEIGHT, LABEL_SPACE, MIN_WIDTH, rank, WIDE_LABEL_SPACE, type LaidLink, type LaidNode } from "./layout";
-import { useWidth } from "./useWidth";
+import { useWidth } from "@/lib/useWidth";
 
 // Where applications went, read left to right: one column per stage, and each stage's exits
 // (no reply, ghosted, rejected…) sit in the column right after it, so no flow crosses the chart.
