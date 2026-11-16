@@ -1,10 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { daysAgo, fmtDate, label, type Application } from "./api";
+import { daysAgo, fmtDate, label, type Application } from "@/api";
 import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { fold } from "@/lib/text";
-import { ReviewBadge, StatusBadge } from "./components/common";
+import { ReviewBadge, StatusBadge } from "@/components/common";
 
 // Searchable application picker (ARIA combobox). Type any part of the company, role, status,
 // source or location; every word must match. Suggested applications are listed first.

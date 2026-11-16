@@ -6,7 +6,7 @@ import { useCampaign } from "@/lib/campaign";
 import { Empty, Loading, PageHeader } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { useSearchParamsPatch } from "@/lib/useSearchParamsPatch";
-import { ReviewDialog } from "@/ReviewDialog";
+import { ReviewDialog } from "@/features/application/review-dialog/ReviewDialog";
 import { useAsync } from "@/lib/useAsync";
 import { ApplicationSheet } from "./ApplicationSheet";
 import { ApplicationsToolbar } from "./ApplicationsToolbar";

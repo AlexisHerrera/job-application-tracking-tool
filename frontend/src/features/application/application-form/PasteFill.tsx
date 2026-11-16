@@ -2,18 +2,11 @@ import { useState } from "react";
 import { Link2, Sparkles, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { api, errorText, type PasteRecord } from "./api";
+import { api, errorText, type PasteRecord } from "@/api";
+import type { FillReport, FillResult } from "./fill";
 
 // Fills a form from pasted text (a LinkedIn chat with a recruiter, a job post…) using the same
 // AI read as the paste assistant. The form itself is the review step: nothing is saved here.
-
-export type FillResult = { company: string | null; values: Record<string, unknown> };
-export type FillReport = {
-  filled: string[];
-  replaced: { label: string; from: string; to: string }[];
-  /** Set when the text doesn't name the hiring company: the form's company (if any) was kept. */
-  noCompany?: { kept: string | null };
-};
 
 export function PasteFill({
   onFill, onUndo, onUseExisting,

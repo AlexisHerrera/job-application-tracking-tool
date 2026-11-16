@@ -17,7 +17,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 | 6 | Dashboard | `pages/Dashboard.tsx` (292) + `FlowChart` (288), `Insights` (127), `MiniCalendar` (77) | done |
 | 7 | Applications (board and list) | `pages/Applications.tsx` (203) + `applications/Board.tsx` (243) + `AllTable.tsx` (94) | done |
 | 8 | App shell and the `src/` root | `App.tsx` (194), `campaign.tsx`, `auth.ts`, `AuthGate.tsx`, `useAsync.ts` | done |
-| 9 | Small pages and the shared application widgets | Inbox, Interviews, Campaigns, Add; `PasteAssistant` (257), `ApplicationForm` (211), `ReviewDialog` (202), `ApplicationPicker`, `PasteFill`, `SalaryInput` | todo |
+| 9 | Small pages and the shared application widgets | Inbox, Interviews, Campaigns, Add; `PasteAssistant` (257), `ApplicationForm` (211), `ReviewDialog` (202), `ApplicationPicker`, `PasteFill`, `SalaryInput` | done |
 | 10 | Optional: split `api.ts` | `api.ts` (637) | todo |
 
 Order: 0 first (later sessions depend on it). After that any order works; the list goes biggest
@@ -491,6 +491,63 @@ features/application/
 
 Read `PasteAssistant`, `ApplicationForm` and `ReviewDialog` fully at the start of the session;
 the split above is from a skim, adjust it to what's there.
+
+As built, after checking who uses what (rule 6):
+
+```
+pages/inbox/
+  InboxPage.tsx
+  CalendarMatchSection.tsx    # the "Calendar interviews to match" section
+  CalendarMatchItem.tsx       # CalendarItem
+  UnmatchedEmailItem.tsx      # InboxItem
+  ApplicationPicker.tsx       # only the inbox uses it
+pages/interviews/
+  InterviewsPage.tsx
+  InterviewGroup.tsx          # Group
+  InterviewLink.tsx
+  GeneralTalkRow.tsx          # GeneralRow
+  InterviewWhen.tsx           # When
+  NotesBadge.tsx
+pages/campaigns/
+  CampaignsPage.tsx           # run(), the card list
+  NewCampaignForm.tsx         # the "Start a new campaign" card and its form state
+  CampaignCard.tsx
+  today.ts
+pages/add-application/
+  AddApplicationPage.tsx
+features/application/
+  application-form/
+    ApplicationForm.tsx       # submit and the fields
+    useApplicationDraft.ts    # form, salary, sourceAts, steps state; fill() and undoFill()
+    PasteFill.tsx             # only the form uses it
+    fill.ts                   # FillResult, FillReport
+  paste-assistant/
+    PasteAssistant.tsx        # text box, read(), apply()
+    PasteRecordCard.tsx       # one record: option, skip, required inputs, change list
+    PasteSummary.tsx          # the "Will create… / You will modify" box
+    paste.ts                  # Selection, NO_COMPANY, KIND_TEXT, KIND_CLASS, show, defaults,
+                              # summarize (the summary useMemo body)
+  review-dialog/
+    ReviewDialog.tsx          # queue, keyboard, confirm/remove, layout
+    ReviewProgress.tsx        # "n of m left" and the bar
+    ReviewEmailPreview.tsx    # the email box (finds the email itself)
+    ReviewActions.tsx         # delete / open / previous / skip / looks right
+  SalaryInputs.tsx            # from SalaryInput.tsx (form and SalaryField)
+  salary.ts                   # CURRENCIES, SalaryDraft, fmt, parseAmount, formatLive,
+                              # draftFrom, readSalary
+```
+
+`PasteFill` (only `ApplicationForm`) and `ApplicationPicker` (only the inbox's two items) stay with
+their one user; `ApplicationForm`, `PasteAssistant`, `ReviewDialog` and `SalaryInputs` each have two
+users, so they're in `features/application/`. `ReviewDialog` became a folder, since its progress
+bar, email box and action row split out cleanly. `When` and `NotesBadge` are used by both interview
+rows, so they have their own files (`When` → `InterviewWhen`). `ApplicationForm`'s state and the
+AI fill moved to `useApplicationDraft(initial)`, which returns `{ form, setForm, salary, setSalary,
+sourceAts, steps, setSteps, fromChat, fill, undoFill }`; `tag`, `field`, `error`, `busy` and
+`submit` stay in the component. `PasteRecordCard` gets `rec`, `index` (for the input ids),
+`selection` and `onChange` (the page's `update(i, …)`), and keeps `toggle`. The Inbox items keep
+their own copy of `run` each, as before. Every moved file now imports with `@/...`. The `src/` root
+now holds only `main.tsx`, `index.css`, `api.ts` and the folders.
 
 ---
 

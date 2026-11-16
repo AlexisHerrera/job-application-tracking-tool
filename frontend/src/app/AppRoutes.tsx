@@ -1,13 +1,13 @@
 import { Route, Routes } from "react-router-dom";
-import AddApplication from "@/pages/AddApplication";
+import AddApplication from "@/pages/add-application/AddApplicationPage";
 import ApplicationPage from "@/pages/application/ApplicationPage";
 import Applications from "@/pages/applications/ApplicationsPage";
 import CalendarPage from "@/pages/calendar/CalendarPage";
-import Campaigns from "@/pages/Campaigns";
+import Campaigns from "@/pages/campaigns/CampaignsPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import Discover from "@/pages/discover/DiscoverPage";
-import Inbox from "@/pages/Inbox";
-import Interviews from "@/pages/Interviews";
+import Inbox from "@/pages/inbox/InboxPage";
+import Interviews from "@/pages/interviews/InterviewsPage";
 import { EditorPage } from "@/features/notes/EditorPage";
 
 export function AppRoutes() {

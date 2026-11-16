@@ -2,11 +2,11 @@ import { ClipboardPaste, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api } from "../api";
-import { ApplicationForm } from "../ApplicationForm";
-import { PageHeader } from "../components/common";
-import { useRefresh } from "../lib/refresh";
-import { PasteAssistant } from "../PasteAssistant";
+import { api } from "@/api";
+import { ApplicationForm } from "@/features/application/application-form/ApplicationForm";
+import { PageHeader } from "@/components/common";
+import { useRefresh } from "@/lib/refresh";
+import { PasteAssistant } from "@/features/application/paste-assistant/PasteAssistant";
 
 export default function AddApplication() {
   const navigate = useNavigate();

@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { fmtSalary, type Application } from "@/api";
 import type { Patch } from "@/features/application/application-view/patch";
-import { SalaryInputs, draftFrom, readSalary } from "@/SalaryInput";
+import { draftFrom, readSalary } from "@/features/application/salary";
+import { SalaryInputs } from "@/features/application/SalaryInputs";
 import { ghostField } from "./ghostField";
 
 export function SalaryField({ app, save }: { app: Application; save: (p: Patch) => Promise<void> }) {

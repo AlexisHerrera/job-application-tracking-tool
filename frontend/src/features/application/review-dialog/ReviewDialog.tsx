@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, ExternalLink, Mail, Trash2 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, errorText, fmtDate, label, type Application } from "./api";
-import { StatusBadge } from "./components/common";
-import { useRefresh } from "./lib/refresh";
+import { api, errorText, fmtDate, type Application } from "@/api";
+import { StatusBadge } from "@/components/common";
+import { useRefresh } from "@/lib/refresh";
 import { useAsync } from "@/lib/useAsync";
+import { ReviewActions } from "./ReviewActions";
+import { ReviewEmailPreview } from "./ReviewEmailPreview";
+import { ReviewProgress } from "./ReviewProgress";
 
 // Applications created automatically from an email start flagged "to review". This walks the
 // queue one at a time: Enter confirms, S skips, D deletes (twice), E edits the role.
@@ -95,8 +97,6 @@ export function ReviewDialog({ open, onOpenChange, campaign = "all" }: { open: b
     e.preventDefault();
   }
 
-  const email = detail.data?.events.find((ev) => ev.kind === "email");
-  const emails = detail.data?.events.filter((ev) => ev.kind === "email").length ?? 0;
   const total = (queue?.length ?? 0) + reviewed;
 
   return (
@@ -128,15 +128,7 @@ export function ReviewDialog({ open, onOpenChange, campaign = "all" }: { open: b
 
         {current && (
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
-                <span>{index + 1} of {queue!.length} left</span>
-                <span>{reviewed} of {total} done</span>
-              </div>
-              <div className="h-1 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${total ? (100 * reviewed) / total : 0}%` }} />
-              </div>
-            </div>
+            <ReviewProgress index={index} left={queue!.length} reviewed={reviewed} total={total} />
 
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -156,44 +148,17 @@ export function ReviewDialog({ open, onOpenChange, campaign = "all" }: { open: b
               />
             </div>
 
-            <div className="space-y-1.5 rounded-lg border bg-muted/30 p-3 text-sm">
-              {detail.loading && !detail.data ? <Skeleton className="h-16 w-full" /> : email ? (
-                <>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Mail className="size-3.5" />
-                    <span className="truncate">{email.from_name} &lt;{email.from_address}&gt;</span>
-                    <span className="ml-auto shrink-0">{fmtDate(email.occurred_at)}</span>
-                  </div>
-                  <div className="font-medium">{email.subject}</div>
-                  <div className="text-muted-foreground">
-                    {label(email.event_type)}
-                    {email.extracted_company && <> · read as <em>{email.extracted_company}</em>{email.extracted_role && <> / {email.extracted_role}</>}</>}
-                    {email.confidence != null && <> · {Math.round(email.confidence * 100)}% sure</>}
-                  </div>
-                  {email.summary && <p>{email.summary}</p>}
-                  {email.snippet && <p className="line-clamp-3 border-l-2 pl-2 text-muted-foreground italic">{email.snippet}</p>}
-                  {emails > 1 && <div className="text-xs text-muted-foreground">+{emails - 1} more email(s) on this application</div>}
-                </>
-              ) : (
-                <span className="text-muted-foreground">No email attached.</span>
-              )}
-            </div>
+            <ReviewEmailPreview detail={detail.data} loading={detail.loading} />
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant={confirmDelete ? "destructive" : "ghost"} size="sm" disabled={busy} onClick={remove}>
-                <Trash2 /> {confirmDelete ? "Press again to delete" : "Not a real application"} <Kbd>D</Kbd>
-              </Button>
-              <Button variant="ghost" size="icon-sm" aria-label="Open full page" onClick={() => { onOpenChange(false); navigate(`/applications/${current.id}`); }}>
-                <ExternalLink />
-              </Button>
-              <div className="ml-auto flex gap-2">
-                <Button variant="outline" size="icon-sm" aria-label="Previous" onClick={() => move(-1)}><ArrowLeft /></Button>
-                <Button variant="outline" size="sm" onClick={() => move(1)}>Skip <Kbd>S</Kbd><ArrowRight /></Button>
-                <Button size="sm" disabled={busy || !role.trim()} onClick={() => void confirm()}>
-                  <Check /> Looks right <Kbd className="bg-primary-foreground/20 text-primary-foreground">↵</Kbd>
-                </Button>
-              </div>
-            </div>
+            <ReviewActions
+              busy={busy}
+              confirmDelete={confirmDelete}
+              canConfirm={!!role.trim()}
+              onDelete={remove}
+              onOpen={() => { onOpenChange(false); navigate(`/applications/${current.id}`); }}
+              onMove={move}
+              onConfirm={() => void confirm()}
+            />
           </div>
         )}
       </DialogContent>

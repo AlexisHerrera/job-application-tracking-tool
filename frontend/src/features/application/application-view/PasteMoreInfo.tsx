@@ -1,7 +1,7 @@
 import { ChevronDown, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { PasteAssistant } from "@/PasteAssistant";
+import { PasteAssistant } from "@/features/application/paste-assistant/PasteAssistant";
 
 export function PasteMoreInfo({ applicationId, onApplied }: { applicationId: string; onApplied: () => void }) {
   return (

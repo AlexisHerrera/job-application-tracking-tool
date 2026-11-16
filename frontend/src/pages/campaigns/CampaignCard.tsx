@@ -1,65 +1,13 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Pencil } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { api, errorText, fmtDate, type CampaignSummary } from "../api";
+import { api, fmtDate, type CampaignSummary } from "@/api";
 import { Field } from "@/components/Field";
-import { useCampaign } from "@/lib/campaign";
-import { PageHeader } from "../components/common";
-import { useRefresh } from "../lib/refresh";
+import { today } from "./today";
 
-const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Buenos_Aires" });
-
-export default function Campaigns() {
-  const { campaigns, reload } = useCampaign();
-  const { bump } = useRefresh();
-  const [form, setForm] = useState({ name: "", started_on: today(), notes: "" });
-
-  async function run(fn: () => Promise<unknown>) {
-    try {
-      await fn();
-      await reload();
-      bump();
-      return true;
-    } catch (e) {
-      toast.error(errorText(e));
-      return false;
-    }
-  }
-
-  async function create(e: FormEvent) {
-    e.preventDefault();
-    if (await run(() => api.createCampaign({ name: form.name, started_on: form.started_on, notes: form.notes || null }))) {
-      setForm({ name: "", started_on: today(), notes: "" });
-    }
-  }
-
-  return (
-    <div className="mx-auto max-w-4xl">
-      <PageHeader title="Campaigns" description="A campaign is one job-search period. Applications join it by their applied date." />
-      <div className="grid gap-4">
-        {campaigns.map((c) => <CampaignCard key={c.id} c={c} run={run} />)}
-        <Card>
-          <CardHeader><CardTitle>Start a new campaign</CardTitle><CardDescription>An ongoing earlier campaign ends the day before.</CardDescription></CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={create}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Name" id="c-name"><Input id="c-name" required placeholder="Spring 2027" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-                <Field label="Starts on" id="c-start"><Input id="c-start" type="date" required value={form.started_on} onChange={(e) => setForm({ ...form, started_on: e.target.value })} /></Field>
-              </div>
-              <Field label="Notes" id="c-notes"><Input id="c-notes" placeholder="Goals, target roles…" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
-              <Button type="submit">Start campaign</Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function CampaignCard({ c, run }: { c: CampaignSummary; run: (fn: () => Promise<unknown>) => Promise<boolean> }) {
+export function CampaignCard({ c, run }: { c: CampaignSummary; run: (fn: () => Promise<unknown>) => Promise<boolean> }) {
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState({ name: c.name, started_on: c.started_on, ended_on: c.ended_on ?? "" });
   return (

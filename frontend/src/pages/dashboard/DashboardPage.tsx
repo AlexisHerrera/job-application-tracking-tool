@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "@/api";
 import { useCampaign } from "@/lib/campaign";
 import { Loading, PageHeader } from "@/components/common";
-import { ReviewDialog } from "@/ReviewDialog";
+import { ReviewDialog } from "@/features/application/review-dialog/ReviewDialog";
 import { useAsync } from "@/lib/useAsync";
 import { AwaitingReplyCard } from "./AwaitingReplyCard";
 import { FlowCard } from "./FlowCard";
