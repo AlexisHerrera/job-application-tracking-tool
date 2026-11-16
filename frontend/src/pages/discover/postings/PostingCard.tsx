@@ -1,5 +1,6 @@
 import { ChevronDown, ExternalLink } from "lucide-react";
-import { daysAgo, type Posting } from "@/api";
+import { daysAgo } from "@/lib/format";
+import { type Posting } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";

@@ -1,7 +1,7 @@
 import { Waypoints } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { FlowData } from "@/api";
+import type { FlowData } from "@/api/dashboard";
 import { Loading } from "@/components/common";
 import { FlowChart } from "./flow-chart/FlowChart";
 

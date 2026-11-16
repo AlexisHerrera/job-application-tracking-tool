@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import type { Facet, PostingPage } from "@/api";
+import type { Facet, PostingPage } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";

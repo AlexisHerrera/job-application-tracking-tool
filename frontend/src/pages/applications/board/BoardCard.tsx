@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import type { Application } from "@/api";
+import type { Application } from "@/api/applications";
 import { cn } from "@/lib/utils";
 import { BoardCardBody } from "./BoardCardBody";
 

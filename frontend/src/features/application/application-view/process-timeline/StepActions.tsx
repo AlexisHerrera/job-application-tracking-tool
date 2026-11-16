@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { api, dayToIso, fmtDate, isoToDay, type ApplicationDetail, type ProcessNode, type ProcessStep } from "@/api";
+import { api } from "@/api/client";
+import { dayToIso, fmtDate, isoToDay } from "@/lib/format";
+import { type ApplicationDetail, type ProcessNode, type ProcessStep } from "@/api/applications";
 import { interviewName } from "@/lib/interviews";
 import { attempt, shortDay } from "./timeline";
 

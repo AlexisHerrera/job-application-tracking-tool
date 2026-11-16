@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
-import { api, errorText, timeAgo, type DiscoveryState } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { timeAgo } from "@/lib/format";
+import { type DiscoveryState } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 
 /** The watched company job boards, in numbers, and loading the starting list. */

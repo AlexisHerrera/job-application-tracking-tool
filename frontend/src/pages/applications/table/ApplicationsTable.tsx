@@ -3,7 +3,8 @@ import { ArrowDown, ArrowUp, CalendarClock } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { shortAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { fmtDate, fmtSalary, type Application } from "@/api";
+import { fmtDate, fmtSalary } from "@/lib/format";
+import { type Application } from "@/api/applications";
 import { ReviewBadge, StatusBadge } from "@/components/common";
 import { STATUS_ORDER } from "@/lib/status";
 

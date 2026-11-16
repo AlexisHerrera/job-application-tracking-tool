@@ -1,6 +1,7 @@
 import { ListPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fmtDate, type ApplicationDetail, type ProcessNode } from "@/api";
+import { fmtDate } from "@/lib/format";
+import { type ApplicationDetail, type ProcessNode } from "@/api/applications";
 import { useOpenEditor } from "@/lib/useOpenEditor";
 import { useRefresh } from "@/lib/refresh";
 import { InterviewBox } from "./InterviewBox";

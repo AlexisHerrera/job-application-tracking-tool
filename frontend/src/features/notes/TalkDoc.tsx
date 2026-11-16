@@ -1,4 +1,5 @@
-import { api, type Interview } from "@/api";
+import { api } from "@/api/client";
+import { type Interview } from "@/api/interviews";
 import { RichEditor } from "./rich-editor/RichEditor";
 import { SaveIndicator } from "./SaveIndicator";
 import { useAutosave } from "./useAutosave";

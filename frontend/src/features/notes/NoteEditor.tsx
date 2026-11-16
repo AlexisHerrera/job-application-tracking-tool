@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { PenLine } from "lucide-react";
-import { api, errorText, type Note } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { type Note } from "@/api/interviews";
 import { Loading } from "@/components/common";
 import { AppLink } from "./AppLink";
 import { EditorHeader } from "./EditorHeader";

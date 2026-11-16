@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import type { Process } from "@/api";
+import type { Process } from "@/api/dashboard";
 import { StatusDot } from "@/components/common";
 import { STATUS_META } from "@/lib/status";
 import { isOpen as open } from "@/pages/calendar/calendar";

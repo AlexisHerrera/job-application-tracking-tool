@@ -1,4 +1,4 @@
-import type { Posting } from "@/api";
+import type { Posting } from "@/api/discovery";
 
 export const safeUrl = (url: string) => (/^https?:\/\//i.test(url) ? url : null);
 

@@ -1,6 +1,8 @@
 import { Ghost, LogOut, Pause, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
-import { errorText, fmtDate, relativeDay, type ApplicationDetail, type ProcessNode, type StepKind } from "@/api";
+import { errorText } from "@/lib/errors";
+import { fmtDate, relativeDay } from "@/lib/format";
+import { type ApplicationDetail, type ProcessNode, type StepKind } from "@/api/applications";
 
 export const KIND_LABEL: Record<StepKind, string> = { interview: "Interview", take_home: "Take-home", other: "Other" };
 export const OUTCOME_ICON = { rejected: X, withdrawn: LogOut, offer: Sparkles, ghosted: Ghost, on_hold: Pause } as const;

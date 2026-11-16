@@ -1,5 +1,5 @@
 import { Waypoints, X } from "lucide-react";
-import type { FlowData } from "@/api";
+import type { FlowData } from "@/api/dashboard";
 import { flowLabel } from "@/lib/flow";
 
 export function FlowFilterChip({ flow, flowData, onClear }: { flow: string; flowData: FlowData | null; onClear: () => void }) {

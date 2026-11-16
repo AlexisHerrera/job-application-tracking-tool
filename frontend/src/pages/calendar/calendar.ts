@@ -1,4 +1,4 @@
-import type { ActivityItem, Process } from "@/api";
+import type { ActivityItem, Process } from "@/api/dashboard";
 import { talkWith } from "@/lib/interviews";
 import { STATUS_META } from "@/lib/status";
 import type { ParamsPatch } from "@/lib/useSearchParamsPatch";

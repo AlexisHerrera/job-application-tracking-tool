@@ -1,6 +1,7 @@
 import { Mail } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fmtDate, label, type ApplicationDetail } from "@/api";
+import { fmtDate, label } from "@/lib/format";
+import { type ApplicationDetail } from "@/api/applications";
 
 /** The email the application was created from, as the AI read it. */
 export function ReviewEmailPreview({ detail, loading }: { detail: ApplicationDetail | null; loading: boolean }) {

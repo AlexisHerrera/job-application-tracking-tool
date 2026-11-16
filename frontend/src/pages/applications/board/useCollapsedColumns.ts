@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Status } from "@/api";
+import type { Status } from "@/api/applications";
 
 const COLLAPSED_KEY = "jobtracker.board.collapsed";
 

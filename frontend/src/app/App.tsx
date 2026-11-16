@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { api } from "@/api";
+import { api } from "@/api/client";
 import { EditorDialog } from "@/features/notes/EditorDialog";
 import { useAsync } from "@/lib/useAsync";
 import { AppRoutes } from "./AppRoutes";

@@ -2,7 +2,8 @@ import {
   AtSign, Banknote, Briefcase, CalendarDays, Gift, Hash, Layers, Link2, MapPin, MousePointerClick, PenLine, Radio, Star,
   TrendingUp,
 } from "lucide-react";
-import { dayToIso, daysAgo, fmtDate, isoToDay, label, type ApplicationDetail, type Stage } from "@/api";
+import { dayToIso, daysAgo, fmtDate, isoToDay, label } from "@/lib/format";
+import { type ApplicationDetail, type Stage } from "@/api/applications";
 import { APPLICATION_SENIORITY, CHANNELS } from "@/lib/applicationOptions";
 import type { Patch } from "@/features/application/application-view/patch";
 import { EditableText } from "./EditableText";

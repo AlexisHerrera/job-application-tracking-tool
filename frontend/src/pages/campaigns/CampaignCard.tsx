@@ -3,7 +3,9 @@ import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { api, fmtDate, type CampaignSummary } from "@/api";
+import { api } from "@/api/client";
+import { fmtDate } from "@/lib/format";
+import { type CampaignSummary } from "@/api/campaigns";
 import { Field } from "@/components/Field";
 import { today } from "./today";
 

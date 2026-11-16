@@ -1,5 +1,6 @@
 import { CalendarDays } from "lucide-react";
-import type { Application, Interview } from "@/api";
+import type { Application } from "@/api/applications";
+import type { Interview } from "@/api/interviews";
 import { CalendarMatchItem } from "./CalendarMatchItem";
 
 /** Calendar events with someone from a company that has several applications: pick which one. */

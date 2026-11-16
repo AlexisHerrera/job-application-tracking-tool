@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { PostingPage } from "@/api";
+import type { PostingPage } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PAGE_SIZE } from "@/pages/discover/constants";

@@ -1,4 +1,4 @@
-import type { ActivityItem } from "@/api";
+import type { ActivityItem } from "@/api/dashboard";
 import { WEEKDAYS } from "@/lib/days";
 import { DayCell } from "./DayCell";
 

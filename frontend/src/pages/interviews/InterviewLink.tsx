@@ -1,5 +1,6 @@
 import { ChevronRight } from "lucide-react";
-import { label, type Interview } from "@/api";
+import { label } from "@/lib/format";
+import { type Interview } from "@/api/interviews";
 import { SOURCE_ICON, interviewName } from "@/lib/interviews";
 import { useOpenEditor } from "@/lib/useOpenEditor";
 import { InterviewWhen } from "./InterviewWhen";

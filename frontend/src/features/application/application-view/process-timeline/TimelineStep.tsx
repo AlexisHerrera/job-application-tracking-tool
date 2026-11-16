@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import type { ApplicationDetail, ProcessNode } from "@/api";
+import type { ApplicationDetail, ProcessNode } from "@/api/applications";
 import { NodeDetails } from "./NodeDetails";
 import { NodeDot } from "./NodeDot";
 import { caption, reached, stateText } from "./timeline";

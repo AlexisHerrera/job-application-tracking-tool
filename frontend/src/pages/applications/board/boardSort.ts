@@ -1,5 +1,5 @@
 import { pointerWithin, rectIntersection, type CollisionDetection } from "@dnd-kit/core";
-import type { Application } from "@/api";
+import type { Application } from "@/api/applications";
 
 // Pointer first (precise when the cursor is inside a column), rectangles as the keyboard fallback.
 export const collision: CollisionDetection = (args) => {

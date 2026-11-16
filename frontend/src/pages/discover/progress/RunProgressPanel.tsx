@@ -1,4 +1,4 @@
-import type { DiscoveryProgress } from "@/api";
+import type { DiscoveryProgress } from "@/api/discovery";
 import { duration, eta } from "@/pages/discover/format";
 import { ProgressStep, type StepState } from "./ProgressStep";
 

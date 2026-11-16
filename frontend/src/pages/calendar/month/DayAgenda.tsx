@@ -1,5 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { fmtDate, type ActivityItem } from "@/api";
+import { fmtDate } from "@/lib/format";
+import { type ActivityItem } from "@/api/dashboard";
 import { DayAgendaItem } from "./DayAgendaItem";
 
 /** The side card for the picked day. */

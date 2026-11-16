@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CalendarPlus, NotebookPen } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { ApplicationDetail } from "@/api";
+import type { ApplicationDetail } from "@/api/applications";
 import { plainText } from "@/lib/notes";
 import { useOpenEditor } from "@/lib/useOpenEditor";
 import { InterviewForm } from "./InterviewForm";

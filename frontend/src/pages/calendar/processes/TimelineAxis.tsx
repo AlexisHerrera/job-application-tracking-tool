@@ -1,4 +1,4 @@
-import { fmtDate } from "@/api";
+import { fmtDate } from "@/lib/format";
 import type { TimelineScale } from "./timelineScale";
 
 /** The week labels row above the bars. */

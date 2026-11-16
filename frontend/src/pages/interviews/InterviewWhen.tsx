@@ -1,4 +1,5 @@
-import { fmtDate, relativeDay, type Interview } from "@/api";
+import { fmtDate, relativeDay } from "@/lib/format";
+import { type Interview } from "@/api/interviews";
 
 /** The date column: day and time, and how far away it is. */
 export function InterviewWhen({ iv }: { iv: Interview }) {

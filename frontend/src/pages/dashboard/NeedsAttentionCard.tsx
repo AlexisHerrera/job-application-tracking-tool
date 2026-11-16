@@ -2,7 +2,7 @@ import { CalendarDays, Inbox, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { Dashboard } from "@/api";
+import type { Dashboard } from "@/api/dashboard";
 import { AttentionItem } from "./AttentionItem";
 
 /** Applications to review, unmatched emails, calendar interviews to match. Hidden when there are none. */

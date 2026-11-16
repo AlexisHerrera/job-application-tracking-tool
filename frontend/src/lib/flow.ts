@@ -1,4 +1,4 @@
-import type { FlowData } from "@/api";
+import type { FlowData } from "@/api/dashboard";
 
 // The flow chart's graph (the Dashboard's FlowChart lays it out) and the keys it selects, which the
 // Applications page filters by.

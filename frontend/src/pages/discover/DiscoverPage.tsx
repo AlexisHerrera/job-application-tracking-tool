@@ -2,7 +2,7 @@
 // job boards, scored by the LLM against the criteria. Everything in a posting comes from the web: rendered as text, links only if http(s).
 import { useState } from "react";
 import { Settings2, Telescope } from "lucide-react";
-import { api } from "@/api";
+import { api } from "@/api/client";
 import { Empty, Loading, PageHeader } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { useSearchParamsPatch, type ParamsPatch } from "@/lib/useSearchParamsPatch";

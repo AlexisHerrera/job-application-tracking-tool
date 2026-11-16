@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ListPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { ApplicationDetail } from "@/api";
+import type { ApplicationDetail } from "@/api/applications";
 import { PlanDialog } from "./PlanDialog";
 import { nodeKey } from "./timeline";
 import { TimelineStep } from "./TimelineStep";

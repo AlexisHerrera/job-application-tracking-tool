@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { CampaignSummary, Stats, Status } from "@/api";
+import type { CampaignSummary } from "@/api/campaigns";
+import type { Stats } from "@/api/dashboard";
+import type { Status } from "@/api/applications";
 import { ACTIVE_STATUSES } from "@/lib/status";
 
 /** Applications, active, interviews done, days to the first interview. */

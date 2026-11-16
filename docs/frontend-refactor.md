@@ -18,7 +18,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 | 7 | Applications (board and list) | `pages/Applications.tsx` (203) + `applications/Board.tsx` (243) + `AllTable.tsx` (94) | done |
 | 8 | App shell and the `src/` root | `App.tsx` (194), `campaign.tsx`, `auth.ts`, `AuthGate.tsx`, `useAsync.ts` | done |
 | 9 | Small pages and the shared application widgets | Inbox, Interviews, Campaigns, Add; `PasteAssistant` (257), `ApplicationForm` (211), `ReviewDialog` (202), `ApplicationPicker`, `PasteFill`, `SalaryInput` | done |
-| 10 | Optional: split `api.ts` | `api.ts` (637) | todo |
+| 10 | Optional: split `api.ts` | `api.ts` (637) | done |
 
 Order: 0 first (later sessions depend on it). After that any order works; the list goes biggest
 first. 2 before 3 (the timeline moves into the application folder). 10 last, it touches every file.
@@ -46,7 +46,7 @@ src/
     common.tsx              # StatusDot, StatusBadge, Loading, PageHeader, Empty...
     Field.tsx
   lib/                      # hooks and pure helpers with no JSX layout of their own
-  api.ts                    # (session 10 may split it)
+  api/                      # the backend's types (one file per area) and client.ts (session 10)
 ```
 
 ## Rules for every session
@@ -566,6 +566,37 @@ lib/
 
 Touches nearly every file's imports, so it goes last and is only worth it if `api.ts` keeps
 growing.
+
+As built: the types came to ~440 lines, so they're one file per area instead of a single `types.ts`:
+
+```
+api/
+  applications.ts             # Status, STAGES, Stage, Application, TimelineEvent, StepKind,
+                              # ProcessStep, ProcessNode, ApplicationDetail, ScanResult, the paste
+                              # types (ChangeKind, FieldChange, PasteOption, PasteRecord),
+                              # ApplicationInput, StepInput
+  interviews.ts               # Interview, Note, InterviewDetail, NoteDetail, CalendarSyncResult,
+                              # InterviewInput
+  campaigns.ts                # CampaignSummary
+  dashboard.ts                # Dashboard, FlowData, Stats, InterviewOutcome, TypedInterview,
+                              # TypeRow, Insights, ActivityInterview, ActivityItem, Process
+  discovery.ts                # SearchSource … DiscoveryState (plan §20, §21)
+  client.ts                   # ApiError, sha256Hex, request, `api`
+lib/
+  format.ts                   # TZ (private), the date/label/salary formatters, and shortAgo
+  errors.ts                   # errorText
+```
+
+Every non-blank line of `api.ts` went to exactly one of these files, in its original order within
+each file; only the new `import type` lines are added (`./` between the `api/` files, and
+`format.ts` imports `Application` for `fmtSalary`). `ApiError` sits in `client.ts`, since only
+`request` throws it and nothing else imports it. `dashboard.ts` holds the four campaign-scoped
+read-outs (`/dashboard`, `/stats`, `/insights`, `/activity`), Calendar's `Process` included.
+Importers were rewritten by a script: each old `import { … } from "@/api"` became one statement
+per new module, specifiers and `type` keywords unchanged. `components/common.tsx` and
+`lib/status.ts` (which still used `../api`) and `main.tsx`'s `./lib/refresh` and `./lib/theme` now
+use `@/`. `api.ts` was `git rm`'d (no single file is its successor, so there's no `git mv`). The
+`src/` root now holds only `main.tsx`, `index.css` and the folders.
 
 ---
 

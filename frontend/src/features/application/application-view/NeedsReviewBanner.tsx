@@ -1,7 +1,8 @@
 import { Check, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { api, type Application } from "@/api";
+import { api } from "@/api/client";
+import { type Application } from "@/api/applications";
 
 export function NeedsReviewBanner({ app, onReviewed }: { app: Application; onReviewed: () => void }) {
   return (

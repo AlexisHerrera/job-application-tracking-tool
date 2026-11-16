@@ -1,5 +1,6 @@
 import { Banknote, CalendarClock, Check } from "lucide-react";
-import { fmtDate, type Application } from "@/api";
+import { fmtDate } from "@/lib/format";
+import { type Application } from "@/api/applications";
 import { ReviewBadge } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

@@ -1,6 +1,8 @@
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { api, type ApplicationDetail, type Interview } from "@/api";
+import { api } from "@/api/client";
+import { type ApplicationDetail } from "@/api/applications";
+import { type Interview } from "@/api/interviews";
 import { attempt } from "./timeline";
 
 /** An interview no step took: say which step it was. */

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
-import { api, type DiscoverySearch, type SearchSource } from "@/api";
+import { api } from "@/api/client";
+import { type DiscoverySearch, type SearchSource } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";

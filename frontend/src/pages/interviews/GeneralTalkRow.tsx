@@ -1,6 +1,6 @@
 import { ChevronRight, MessagesSquare, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Interview } from "@/api";
+import type { Interview } from "@/api/interviews";
 import { interviewName, talkWith } from "@/lib/interviews";
 import { plainText } from "@/lib/notes";
 import { useOpenEditor } from "@/lib/useOpenEditor";

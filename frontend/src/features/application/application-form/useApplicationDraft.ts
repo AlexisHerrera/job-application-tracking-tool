@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { isoToDay, type ApplicationInput, type StepInput } from "@/api";
+import { isoToDay } from "@/lib/format";
+import { type ApplicationInput, type StepInput } from "@/api/applications";
 import { draftFrom, type SalaryDraft } from "@/features/application/salary";
 import type { FillReport, FillResult } from "./fill";
 

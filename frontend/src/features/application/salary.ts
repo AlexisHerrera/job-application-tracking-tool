@@ -1,4 +1,4 @@
-import type { Application } from "@/api";
+import type { Application } from "@/api/applications";
 
 // Salary is stored yearly. This input formats as you type ("90000" shows "90,000"), accepts
 // shorthand ("90k", "1.2m"), converts a monthly figure (×12), and says exactly what gets saved.

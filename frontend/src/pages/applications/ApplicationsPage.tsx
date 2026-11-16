@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Plus, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
-import { api } from "@/api";
+import { api } from "@/api/client";
 import { useCampaign } from "@/lib/campaign";
 import { Empty, Loading, PageHeader } from "@/components/common";
 import { Button } from "@/components/ui/button";

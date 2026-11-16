@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { api, errorText, type DiscoveryRules, type DiscoveryState } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { type DiscoveryRules, type DiscoveryState } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";

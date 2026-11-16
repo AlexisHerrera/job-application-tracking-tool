@@ -1,4 +1,5 @@
-import { label, type Facet } from "@/api";
+import { label } from "@/lib/format";
+import { type Facet } from "@/api/discovery";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 

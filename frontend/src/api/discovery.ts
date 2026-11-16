@@ -1,0 +1,140 @@
+// Job discovery (plan §20, §21)
+export type SearchSource = "jsearch" | "remoteyeah" | "getonbrd" | "workable";
+export type PostingSource = SearchSource | "ashby" | "greenhouse" | "lever";
+export type Verdict = "match" | "maybe" | "no";
+export type PostingStatus = "new" | "interested" | "dismissed" | "applied";
+
+export interface Posting {
+  id: string;
+  source: PostingSource;
+  search_label: string | null;
+  url: string;
+  title: string;
+  company: string;
+  location: string | null;
+  employment_type: string | null;
+  salary_text: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_period: string | null;
+  publisher: string | null;
+  posted_at: string | null;
+  fetched_at: string | null;
+  description: string;
+  drop_reason: string | null;
+  verdict: Verdict | null;
+  score: number | null;
+  reasons: string[];
+  location_fit: "yes" | "no" | "unclear" | null;
+  seniority: string | null;
+  years_required: number | null;
+  employer_kind: string | null;
+  ai_related: boolean;
+  stack_overlap: string[];
+  technologies: string[];
+  work_mode: string | null;
+  company_size: string | null;
+  sector: string | null;
+  salary_usd_min: number | null;
+  salary_usd_max: number | null;
+  status: PostingStatus;
+  application_id: string | null;
+  in_tracker: boolean;
+}
+
+/** Where the run or re-score started from the page is (GET /discover/progress). */
+export interface DiscoveryProgress {
+  running: boolean;
+  kind?: "run" | "score" | "rescore";
+  phase?: "collecting" | "scoring" | "done";
+  elapsed_s?: number;
+  phase_elapsed_s?: number | null;
+  searches_total?: number;
+  searches_done?: number;
+  current?: string | null;
+  fetched?: number;
+  new?: number;
+  hidden?: number;
+  to_score?: number;
+  scored?: number;
+  errors?: number;
+}
+
+/** [value, how many postings in the view have it], most common first. */
+export type Facet = [string, number][];
+
+export interface PostingPage {
+  postings: Posting[];
+  total: number;
+  counts: { total: number; hidden: number; unscored: number };
+  facets: {
+    publisher: Facet;
+    seniority: Facet;
+    company_size: Facet;
+    sector: Facet;
+    work_mode: Facet;
+    location_fit: Facet;
+    employer_kind: Facet;
+    technologies: Facet;
+  };
+}
+
+export interface DiscoveryRules {
+  seniority_exclude: string[];
+  title_exclude: string[];
+  role_exclude: string[];
+  agencies: string[];
+  consultancies: string[];
+  location_allow: string[];
+  blocked: string[];
+  max_age_days: number;
+  salary_floor_usd: number | null;
+  jsearch_monthly_cap: number;
+}
+
+export interface DiscoverySearch {
+  id: string;
+  source: SearchSource;
+  label: string;
+  params: Record<string, string | number | boolean>;
+  enabled: boolean;
+}
+
+export interface DiscoveryRun {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  trigger: string;
+  jsearch_requests: number;
+  fetched: number;
+  new: number;
+  dropped: number;
+  llm_calls: number;
+  errors: number;
+  notes: string[];
+}
+
+/** The watchlist of company job boards (plan §21), in numbers. */
+export interface WatchlistSummary {
+  total: number;
+  enabled: number;
+  by_ats: { ashby: number; greenhouse: number; lever: number };
+  last_scan_at: string | null; // the last `discover companies scan` of the board directory
+  with_jobs: number;
+  jobs_kept: number;
+  last_checked_at: string | null;
+}
+
+export interface DiscoveryState {
+  criteria: string;
+  rules: DiscoveryRules;
+  searches: DiscoverySearch[];
+  companies: WatchlistSummary;
+  last_run: DiscoveryRun | null;
+  jsearch_used_this_month: number;
+  jsearch_configured: boolean;
+  llm_configured: boolean;
+  can_run: boolean;
+  /** Visible new postings waiting for a score. */
+  unscored: number;
+}

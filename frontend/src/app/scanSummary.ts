@@ -1,4 +1,5 @@
-import type { CalendarSyncResult, ScanResult } from "@/api";
+import type { CalendarSyncResult } from "@/api/interviews";
+import type { ScanResult } from "@/api/applications";
 
 export function scanSummary(r: ScanResult): string {
   if (r.started_fresh) return "Now watching your inbox. New mail from here on will be picked up.";

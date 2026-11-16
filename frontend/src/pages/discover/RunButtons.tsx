@@ -1,5 +1,5 @@
 import { Download, Play, Sparkles } from "lucide-react";
-import type { DiscoveryState } from "@/api";
+import type { DiscoveryState } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 

@@ -1,4 +1,4 @@
-import type { Stage, Status } from "../api";
+import type { Stage, Status } from "@/api/applications";
 
 // Board column order. Ghosted is computed by the API (no news for GHOST_DAYS), so it can't be a drop target.
 export const STATUS_ORDER: Status[] = [

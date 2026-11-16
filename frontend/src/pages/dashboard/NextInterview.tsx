@@ -1,7 +1,8 @@
 import { NotebookPen } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { fmtDate, fmtTime, relativeDay, type Interview } from "@/api";
+import { fmtDate, fmtTime, relativeDay } from "@/lib/format";
+import { type Interview } from "@/api/interviews";
 import { interviewName } from "@/lib/interviews";
 import { JoinCallButton } from "./JoinCallButton";
 import { who } from "./who";

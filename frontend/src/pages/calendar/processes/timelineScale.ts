@@ -1,4 +1,5 @@
-import { localDay, type Process } from "@/api";
+import { localDay } from "@/lib/format";
+import { type Process } from "@/api/dashboard";
 import { addDays, daysBetween, weekday } from "@/lib/days";
 
 export interface TimelineScale {

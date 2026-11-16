@@ -1,4 +1,4 @@
-import type { DiscoverySearch } from "@/api";
+import type { DiscoverySearch } from "@/api/discovery";
 
 export function paramsSummary(x: DiscoverySearch): string {
   if (x.source === "getonbrd") return `category ${String(x.params.category ?? "")}`;

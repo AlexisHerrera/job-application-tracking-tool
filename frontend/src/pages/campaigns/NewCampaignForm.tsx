@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { api } from "@/api";
+import { api } from "@/api/client";
 import { Field } from "@/components/Field";
 import { today } from "./today";
 

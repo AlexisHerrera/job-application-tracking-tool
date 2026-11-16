@@ -1,4 +1,4 @@
-import type { PostingPage } from "@/api";
+import type { PostingPage } from "@/api/discovery";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { VIEWS } from "./constants";

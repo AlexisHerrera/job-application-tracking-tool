@@ -1,6 +1,6 @@
 import { useDroppable } from "@dnd-kit/core";
 import { ChevronsLeftRight, ChevronsRightLeft, Clock } from "lucide-react";
-import type { Application, Status } from "@/api";
+import type { Application, Status } from "@/api/applications";
 import { StatusDot } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

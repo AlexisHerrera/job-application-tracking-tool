@@ -1,6 +1,7 @@
 import { Telescope } from "lucide-react";
 import { toast } from "sonner";
-import { api, errorText } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
 import { Empty } from "@/components/common";
 import { Button } from "@/components/ui/button";
 

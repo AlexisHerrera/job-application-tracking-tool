@@ -1,6 +1,7 @@
 import { NotebookPen, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fmtDate, relativeDay, type Interview } from "@/api";
+import { fmtDate, relativeDay } from "@/lib/format";
+import { type Interview } from "@/api/interviews";
 import { interviewName } from "@/lib/interviews";
 
 export function InterviewBox({ iv, label, onOpen }: { iv: Interview; label: string; onOpen: () => void }) {

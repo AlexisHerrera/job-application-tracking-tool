@@ -3,7 +3,7 @@ import { sankey } from "d3-sankey";
 import { Table2, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { FlowData } from "@/api";
+import type { FlowData } from "@/api/dashboard";
 import { build, type FlowLink, type FlowNode } from "@/lib/flow";
 import { chainPath, color, HEIGHT, LABEL_SPACE, MIN_WIDTH, rank, WIDE_LABEL_SPACE, type LaidLink, type LaidNode } from "./layout";
 import { useWidth } from "./useWidth";

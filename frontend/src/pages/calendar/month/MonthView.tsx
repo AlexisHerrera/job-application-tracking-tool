@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { localDay, type ActivityItem } from "@/api";
+import { localDay } from "@/lib/format";
+import { type ActivityItem } from "@/api/dashboard";
 import { monthDays, shiftMonth } from "@/lib/days";
 import type { SetParams } from "@/pages/calendar/calendar";
 import { DayAgenda } from "./DayAgenda";

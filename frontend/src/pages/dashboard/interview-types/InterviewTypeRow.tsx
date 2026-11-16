@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtDate, type TypeRow } from "@/api";
+import { fmtDate } from "@/lib/format";
+import { type TypeRow } from "@/api/dashboard";
 import { TypePicker } from "@/features/interviews/TypePicker";
 import { interviewName } from "@/lib/interviews";
 import { useOpenEditor } from "@/lib/useOpenEditor";

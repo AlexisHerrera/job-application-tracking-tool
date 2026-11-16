@@ -3,7 +3,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
-import { fmtDate, label, type PasteRecord } from "@/api";
+import { fmtDate, label } from "@/lib/format";
+import { type PasteRecord } from "@/api/applications";
 import { KIND_CLASS, KIND_TEXT, NO_COMPANY, defaults, show, type Selection } from "./paste";
 
 /** One position read from the text: which application it goes to, and the changes to pick from. */

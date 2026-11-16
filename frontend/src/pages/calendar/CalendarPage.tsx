@@ -1,6 +1,6 @@
 import { CalendarRange, GanttChart } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { api } from "@/api";
+import { api } from "@/api/client";
 import { useCampaign } from "@/lib/campaign";
 import { Loading, PageHeader } from "@/components/common";
 import { useSearchParamsPatch } from "@/lib/useSearchParamsPatch";

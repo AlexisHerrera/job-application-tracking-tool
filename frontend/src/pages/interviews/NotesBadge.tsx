@@ -1,5 +1,5 @@
 import { NotebookPen } from "lucide-react";
-import type { Interview } from "@/api";
+import type { Interview } from "@/api/interviews";
 
 export function NotesBadge({ iv }: { iv: Interview }) {
   const past = new Date(iv.starts_at) < new Date();

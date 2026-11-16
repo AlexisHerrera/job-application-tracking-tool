@@ -2,7 +2,9 @@ import { useState } from "react";
 import { Ban, Check, Star, ThumbsDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { api, errorText, type Posting, type PostingStatus } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { type Posting, type PostingStatus } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 
 /** Applied / Interested / Not for me / Hide company, or Open application once applied. One `busy` for all. */

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type Status } from "../api";
+import { type Status } from "@/api/applications";
 import { STATUS_META } from "../lib/status";
 
 export function StatusDot({ status, className }: { status: Status; className?: string }) {

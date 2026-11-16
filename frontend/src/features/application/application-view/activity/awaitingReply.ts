@@ -1,4 +1,4 @@
-import type { ApplicationDetail, TimelineEvent } from "@/api";
+import type { ApplicationDetail, TimelineEvent } from "@/api/applications";
 import { CLOSED_STATUSES } from "@/lib/status";
 
 // Same rule as the dashboard (stats.awaiting_reply): closed or on-hold processes need nothing

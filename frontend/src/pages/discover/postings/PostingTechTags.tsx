@@ -1,4 +1,4 @@
-import type { Posting } from "@/api";
+import type { Posting } from "@/api/discovery";
 import { cn } from "@/lib/utils";
 
 /** The posting's technologies; clicking one filters the list by it. */

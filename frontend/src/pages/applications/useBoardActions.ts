@@ -1,6 +1,8 @@
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
-import { api, errorText, type Application, type Stage } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { type Application, type Stage } from "@/api/applications";
 import { useRefresh } from "@/lib/refresh";
 import { STATUS_META } from "@/lib/status";
 

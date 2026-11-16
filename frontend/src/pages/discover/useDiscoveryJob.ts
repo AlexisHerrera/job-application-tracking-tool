@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api, errorText, type DiscoveryProgress } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { type DiscoveryProgress } from "@/api/discovery";
 
 export type Job = { kind: "run"; score: boolean; collect: boolean } | { kind: "rescore"; includeHidden: boolean };
 

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import type { Application, FlowData, Status } from "@/api";
+import type { Application, Status } from "@/api/applications";
+import type { FlowData } from "@/api/dashboard";
 import { inFlow } from "@/lib/flow";
 import { ACTIVE_STATUSES } from "@/lib/status";
 import { fold } from "@/lib/text";

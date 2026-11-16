@@ -1,5 +1,6 @@
 import { CalendarDays, Mail, PenLine } from "lucide-react";
-import { label, type Interview } from "@/api";
+import { label } from "@/lib/format";
+import { type Interview } from "@/api/interviews";
 
 export const INTERVIEW_TYPES = ["recruiter", "technical", "system_design", "behavioral", "take_home", "onsite", "other"];
 export const SOURCE_ICON = { calendar: CalendarDays, email: Mail, manual: PenLine } as const;

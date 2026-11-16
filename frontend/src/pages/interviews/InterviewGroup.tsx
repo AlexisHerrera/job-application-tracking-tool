@@ -1,5 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
-import type { Interview } from "@/api";
+import type { Interview } from "@/api/interviews";
 import { GeneralTalkRow } from "./GeneralTalkRow";
 import { InterviewLink } from "./InterviewLink";
 

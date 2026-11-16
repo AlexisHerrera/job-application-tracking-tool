@@ -1,4 +1,5 @@
-import { fmtDate, localDay, type Process } from "@/api";
+import { fmtDate, localDay } from "@/lib/format";
+import { type Process } from "@/api/dashboard";
 import { addDays } from "@/lib/days";
 import { interviewName } from "@/lib/interviews";
 import { STATUS_META } from "@/lib/status";

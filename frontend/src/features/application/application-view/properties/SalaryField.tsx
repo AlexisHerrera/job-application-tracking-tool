@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { fmtSalary, type Application } from "@/api";
+import { fmtSalary } from "@/lib/format";
+import { type Application } from "@/api/applications";
 import type { Patch } from "@/features/application/application-view/patch";
 import { draftFrom, readSalary } from "@/features/application/salary";
 import { SalaryInputs } from "@/features/application/SalaryInputs";

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, type CampaignSummary } from "@/api";
+import { api } from "@/api/client";
+import { type CampaignSummary } from "@/api/campaigns";
 
 const KEY = "jobtracker.campaign";
 

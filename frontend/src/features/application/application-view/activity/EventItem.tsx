@@ -1,7 +1,9 @@
 import { Mail, PenLine } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { api, fmtDate, label, type TimelineEvent } from "@/api";
+import { api } from "@/api/client";
+import { fmtDate, label } from "@/lib/format";
+import { type TimelineEvent } from "@/api/applications";
 import { STATUS_META } from "@/lib/status";
 
 export function EventItem({ e, awaiting, onDone }: { e: TimelineEvent; awaiting: boolean; onDone: () => void }) {

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import type { Application, Stage, Status } from "@/api";
+import type { Application, Stage, Status } from "@/api/applications";
 import { STATUS_ORDER, isStage } from "@/lib/status";
 import { BoardCard } from "./BoardCard";
 import { BoardCardBody } from "./BoardCardBody";

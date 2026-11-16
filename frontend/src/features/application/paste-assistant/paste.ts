@@ -1,4 +1,5 @@
-import { fmtDate, type FieldChange, type PasteOption, type PasteRecord } from "@/api";
+import { fmtDate } from "@/lib/format";
+import { type FieldChange, type PasteOption, type PasteRecord } from "@/api/applications";
 
 export type Selection = { option: number; fields: Set<string>; stage: boolean; skip: boolean; role: string; company: string };
 

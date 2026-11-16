@@ -1,5 +1,6 @@
 import { CalendarCheck, NotebookPen } from "lucide-react";
-import { relativeDay, type Interview } from "@/api";
+import { relativeDay } from "@/lib/format";
+import { type Interview } from "@/api/interviews";
 import { interviewName } from "@/lib/interviews";
 import { ListCard } from "./ListCard";
 import { ListRow } from "./ListRow";

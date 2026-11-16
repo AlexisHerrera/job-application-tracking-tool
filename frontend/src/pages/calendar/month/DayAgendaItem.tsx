@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { fmtTime, type ActivityItem } from "@/api";
+import { fmtTime } from "@/lib/format";
+import { type ActivityItem } from "@/api/dashboard";
 import { interviewName } from "@/lib/interviews";
 import { useOpenEditor } from "@/lib/useOpenEditor";
 import { cn } from "@/lib/utils";

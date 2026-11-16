@@ -1,6 +1,6 @@
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Interview } from "@/api";
+import type { Interview } from "@/api/interviews";
 
 export function JoinCallButton({ i, size = "icon-xs" }: { i: Interview; size?: "icon-xs" | "sm" }) {
   if (!i.meeting_url) return null;

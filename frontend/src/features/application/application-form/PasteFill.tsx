@@ -2,7 +2,9 @@ import { useState } from "react";
 import { Link2, Sparkles, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { api, errorText, type PasteRecord } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { type PasteRecord } from "@/api/applications";
 import type { FillReport, FillResult } from "./fill";
 
 // Fills a form from pasted text (a LinkedIn chat with a recruiter, a job post…) using the same

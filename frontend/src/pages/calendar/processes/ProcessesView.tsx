@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { localDay, type Process } from "@/api";
+import { localDay } from "@/lib/format";
+import { type Process } from "@/api/dashboard";
 import { isOpen as open, type SetParams } from "@/pages/calendar/calendar";
 import { ProcessesLegend } from "./ProcessesLegend";
 import { ProcessRow } from "./ProcessRow";

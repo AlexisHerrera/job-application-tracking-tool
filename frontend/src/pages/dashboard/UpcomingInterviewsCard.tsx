@@ -1,6 +1,7 @@
 import { CalendarClock } from "lucide-react";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { fmtDate, relativeDay, type Interview } from "@/api";
+import { fmtDate, relativeDay } from "@/lib/format";
+import { type Interview } from "@/api/interviews";
 import { interviewName } from "@/lib/interviews";
 import { JoinCallButton } from "./JoinCallButton";
 import { ListRow } from "./ListRow";

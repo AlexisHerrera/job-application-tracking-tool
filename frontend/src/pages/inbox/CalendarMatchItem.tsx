@@ -3,7 +3,11 @@ import { Ban, CalendarDays, MessagesSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { api, errorText, fmtDate, type Application, type Interview } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { fmtDate } from "@/lib/format";
+import { type Application } from "@/api/applications";
+import { type Interview } from "@/api/interviews";
 import { useRefresh } from "@/lib/refresh";
 import { ApplicationPicker } from "./ApplicationPicker";
 

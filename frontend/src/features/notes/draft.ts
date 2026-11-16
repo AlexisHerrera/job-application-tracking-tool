@@ -1,4 +1,4 @@
-import type { Interview, Note } from "@/api";
+import type { Interview, Note } from "@/api/interviews";
 
 // One note: the document plus the structured bits the study report will read.
 

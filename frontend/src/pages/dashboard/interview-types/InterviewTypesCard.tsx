@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { MessagesSquare } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Insights } from "@/api";
+import type { Insights } from "@/api/dashboard";
 import { InterviewTypeRow } from "./InterviewTypeRow";
 import { OutcomeLegend } from "./OutcomeLegend";
 

@@ -2,7 +2,7 @@ import { ClipboardPaste, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api } from "@/api";
+import { api } from "@/api/client";
 import { ApplicationForm } from "@/features/application/application-form/ApplicationForm";
 import { PageHeader } from "@/components/common";
 import { useRefresh } from "@/lib/refresh";

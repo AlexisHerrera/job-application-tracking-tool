@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { errorText } from "@/api";
+import { errorText } from "@/lib/errors";
 
 // Saves still running, so whoever closes the editor can refresh after they land.
 const inflight = new Set<Promise<void>>();

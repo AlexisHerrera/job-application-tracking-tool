@@ -1,6 +1,8 @@
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, errorText, type DiscoverySearch } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { type DiscoverySearch } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AddSearchForm } from "./AddSearchForm";

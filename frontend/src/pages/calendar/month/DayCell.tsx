@@ -1,4 +1,5 @@
-import { fmtDate, fmtTime, type ActivityItem } from "@/api";
+import { fmtDate, fmtTime } from "@/lib/format";
+import { type ActivityItem } from "@/api/dashboard";
 import { cn } from "@/lib/utils";
 import { isMeeting, KIND, meetingChip, who } from "@/pages/calendar/calendar";
 import { Dot } from "@/pages/calendar/Dot";

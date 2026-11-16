@@ -2,7 +2,7 @@ import { ChevronDown } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { STAGES, type Application, type Stage } from "@/api";
+import { STAGES, type Application, type Stage } from "@/api/applications";
 import { StatusBadge, StatusDot } from "@/components/common";
 import { STATUS_META } from "@/lib/status";
 

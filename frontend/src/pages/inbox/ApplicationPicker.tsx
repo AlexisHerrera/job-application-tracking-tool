@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { daysAgo, fmtDate, label, type Application } from "@/api";
+import { daysAgo, fmtDate, label } from "@/lib/format";
+import { type Application } from "@/api/applications";
 import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";

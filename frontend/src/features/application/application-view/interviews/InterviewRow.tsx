@@ -6,7 +6,10 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { api, errorText, fmtDate, label, relativeDay, type Interview } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { fmtDate, label, relativeDay } from "@/lib/format";
+import { type Interview } from "@/api/interviews";
 import { SOURCE_ICON, SOURCE_LABEL, interviewName } from "@/lib/interviews";
 import { InterviewForm } from "./InterviewForm";
 

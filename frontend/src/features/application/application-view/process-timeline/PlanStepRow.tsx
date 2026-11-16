@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
-import { api, type ProcessStep, type StepKind } from "@/api";
+import { api } from "@/api/client";
+import { type ProcessStep, type StepKind } from "@/api/applications";
 import { attempt, KIND_LABEL } from "./timeline";
 
 export function PlanStepRow({ step, index, count, onDone }: { step: ProcessStep; index: number; count: number; onDone: () => void }) {

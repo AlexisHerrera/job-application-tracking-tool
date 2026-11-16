@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Check, Sparkles, Star } from "lucide-react";
-import { label, type Posting } from "@/api";
+import { label } from "@/lib/format";
+import { type Posting } from "@/api/discovery";
 import { cn } from "@/lib/utils";
 import { COMPANY_SIZE, DROP_LABEL, SECTOR, WORK_MODE } from "@/pages/discover/constants";
 

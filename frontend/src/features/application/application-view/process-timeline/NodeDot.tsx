@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { ProcessNode } from "@/api";
+import type { ProcessNode } from "@/api/applications";
 import { OUTCOME_DOT, OUTCOME_ICON } from "./timeline";
 
 export function NodeDot({ n }: { n: ProcessNode }) {

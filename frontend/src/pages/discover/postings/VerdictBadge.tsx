@@ -1,4 +1,4 @@
-import type { Posting } from "@/api";
+import type { Posting } from "@/api/discovery";
 import { cn } from "@/lib/utils";
 
 export function VerdictBadge({ p }: { p: Posting }) {

@@ -1,4 +1,5 @@
-import { timeAgo, type DiscoveryRun } from "@/api";
+import { timeAgo } from "@/lib/format";
+import { type DiscoveryRun } from "@/api/discovery";
 
 export function LastRunSummary({ run, used, cap, jsearchOn }: { run: DiscoveryRun | null; used: number; cap: number; jsearchOn: boolean }) {
   return (

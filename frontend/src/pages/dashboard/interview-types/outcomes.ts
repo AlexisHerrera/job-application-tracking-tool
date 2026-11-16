@@ -1,4 +1,5 @@
-import { label, type InterviewOutcome } from "@/api";
+import { label } from "@/lib/format";
+import { type InterviewOutcome } from "@/api/dashboard";
 
 // Counts are small, so rates read "x of n" and say how many are still waiting. Colors reuse the
 // flow chart's tokens (index.css, --flow-*): indigo for progress, rose for rejected, slate for no

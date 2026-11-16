@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CalendarClock } from "lucide-react";
 import { Link } from "react-router-dom";
-import { api } from "@/api";
+import { api } from "@/api/client";
 import { useCampaign } from "@/lib/campaign";
 import { Loading, PageHeader } from "@/components/common";
 import { ReviewDialog } from "@/features/application/review-dialog/ReviewDialog";

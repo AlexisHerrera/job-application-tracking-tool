@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { errorText } from "@/api";
+import { errorText } from "@/lib/errors";
 import { PageHeader } from "@/components/common";
 import { useCampaign } from "@/lib/campaign";
 import { useRefresh } from "@/lib/refresh";

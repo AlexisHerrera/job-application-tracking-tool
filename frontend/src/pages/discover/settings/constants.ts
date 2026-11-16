@@ -1,4 +1,4 @@
-import type { DiscoveryRules } from "@/api";
+import type { DiscoveryRules } from "@/api/discovery";
 
 export const LIST_FIELDS: { key: keyof DiscoveryRules; label: string; hint: string }[] = [
   { key: "blocked", label: "Blocked companies", hint: "Hidden, whatever the source. \"Hide company\" on a posting adds to this list. One company per line." },

@@ -1,4 +1,5 @@
-import { fmtDate, type Note } from "@/api";
+import { fmtDate } from "@/lib/format";
+import { type Note } from "@/api/interviews";
 import { interviewName } from "@/lib/interviews";
 import { plainText } from "@/lib/notes";
 

@@ -1,4 +1,4 @@
-import type { ApplicationDetail } from "@/api";
+import type { ApplicationDetail } from "@/api/applications";
 import { awaitingReply } from "./awaitingReply";
 import { EventItem } from "./EventItem";
 

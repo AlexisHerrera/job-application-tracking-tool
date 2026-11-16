@@ -2,7 +2,10 @@ import { Check, MessageSquareReply } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { api, daysAgo, errorText, type Dashboard } from "@/api";
+import { api } from "@/api/client";
+import { daysAgo } from "@/lib/format";
+import { errorText } from "@/lib/errors";
+import { type Dashboard } from "@/api/dashboard";
 import { useRefresh } from "@/lib/refresh";
 import { ListCard } from "./ListCard";
 

@@ -1,5 +1,6 @@
 import { Hourglass } from "lucide-react";
-import { daysAgo, type Dashboard } from "@/api";
+import { daysAgo } from "@/lib/format";
+import { type Dashboard } from "@/api/dashboard";
 import { ListCard } from "./ListCard";
 import { ListRow } from "./ListRow";
 

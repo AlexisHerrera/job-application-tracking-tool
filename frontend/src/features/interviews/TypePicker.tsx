@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { api, errorText, label } from "@/api";
+import { api } from "@/api/client";
+import { errorText } from "@/lib/errors";
+import { label } from "@/lib/format";
 import { INTERVIEW_TYPES } from "@/lib/interviews";
 
 /** An interview's type, saved as soon as it changes. A guess from the title fills the empty option. */
