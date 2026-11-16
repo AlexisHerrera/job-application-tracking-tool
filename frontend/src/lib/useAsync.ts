@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useRefresh } from "./lib/refresh";
+import { useRefresh } from "./refresh";
 
 export function useAsync<T>(load: () => Promise<T>, deps: unknown[] = []) {
   const { version } = useRefresh();

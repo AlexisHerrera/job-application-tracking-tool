@@ -8,7 +8,7 @@ import { ApplicationForm } from "../ApplicationForm";
 import { ApplicationPicker } from "../ApplicationPicker";
 import { Empty, Loading, PageHeader } from "../components/common";
 import { useRefresh } from "../lib/refresh";
-import { useAsync } from "../useAsync";
+import { useAsync } from "@/lib/useAsync";
 
 export default function Inbox() {
   const inbox = useAsync(api.inbox);

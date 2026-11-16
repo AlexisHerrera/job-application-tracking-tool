@@ -6,7 +6,7 @@ import { plainText } from "@/lib/notes";
 import { useOpenEditor } from "@/lib/useOpenEditor";
 import { api, fmtDate, label, relativeDay, type Interview } from "../api";
 import { Empty, Loading, PageHeader } from "../components/common";
-import { useAsync } from "../useAsync";
+import { useAsync } from "@/lib/useAsync";
 
 /** Every interview in one list: what's next, what just happened, and general recruiter talks. */
 export default function Interviews() {

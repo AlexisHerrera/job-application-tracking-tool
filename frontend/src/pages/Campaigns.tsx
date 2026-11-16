@@ -6,7 +6,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { api, errorText, fmtDate, type CampaignSummary } from "../api";
 import { Field } from "@/components/Field";
-import { useCampaign } from "../campaign";
+import { useCampaign } from "@/lib/campaign";
 import { PageHeader } from "../components/common";
 import { useRefresh } from "../lib/refresh";
 

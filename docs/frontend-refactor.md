@@ -16,7 +16,7 @@ session below is one page (or one shared area), sized to finish, check and revie
 | 5 | Calendar | `pages/Calendar.tsx` (335) | done |
 | 6 | Dashboard | `pages/Dashboard.tsx` (292) + `FlowChart` (288), `Insights` (127), `MiniCalendar` (77) | done |
 | 7 | Applications (board and list) | `pages/Applications.tsx` (203) + `applications/Board.tsx` (243) + `AllTable.tsx` (94) | done |
-| 8 | App shell and the `src/` root | `App.tsx` (194), `campaign.tsx`, `auth.ts`, `AuthGate.tsx`, `useAsync.ts` | todo |
+| 8 | App shell and the `src/` root | `App.tsx` (194), `campaign.tsx`, `auth.ts`, `AuthGate.tsx`, `useAsync.ts` | done |
 | 9 | Small pages and the shared application widgets | Inbox, Interviews, Campaigns, Add; `PasteAssistant` (257), `ApplicationForm` (211), `ReviewDialog` (202), `ApplicationPicker`, `PasteFill`, `SalaryInput` | todo |
 | 10 | Optional: split `api.ts` | `api.ts` (637) | todo |
 
@@ -442,6 +442,16 @@ components/
 
 Update `main.tsx` imports. After this the `src/` root only holds `main.tsx`, `index.css`,
 `api.ts` and the folders.
+
+As built: as planned. `App.tsx` was `git mv`'d to `app/App.tsx` (it shrank too much for git to call
+it a rename), `AuthGate.tsx` to `app/`, and `auth.ts`, `campaign.tsx` and `useAsync.ts` to `lib/`.
+`App` keeps its default export (it's what `main.tsx` mounts); the rest are named exports. The
+route components keep their import names (`Applications`, `Discover`…) in `AppRoutes`.
+`MobileHeader` takes `onOpenMenu`; `SidebarNav` takes `inbox` and `onNavigate` like `Sidebar`.
+`CampaignPicker` reads `useCampaign` from `@/lib/campaign`. Every importer of the moved files now
+uses `@/lib/...` (the small pages that still used `../useAsync` and `../campaign` included). The
+`src/` root still holds `ApplicationForm`, `ApplicationPicker`, `PasteAssistant`, `PasteFill`,
+`ReviewDialog` and `SalaryInput` until session 9 moves them.
 
 ---
 

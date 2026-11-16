@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, errorText, fmtDate, label, type Application } from "./api";
 import { StatusBadge } from "./components/common";
 import { useRefresh } from "./lib/refresh";
-import { useAsync } from "./useAsync";
+import { useAsync } from "@/lib/useAsync";
 
 // Applications created automatically from an email start flagged "to review". This walks the
 // queue one at a time: Enter confirms, S skips, D deletes (twice), E edits the role.

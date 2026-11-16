@@ -1,10 +1,10 @@
 import { CalendarRange, GanttChart } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "@/api";
-import { useCampaign } from "@/campaign";
+import { useCampaign } from "@/lib/campaign";
 import { Loading, PageHeader } from "@/components/common";
 import { useSearchParamsPatch } from "@/lib/useSearchParamsPatch";
-import { useAsync } from "@/useAsync";
+import { useAsync } from "@/lib/useAsync";
 import { MonthView } from "./month/MonthView";
 import { ProcessesView } from "./processes/ProcessesView";
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { initAuth, type AuthState } from "./auth";
+import { initAuth, type AuthState } from "@/lib/auth";
 
 // Renders the app once sign-in is settled (prod), or right away (local, no login).
 export function AuthGate({ children }: { children: ReactNode }) {

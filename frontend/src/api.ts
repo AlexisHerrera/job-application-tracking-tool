@@ -1,6 +1,6 @@
 // Typed client for the FastAPI backend (same origin). In prod every call carries the Cognito ID
 // token (auth.ts); locally there's no login.
-import { idToken, onAuthorized, onUnauthorized } from "./auth";
+import { idToken, onAuthorized, onUnauthorized } from "@/lib/auth";
 
 export type Status =
   | "applied" | "screening" | "interviewing" | "on_hold" | "offer" | "rejected" | "withdrawn" | "ghosted";

@@ -6,7 +6,7 @@ import { api } from "@/api";
 import { Empty, Loading, PageHeader } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { useSearchParamsPatch, type ParamsPatch } from "@/lib/useSearchParamsPatch";
-import { useAsync } from "@/useAsync";
+import { useAsync } from "@/lib/useAsync";
 import { FiltersPanel } from "./filters/FiltersPanel";
 import { ListToolbar } from "./ListToolbar";
 import { PostingList } from "./postings/PostingList";

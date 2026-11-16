@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { api, fmtDate, fmtTime, localDay } from "@/api";
 import { talkWith } from "@/lib/interviews";
 import { calendarDayLink, monthDays, shiftMonth, utc, WEEKDAYS } from "@/lib/days";
-import { useAsync } from "@/useAsync";
+import { useAsync } from "@/lib/useAsync";
 
 /** A month of interviews beside the dashboard's upcoming list. Days open the calendar page on that day. */
 export function MiniCalendar({ className }: { className?: string }) {

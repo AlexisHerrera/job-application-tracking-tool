@@ -6,7 +6,7 @@ import { api, errorText, type Stage } from "@/api";
 import { Loading } from "@/components/common";
 import { STATUS_META } from "@/lib/status";
 import { useRefresh } from "@/lib/refresh";
-import { useAsync } from "@/useAsync";
+import { useAsync } from "@/lib/useAsync";
 import { ActivitySection } from "./activity/ActivitySection";
 import { ApplicationHeader } from "./ApplicationHeader";
 import { DeleteApplication } from "./DeleteApplication";
