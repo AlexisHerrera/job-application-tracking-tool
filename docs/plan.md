@@ -649,6 +649,8 @@ Independent of rounds 2–5; it can go first. Today all of this lives in the "Cr
 - Split `Discover.tsx` (over 1,000 lines) while moving this out: the page keeps the list, the filters and the run buttons.
 - To decide with the user before building: tabs or one long page, and whether "Re-score recent" stays on Discover or moves here.
 
-## 22. Frontend refactor (planned 2026-11-15)
+## 22. Frontend refactor (done 2026-11-15)
 
-Splitting the big page files into a folder per page and one component per file, no behavior changes. The plan, the rules and the per-session status live in `docs/frontend-refactor.md`; one session per page.
+Split the big page files into a folder per page and one component per file, with no behavior changes, over eleven move-only sessions (commits `91bc173` to `78597f5`, each titled "Frontend refactor: …"). The session-by-session plan, `docs/frontend-refactor.md`, was deleted once the refactor was finished; it's in git history. The conventions it set are in `CLAUDE.md` under "Frontend structure".
+
+Noticed along the way, not fixed: react-router 7's functional `setParams` form gets the params of the last render, not the latest ones, so two `patch` calls in a row from `lib/useSearchParamsPatch.ts` still overwrite each other. Each change has to go in one call.
