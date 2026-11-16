@@ -1,5 +1,6 @@
-// Job discovery (plan §20, §21): new openings from the saved searches and the watched companies'
+// Job discovery (plan §20, §21): one posting at a time by default, or the list. New openings from the saved searches and the watched companies'
 // job boards, scored by the LLM against the criteria. Everything in a posting comes from the web: rendered as text, links only if http(s).
+import { useState } from "react";
 import { Settings2, Telescope } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
@@ -13,7 +14,8 @@ import { FiltersPanel } from "./filters/FiltersPanel";
 import { ListToolbar } from "./ListToolbar";
 import { PostingList } from "./postings/PostingList";
 import { LastRunSummary } from "./progress/LastRunSummary";
-import { pageOf, queryFor, techsOf } from "./query";
+import { isReview, pageOf, queryFor, techsOf } from "./query";
+import { ReviewDeck } from "./review/ReviewDeck";
 import { RunButtons } from "./RunButtons";
 import { SeedEmptyState } from "./SeedEmptyState";
 
@@ -21,7 +23,10 @@ export default function DiscoverPage() {
   const [params, patch] = useSearchParamsPatch();
   const navigate = useNavigate();
   const state = useAsync(api.discoverySettings);
-  const list = useAsync(() => api.postings(queryFor(params)), [params.toString()]);
+  const query = queryFor(params);
+  const list = useAsync(() => api.postings(query), [params.toString()]);
+  const review = isReview(params);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const page = pageOf(params);
   // One setParams call per change: several in a row would each start from the same old params.
@@ -42,7 +47,7 @@ export default function DiscoverPage() {
   const { working, progress, start, panelKind, collectOnly } = useDiscoveryJob(reloadAll);
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className={review ? "mx-auto max-w-6xl" : "mx-auto max-w-5xl"}>
       <PageHeader
         title="Discover"
         description="New openings from your saved searches and watched companies, scored against your criteria."
@@ -72,9 +77,9 @@ export default function DiscoverPage() {
         />
       ) : (
         <>
-          <ListToolbar params={params} counts={data?.counts} set={set} />
+          <ListToolbar params={params} counts={data?.counts} set={set} filtersOpen={filtersOpen} onToggleFilters={() => setFiltersOpen((open) => !open)} />
 
-          <FiltersPanel params={params} set={set} update={update} facets={data?.facets} />
+          {filtersOpen && <FiltersPanel params={params} set={set} update={update} facets={data?.facets} />}
 
           {!data ? (
             <Loading error={list.error} loading={list.loading} />
@@ -82,6 +87,8 @@ export default function DiscoverPage() {
             <Empty icon={<Telescope className="size-8" />}>
               {data.counts.total === 0 ? "Nothing collected yet. Run the searches to fill this page." : "Nothing here with these filters."}
             </Empty>
+          ) : review ? (
+            <ReviewDeck data={data} query={query} onBlocked={reloadAll} onTech={addTech} />
           ) : (
             <PostingList data={data} page={page} loading={list.loading} set={set} onChange={() => void list.reload()} onBlocked={reloadAll} onTech={addTech} />
           )}

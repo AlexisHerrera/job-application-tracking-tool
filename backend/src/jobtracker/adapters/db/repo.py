@@ -81,6 +81,7 @@ POSTING_COLUMNS = [
     "ai_result", "ai_model", "prompt_version", "status", "application_id", "updated_at",
     "seniority", "years_required", "location_fit", "work_mode", "employer_kind", "company_size",
     "sector", "technologies", "ai_related", "salary_usd_min", "salary_usd_max",
+    "discard_reason", "discard_note",
 ]  # fmt: skip
 RUN_COLUMNS = [
     "id", "started_at", "finished_at", "trigger", "jsearch_requests", "fetched", "new", "dropped",

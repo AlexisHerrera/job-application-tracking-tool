@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -390,6 +391,8 @@ def posting_json(p: JobPosting, *, in_tracker: bool, search_label: str | None) -
         "salary_usd_min": p.salary_usd_min,
         "salary_usd_max": p.salary_usd_max,
         "status": p.status.value,
+        "discard_reason": p.discard_reason,
+        "discard_note": p.discard_note,
         "application_id": str(p.application_id) if p.application_id else None,
         "in_tracker": in_tracker,
     }
@@ -487,8 +490,31 @@ def progress_json(p: Progress | None, now: datetime) -> dict:
     }
 
 
+DiscardReason = Literal[
+    "closed",
+    "no_apply",
+    "fake",
+    "duplicate",
+    "too_senior",
+    "too_junior",
+    "stack",
+    "role",
+    "language",
+    "location",
+    "work_mode",
+    "salary",
+    "contract",
+    "company",
+    "intermediary",
+    "other",
+]  # fmt: skip  (discovery.DISCARD_REASONS; test_api checks the two agree)
+
+
 class PostingPatch(BaseModel):
     status: PostingStatus
+    # Only kept with status "dismissed"; any other status clears them.
+    discard_reason: DiscardReason | None = None
+    discard_note: str | None = Field(None, max_length=500)
 
 
 class DiscoverySettingsIn(BaseModel):

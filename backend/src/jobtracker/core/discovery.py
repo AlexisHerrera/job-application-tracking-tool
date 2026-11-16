@@ -382,6 +382,15 @@ def is_duplicate(p: JobPosting, recent: list[tuple[str, str]]) -> bool:
 # LLM verdict
 
 VERDICTS = ("match", "maybe", "no")
+# Why a posting gets discarded by hand on the page. The page has the labels; the codes stay
+# stable, because they are what the rules and the criteria get tuned from later.
+DISCARD_REASONS = (
+    "closed", "no_apply", "fake", "duplicate",  # the posting itself
+    "too_senior", "too_junior", "stack", "role", "language",  # the role
+    "location", "work_mode", "salary", "contract",  # the conditions
+    "company", "intermediary",  # who is hiring
+    "other",
+)  # fmt: skip
 LOCATION_FIT = ("yes", "no", "unclear")
 SENIORITY = ("junior", "mid", "semi_senior", "senior", "staff_plus", "unclear")
 EMPLOYER_KIND = ("direct", "consultancy", "agency", "unclear")
@@ -1266,6 +1275,7 @@ def apply_to(repo: DiscoveryRepo, clock: Clock, posting_id) -> tuple[JobPosting,
     app = services.create_application(repo, clock, data)
     p.application_id = app.id
     p.status = PostingStatus.APPLIED
+    p.discard_reason = p.discard_note = None
     p.updated_at = clock.now()
     repo.update_posting(p)
     return p, app

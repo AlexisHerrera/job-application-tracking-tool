@@ -1,21 +1,22 @@
 import { useState } from "react";
-import { Ban, Check, Star, ThumbsDown } from "lucide-react";
+import { Ban, Check, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/api/client";
 import { errorText } from "@/lib/errors";
-import { type Posting, type PostingStatus } from "@/api/discovery";
+import { type DiscardReason, type Posting, type PostingStatus } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
+import { DiscardMenu } from "./DiscardMenu";
 
-/** Applied / Interested / Not for me / Hide company, or Open application once applied. One `busy` for all. */
+/** Applied / Save for later / Discard (with a reason) / Hide company, or Open application once applied. One `busy` for all. */
 export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChange: () => void; onBlocked: () => void }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
 
-  async function setStatus(next: PostingStatus) {
+  async function setStatus(next: PostingStatus, reason?: DiscardReason) {
     setBusy(true);
     try {
-      await api.setPostingStatus(p.id, next);
+      await api.setPostingStatus(p.id, next, reason && { reason });
       onChange();
     } catch (e) {
       toast.error(errorText(e));
@@ -53,14 +54,14 @@ export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChang
         <>
           <Button size="sm" disabled={busy} onClick={apply}><Check /> Applied</Button>
           {p.status === "interested" ? (
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => setStatus("new")}><Star className="fill-current" /> Interested</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => setStatus("new")}><Star className="fill-current" /> Saved</Button>
           ) : (
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => setStatus("interested")}><Star /> Interested</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => setStatus("interested")}><Star /> Save for later</Button>
           )}
           {p.status === "dismissed" ? (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setStatus("new")}>Undo "not for me"</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setStatus("new")}>Undo discard</Button>
           ) : (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setStatus("dismissed")}><ThumbsDown /> Not for me</Button>
+            <DiscardMenu disabled={busy} onPick={(reason) => void setStatus("dismissed", reason)} />
           )}
           {p.drop_reason !== "blocked" && (
             <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={busy} onClick={hideCompany} title={`Never show ${p.company} again: hides its postings and blocks new ones`}><Ban /> Hide company</Button>

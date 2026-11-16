@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from jobtracker.api import schemas as s
 from jobtracker.api.app import create_app
 from jobtracker.settings import Settings
 from tests.fakes import MemoryRepo
@@ -278,6 +279,16 @@ def test_discover_page_flow(repo):
     assert after[0]["status"] == "applied" and after[0]["in_tracker"]
     contoso = after[1]
     assert client.patch(f"/api/discover/{contoso['id']}", json={"status": "dismissed"}).json()["status"] == "dismissed"  # fmt: skip
+    url = f"/api/discover/{contoso['id']}"
+    r = client.patch(url, json={"status": "dismissed", "discard_reason": "too_senior", "discard_note": " 10+ years "}).json()  # fmt: skip
+    assert (r["discard_reason"], r["discard_note"]) == ("too_senior", "10+ years")
+    listed = client.get("/api/discover", params={"status": "dismissed"}).json()["postings"]
+    assert listed[0]["discard_reason"] == "too_senior" and listed[0]["discard_note"] == "10+ years"
+    assert client.patch(url, json={"status": "dismissed", "discard_reason": "bogus"}).status_code == 422  # fmt: skip
+    # Any other status clears the reason, even when one is sent.
+    r = client.patch(url, json={"status": "new", "discard_reason": "salary"}).json()
+    assert r["status"] == "new" and r["discard_reason"] is None and r["discard_note"] is None
+    assert set(s.DiscardReason.__args__) == set(discovery.DISCARD_REASONS)
     assert client.patch(f"/api/discover/{contoso['id']}", json={"status": "bogus"}).status_code == 422  # fmt: skip
 
 

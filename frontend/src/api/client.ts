@@ -20,8 +20,10 @@ import type {
   DiscoveryRun,
   DiscoverySearch,
   DiscoveryState,
+  Discard,
   PostingPage,
   PostingStatus,
+  PostingStatusSaved,
 } from "./discovery";
 import type { Ats, CriteriaPreview, CriteriaProfile, RuleHits, SettingsSaved, WatchedCompany, WatchlistPage } from "./discoverySettings";
 import type { CalendarSyncResult, Interview, InterviewDetail, InterviewInput, Note, NoteDetail } from "./interviews";
@@ -129,8 +131,8 @@ export const api = {
   calendarStatus: () => request<{ connected: boolean; calendar_id: string; last_sync_at: string | null }>("GET", "/calendar"),
   syncCalendar: () => request<CalendarSyncResult>("POST", "/calendar/sync", {}),
   postings: (params: Record<string, string> = {}) => request<PostingPage>("GET", `/discover?${new URLSearchParams(params)}`),
-  setPostingStatus: (id: string, status: PostingStatus) =>
-    request<{ id: string; status: PostingStatus }>("PATCH", `/discover/${id}`, { status }),
+  setPostingStatus: (id: string, status: PostingStatus, discard?: Discard) =>
+    request<PostingStatusSaved>("PATCH", `/discover/${id}`, { status, discard_reason: discard?.reason ?? null, discard_note: discard?.note || null }),
   applyPosting: (id: string) => request<{ posting_id: string; application: Application }>("POST", `/discover/${id}/apply`, {}),
   discoverySettings: () => request<DiscoveryState>("GET", "/discover/settings"),
   saveDiscoverySettings: (data: { criteria?: string; profile?: CriteriaProfile; rules?: Partial<DiscoveryRules> }) =>

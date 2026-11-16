@@ -2,12 +2,14 @@
 
 Only open work is listed here. When something is done, it comes out of this file. The design and history of everything already built (phases 0–4, the Discover page and its sources, rounds 1–3 and 6, the frontend refactor) are in git: `git show 95af9fb:docs/plan.md` and `git show 95af9fb:docs/handoff-job-discovery.md`.
 
-## On your side, if not done yet
-
-- **Criteria as fields** (Discover settings → Criteria): until you save the fields once, the AI keeps reading your old criteria text. That text sits in "Other notes": trim it down to what the fields don't cover, then save.
-- **Round 3 defaults** (Discover settings → Sources → "Add missing defaults"): adds the two Workable searches (engineer, developer in Argentina) and 5 companies. Then **Collect only**, filter by source → Workable, and hide the staffing firms you don't want (Uptalent.io, Pavago, Workana, Huzzle are the big ones) before **Score pending** (about 170 calls, under $0.10).
-
 ## Discover
+
+### Review screen (one posting at a time)
+
+Built: the one-by-one screen (`pages/discover/review/`), discard reasons stored per posting (`job_postings.discard_reason`, `discard_note`, migration 0014; the codes are `discovery.DISCARD_REASONS`), the indigo theme. Left:
+
+- **What the discards say**: a count per reason, split by source, publisher, seniority and company, with the rule or criteria change each one points to ("12 × asks too much, 9 of them senior with 8+ years: lower `max_years`"). `closed`, `fake` and `no_apply` say more about the source than about the criteria.
+- **Closed by hand → closed for good**: a posting discarded as `closed` or `fake` could hide its duplicates at the same company (ties in with round 4).
 
 ### Round 4: quality of what's stored
 

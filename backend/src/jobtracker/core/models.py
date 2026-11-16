@@ -366,6 +366,9 @@ class JobPosting:
     status: PostingStatus = PostingStatus.NEW
     application_id: uuid.UUID | None = None
     updated_at: datetime | None = None
+    # Why it was dismissed by hand (discovery.DISCARD_REASONS), and a note (migration 0014).
+    discard_reason: str | None = None
+    discard_note: str | None = None
     # Search fields (migration 0012): copied from ai_result by discovery.sync_search_fields.
     seniority: str | None = None
     years_required: int | None = None

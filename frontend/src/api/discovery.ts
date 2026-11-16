@@ -5,6 +5,22 @@ export type SearchSource = "jsearch" | "remoteyeah" | "getonbrd" | "workable";
 export type PostingSource = SearchSource | "ashby" | "greenhouse" | "lever";
 export type Verdict = "match" | "maybe" | "no";
 export type PostingStatus = "new" | "interested" | "dismissed" | "applied";
+/** Why a posting was discarded by hand (the backend's discovery.DISCARD_REASONS). */
+export type DiscardReason =
+  | "closed" | "no_apply" | "fake" | "duplicate"
+  | "too_senior" | "too_junior" | "stack" | "role" | "language"
+  | "location" | "work_mode" | "salary" | "contract"
+  | "company" | "intermediary" | "other";
+export interface Discard {
+  reason: DiscardReason | null;
+  note?: string;
+}
+export interface PostingStatusSaved {
+  id: string;
+  status: PostingStatus;
+  discard_reason: DiscardReason | null;
+  discard_note: string | null;
+}
 
 export interface Posting {
   id: string;
@@ -40,6 +56,8 @@ export interface Posting {
   salary_usd_min: number | null;
   salary_usd_max: number | null;
   status: PostingStatus;
+  discard_reason: DiscardReason | null;
+  discard_note: string | null;
   application_id: string | null;
   in_tracker: boolean;
 }

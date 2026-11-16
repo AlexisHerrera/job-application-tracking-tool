@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 import { COMPANY_SIZE, EMPLOYER, FILTER_PARAMS, LOCATION_FIT, POSTED, SECTOR, SENIORITY, WORK_MODE } from "@/pages/discover/constants";
-import { techsOf } from "@/pages/discover/query";
+import { activeFilters, techsOf } from "@/pages/discover/query";
 import { FacetSelect } from "./FacetSelect";
 import { SourceSelect } from "./SourceSelect";
 import { TechPicker } from "./TechPicker";
@@ -23,7 +23,7 @@ export function FiltersPanel({
   update: (changes: Record<string, string | null>) => void;
   facets: PostingPage["facets"] | undefined;
 }) {
-  const active = Object.keys(FILTER_PARAMS).filter((k) => params.get(k)).length + (params.get("ai") === "1" ? 1 : 0);
+  const active = activeFilters(params);
   const facet = (key: string, all: string, options: Facet | undefined, names: Record<string, string>) => (
     <FacetSelect value={params.get(key) ?? ""} onChange={(v) => set(key, v || null)} all={all} options={options ?? []} names={names} />
   );
