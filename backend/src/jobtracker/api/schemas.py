@@ -393,6 +393,7 @@ def posting_json(p: JobPosting, *, in_tracker: bool, search_label: str | None) -
         "status": p.status.value,
         "discard_reason": p.discard_reason,
         "discard_note": p.discard_note,
+        "reviewed_at": _iso(p.reviewed_at),
         "application_id": str(p.application_id) if p.application_id else None,
         "in_tracker": in_tracker,
     }
@@ -405,6 +406,11 @@ def search_json(x: DiscoverySearch) -> dict:
         "label": x.label,
         "params": x.params,
         "enabled": x.enabled,
+        "last_fetched_at": _iso(x.last_fetched_at),
+        "last_found_at": _iso(x.last_found_at),
+        "last_status": x.last_status,
+        "last_count": x.last_count,
+        "fail_streak": x.fail_streak,
     }
 
 
@@ -441,6 +447,8 @@ def watched_json(c: WatchedCompany) -> dict:
         "last_status": c.last_status,
         "jobs_total": c.jobs_total,
         "jobs_kept": c.jobs_kept,
+        "last_found_at": _iso(c.last_found_at),
+        "fail_streak": c.fail_streak,
         "board_url": board_url(c.ats, c.slug),
     }
 

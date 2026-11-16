@@ -285,7 +285,20 @@ def test_discovery_roundtrip(pg, clock):
     with pg.transaction():
         p, app = discovery.apply_to(pg, clock, stored["a1"].id)
     assert pg.get_posting(p.id).status == PostingStatus.APPLIED
+    assert pg.get_posting(p.id).reviewed_at == clock.now()
     assert pg.get_application(app.id).salary_max == 60000
+
+    # How each search's last fetch went: written by the run, kept when the page saves it.
+    fintech = next(x for x in pg.list_searches() if x.label == "fintech")
+    assert (fintech.last_status, fintech.last_count, fintech.fail_streak) == ("ok", 2, 0)
+    assert fintech.last_fetched_at == fintech.last_found_at == clock.now()
+    fintech.enabled, fintech.fail_streak = False, 9
+    pg.save_search(fintech)
+    again = next(x for x in pg.list_searches() if x.id == fintech.id)
+    assert (again.enabled, again.fail_streak, again.last_count) == (False, 0, 2)
+    pg.delete_search(fintech.id)
+    pg.record_search_fetch(fintech)  # a search deleted during a run stays deleted
+    assert fintech.id not in {x.id for x in pg.list_searches()}
 
 
 def test_posting_search_sql_agrees_with_matches(pg, clock):
@@ -374,11 +387,14 @@ def test_watchlist_roundtrip(pg, clock):
     assert discovery.import_companies(pg, rows, clock) == 0
     mural, ryz = pg.list_watched()  # by name
     assert (ryz.ats, ryz.slug, ryz.note, ryz.enabled, ryz.jobs_kept) == ("lever", "RyzLabs", "by hand", True, None)  # fmt: skip
+    assert ryz.fail_streak == 0 and ryz.last_found_at is None
     mural.last_checked_at, mural.last_status = clock.now(), "ok"
     mural.jobs_total, mural.jobs_kept, mural.enabled = 40, 5, False
+    mural.last_found_at, mural.fail_streak = clock.now(), 3
     pg.save_watched(mural)
     again = pg.list_watched()[0]
     assert (again.id, again.jobs_total, again.jobs_kept, again.enabled) == (mural.id, 40, 5, False)
+    assert (again.last_found_at, again.fail_streak) == (clock.now(), 3)
     assert again.last_checked_at == clock.now() and again.created_at == mural.created_at
 
     for i, company in enumerate(["Spam Co", "Spam Co", "Good Co"]):

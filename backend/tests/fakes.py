@@ -23,6 +23,8 @@ from jobtracker.core.models import (
 )
 from jobtracker.core.ports import LLMError, LLMUsage, SyncState, ThreadMatch
 
+FETCH_FIELDS = ("last_fetched_at", "last_found_at", "last_status", "last_count", "fail_streak")
+
 ATS = {
     "ashbyhq.com": "ashby",
     "lever.co": "lever",
@@ -420,7 +422,16 @@ class MemoryRepo:
 
     def save_search(self, search):
         search.created_at = search.created_at or datetime.now(UTC)
-        self.searches[search.id] = copy.deepcopy(search)
+        kept = self.searches.get(search.id)
+        row = copy.deepcopy(search)
+        for c in FETCH_FIELDS:  # like the SQL: saving from the page leaves the fetch status
+            setattr(row, c, getattr(kept, c) if kept else getattr(DiscoverySearch("", "", {}), c))
+        self.searches[search.id] = row
+
+    def record_search_fetch(self, search):
+        if (row := self.searches.get(search.id)) is not None:
+            for c in FETCH_FIELDS:
+                setattr(row, c, getattr(search, c))
 
     def delete_search(self, search_id):
         self.searches.pop(search_id, None)

@@ -867,17 +867,16 @@ def create_app(
             p = repo.get_posting(_uuid(posting_id))
             if p is None:
                 raise services.NotFound(posting_id)
-            dismissed = body.status.value == "dismissed"
-            p.status = body.status
-            p.discard_reason = body.discard_reason if dismissed else None
-            p.discard_note = (body.discard_note or "").strip() or None if dismissed else None
-            p.updated_at = clock.now()
+            discovery.set_status(
+                p, body.status, clock.now(), body.discard_reason, body.discard_note
+            )
             repo.update_posting(p)
         return {
             "id": str(p.id),
             "status": p.status.value,
             "discard_reason": p.discard_reason,
             "discard_note": p.discard_note,
+            "reviewed_at": p.reviewed_at.isoformat() if p.reviewed_at else None,
         }
 
     @api.post("/discover/{posting_id}/apply", status_code=201)

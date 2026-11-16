@@ -63,6 +63,10 @@ export interface WatchedCompany {
   last_status: string | null; // "ok" | "gone" | the error
   jobs_total: number | null;
   jobs_kept: number | null;
+  /** The last read that kept a role. */
+  last_found_at: string | null;
+  /** Failed reads in a row. */
+  fail_streak: number;
   board_url: string | null;
 }
 

@@ -315,6 +315,46 @@ def test_source_failure_is_noted_and_the_rest_runs(drepo):
     assert result.run.new == 5
 
 
+def test_each_search_keeps_how_its_last_fetch_went(drepo):
+    later = NOW + timedelta(hours=6)
+    discovery.run_discovery(drepo, _sources(), None, FixedClock(NOW))
+    by_source = {x.source: x for x in drepo.list_searches()}
+    ok = by_source["getonbrd"]
+    assert (ok.last_fetched_at, ok.last_found_at, ok.last_status, ok.last_count, ok.fail_streak) == (NOW, NOW, "ok", 4, 0)  # fmt: skip
+
+    sources = _sources()
+    sources["getonbrd"] = FakeSource(fail=True)
+    sources["remoteyeah"] = FakeSource([])
+    discovery.run_discovery(drepo, sources, None, FixedClock(later))
+    discovery.run_discovery(drepo, sources, None, FixedClock(later))
+    by_source = {x.source: x for x in drepo.list_searches()}
+    failed, empty = by_source["getonbrd"], by_source["remoteyeah"]
+    assert (failed.last_fetched_at, failed.last_found_at, failed.fail_streak) == (later, NOW, 2)
+    assert "HTTP 500" in failed.last_status and failed.last_count == 4  # the last one that worked
+    assert (empty.last_fetched_at, empty.last_found_at, empty.last_count) == (later, NOW, 0)
+
+    # Saving from the page keeps the fetch status; a dry run doesn't write it.
+    drepo.save_search(DiscoverySearch(failed.source, "renamed", failed.params, id=failed.id))
+    discovery.run_discovery(drepo, _sources(), None, FixedClock(later + timedelta(hours=6)), dry_run=True)  # fmt: skip
+    again = drepo.get_search(failed.id)
+    assert (again.label, again.fail_streak, again.last_fetched_at) == ("renamed", 2, later)
+
+
+def test_reviewed_at_is_when_a_posting_left_the_queue():
+    p = prepared()
+    discovery.set_status(p, PostingStatus.INTERESTED, NOW)
+    assert (p.status, p.reviewed_at) == (PostingStatus.INTERESTED, NOW)
+    later = NOW + timedelta(days=2)
+    discovery.set_status(p, PostingStatus.DISMISSED, later, "too_senior", "  8+ years ")
+    assert (p.reviewed_at, p.discard_reason, p.discard_note, p.updated_at) == (NOW, "too_senior", "8+ years", later)  # fmt: skip
+    discovery.set_status(p, PostingStatus.APPLIED, later, "salary")
+    assert (p.reviewed_at, p.discard_reason, p.discard_note) == (NOW, None, None)
+    discovery.set_status(p, PostingStatus.NEW, later)  # undo
+    assert p.reviewed_at is None
+    discovery.set_status(p, PostingStatus.DISMISSED, later, "closed", "")
+    assert (p.reviewed_at, p.discard_note) == (later, None)
+
+
 def test_llm_failures_leave_postings_for_the_next_run(drepo):
     llm = FakeLLM()
     llm.fail_with = LLMError("overloaded")

@@ -21,6 +21,7 @@ export interface PostingStatusSaved {
   status: PostingStatus;
   discard_reason: DiscardReason | null;
   discard_note: string | null;
+  reviewed_at: string | null;
 }
 
 export interface Posting {
@@ -59,6 +60,8 @@ export interface Posting {
   status: PostingStatus;
   discard_reason: DiscardReason | null;
   discard_note: string | null;
+  /** When it left the review queue (saved, applied or discarded); null while new. */
+  reviewed_at: string | null;
   application_id: string | null;
   in_tracker: boolean;
 }
@@ -118,7 +121,19 @@ export interface DiscoverySearch {
   label: string;
   params: Record<string, string | number | boolean>;
   enabled: boolean;
+  /** How the last fetch went, written by the runs. */
+  last_fetched_at: string | null;
+  /** The last fetch that brought any posting. */
+  last_found_at: string | null;
+  last_status: string | null; // "ok" | the error
+  /** Postings the last fetch that worked brought. */
+  last_count: number | null;
+  /** Failed fetches in a row. */
+  fail_streak: number;
 }
+
+/** What the page sends when it adds or edits a search. */
+export type SearchInput = Pick<DiscoverySearch, "source" | "label" | "params" | "enabled">;
 
 export interface DiscoveryRun {
   id: string;

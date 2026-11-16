@@ -20,6 +20,7 @@ import type {
   DiscoveryRun,
   DiscoveryStarted,
   DiscoverySearch,
+  SearchInput,
   DiscoveryStatus,
   DiscoveryState,
   Discard,
@@ -148,8 +149,8 @@ export const api = {
   updateWatched: (id: string, data: { enabled?: boolean; name?: string }) => request<WatchedCompany>("PATCH", `/discover/companies/${id}`, data),
   seedDiscovery: () => request<DiscoveryState & { added: { searches: number; companies: number } }>("POST", "/discover/seed", {}),
   blockCompany: (company: string) => request<DiscoveryState & { hidden: number }>("POST", "/discover/block", { company }),
-  addSearch: (data: Omit<DiscoverySearch, "id">) => request<DiscoverySearch>("POST", "/discover/searches", data),
-  updateSearch: (id: string, data: Partial<Omit<DiscoverySearch, "id" | "source">>) =>
+  addSearch: (data: SearchInput) => request<DiscoverySearch>("POST", "/discover/searches", data),
+  updateSearch: (id: string, data: Partial<Omit<SearchInput, "source">>) =>
     request<DiscoverySearch>("PATCH", `/discover/searches/${id}`, data),
   deleteSearch: (id: string) => request<void>("DELETE", `/discover/searches/${id}`),
   runDiscovery: (score = true, collect = true) => request<DiscoveryRun | DiscoveryStarted>("POST", "/discover/run", { score, collect }),

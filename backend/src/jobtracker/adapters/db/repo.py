@@ -81,7 +81,7 @@ POSTING_COLUMNS = [
     "ai_result", "ai_model", "prompt_version", "status", "application_id", "updated_at",
     "seniority", "years_required", "location_fit", "work_mode", "employer_kind", "company_size",
     "sector", "technologies", "ai_related", "salary_usd_min", "salary_usd_max",
-    "discard_reason", "discard_note",
+    "discard_reason", "discard_note", "reviewed_at",
 ]  # fmt: skip
 RUN_COLUMNS = [
     "id", "started_at", "finished_at", "trigger", "jsearch_requests", "fetched", "new", "dropped",
@@ -89,7 +89,10 @@ RUN_COLUMNS = [
 ]  # fmt: skip
 COMPANY_COLUMNS = [
     "id", "ats", "slug", "name", "enabled", "note", "created_at", "last_checked_at",
-    "last_status", "jobs_total", "jobs_kept",
+    "last_status", "jobs_total", "jobs_kept", "last_found_at", "fail_streak",
+]  # fmt: skip
+SEARCH_FETCH_COLUMNS = [
+    "last_fetched_at", "last_found_at", "last_status", "last_count", "fail_streak",
 ]  # fmt: skip
 STEP_COLUMNS = [
     "id", "application_id", "position", "name", "kind", "optional", "link", "interview_id",
@@ -879,6 +882,8 @@ class PostgresRepo:
                 params=dict(r["params"] or {}),
                 enabled=r["enabled"],
                 created_at=r["created_at"],
+                **{c: r[c] for c in SEARCH_FETCH_COLUMNS if c != "fail_streak"},
+                fail_streak=r["fail_streak"] or 0,
             )
             for r in rows
         ]
@@ -887,6 +892,7 @@ class PostgresRepo:
         return next((x for x in self.list_searches() if x.id == search_id), None)
 
     def save_search(self, search: DiscoverySearch) -> None:
+        # What the page and the seed edit; how the last fetch went is record_search_fetch's.
         row = {
             "id": search.id,
             "source": search.source,
@@ -899,6 +905,10 @@ class PostgresRepo:
         self.conn.execute(
             f"{_insert('discovery_searches', row)} ON CONFLICT (id) DO UPDATE SET {sets}", row
         )
+
+    def record_search_fetch(self, search: DiscoverySearch) -> None:
+        row = {"id": search.id, **{c: getattr(search, c) for c in SEARCH_FETCH_COLUMNS}}
+        self.conn.execute(_update("discovery_searches", row), row)
 
     def delete_search(self, search_id: uuid.UUID) -> None:
         self.conn.execute("DELETE FROM discovery_searches WHERE id = %s", (search_id,))
@@ -935,7 +945,12 @@ class PostgresRepo:
     # company watchlist (plan §21)
     def list_watched(self) -> list[WatchedCompany]:
         rows = self._all("SELECT * FROM discovery_companies ORDER BY name, ats, slug")
-        return [WatchedCompany(**{c: r[c] for c in COMPANY_COLUMNS}) for r in rows]
+        return [
+            WatchedCompany(
+                **{**{c: r[c] for c in COMPANY_COLUMNS}, "fail_streak": r["fail_streak"] or 0}
+            )
+            for r in rows
+        ]
 
     def save_watched(self, company: WatchedCompany) -> None:
         row = {c: getattr(company, c) for c in COMPANY_COLUMNS}

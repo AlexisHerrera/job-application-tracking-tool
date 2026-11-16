@@ -24,6 +24,7 @@ from jobtracker.core.criteria import render as render_criteria
 from jobtracker.core.matching import normalize_company
 from jobtracker.core.models import (
     DiscoveryRun,
+    DiscoverySearch,
     JobPosting,
     PostingQuery,
     PostingStatus,
@@ -749,6 +750,18 @@ def run_discovery(
     )
     _report(progress, on_progress)
 
+    def record(search: DiscoverySearch, count: int = 0, error: str | None = None) -> None:
+        search.last_fetched_at = clock.now()
+        if error is None:
+            search.last_status, search.last_count, search.fail_streak = "ok", count, 0
+            if count:
+                search.last_found_at = search.last_fetched_at
+        else:
+            search.last_status, search.fail_streak = error[:200], search.fail_streak + 1
+        if not dry_run:
+            with repo.transaction():
+                repo.record_search_fetch(search)
+
     def store(p: JobPosting, search_id) -> None:
         run.fetched += 1
         key = (p.source, p.source_id)
@@ -788,12 +801,18 @@ def run_discovery(
                 run.errors += 1
                 run.notes.append(f"{search.label}: {err}")
                 log.warning("discovery source failed: %s: %s", search.label, err)
+                record(search, error=str(err))
                 continue
-            for p in result.postings:
-                # Workable's search matches on the whole posting: "developer" also brings
-                # business developers. Like a board, only engineering titles are stored.
-                if search.source != "workable" or ENGINEERING_TITLE.search(p.title):
-                    store(p, search.id)
+            # Workable's search matches on the whole posting: "developer" also brings business
+            # developers. Like a board, only engineering titles are stored.
+            found = [
+                p
+                for p in result.postings
+                if search.source != "workable" or ENGINEERING_TITLE.search(p.title)
+            ]
+            for p in found:
+                store(p, search.id)
+            record(search, len(found))
         finally:
             tick()
 
@@ -803,10 +822,13 @@ def run_discovery(
         for company, postings, err in _fetch_boards(boards, companies):
             progress.current = company.name
             company.last_checked_at = clock.now()
+            company.fail_streak = 0 if err is None else company.fail_streak + 1
             if err is None:
                 kept = [p for p in postings if board_keep(p, rules)]
                 company.last_status = "ok"
                 company.jobs_total, company.jobs_kept = len(postings), len(kept)
+                if kept:
+                    company.last_found_at = company.last_checked_at
                 for p in kept:
                     store(p, None)
             elif err.gone:
@@ -1215,8 +1237,6 @@ def block_company(repo: DiscoveryRepo, company: str, now: datetime | None = None
 def seed(repo: DiscoveryRepo, clock: Clock, companies: list[dict] | None = None) -> dict[str, int]:
     """Write the default criteria, rules and searches, and the starting company watchlist when
     one is given, keeping whatever already exists."""
-    from jobtracker.core.models import DiscoverySearch
-
     added = {"criteria": 0, "rules": 0, "searches": 0, "companies": 0}
     if companies:
         added["companies"] = import_companies(repo, companies, clock)
@@ -1238,6 +1258,27 @@ def seed(repo: DiscoveryRepo, clock: Clock, companies: list[dict] | None = None)
                 )
                 added["searches"] += 1
     return added
+
+
+def set_status(
+    p: JobPosting,
+    status: PostingStatus,
+    now: datetime,
+    reason: str | None = None,
+    note: str | None = None,
+) -> None:
+    """A decision on the page: saved, applied, discarded (with a reason and a note), or back to
+    new (undo). reviewed_at is when it first left the queue: moving between saved, applied and
+    discarded keeps it, going back to new clears it."""
+    if status == PostingStatus.NEW:
+        p.reviewed_at = None
+    elif p.status == PostingStatus.NEW or p.reviewed_at is None:
+        p.reviewed_at = now
+    dismissed = status == PostingStatus.DISMISSED
+    p.status = status
+    p.discard_reason = reason if dismissed else None
+    p.discard_note = ((note or "").strip() or None) if dismissed else None
+    p.updated_at = now
 
 
 def apply_to(repo: DiscoveryRepo, clock: Clock, posting_id) -> tuple[JobPosting, object]:
@@ -1265,9 +1306,7 @@ def apply_to(repo: DiscoveryRepo, clock: Clock, posting_id) -> tuple[JobPosting,
     )
     app = services.create_application(repo, clock, data)
     p.application_id = app.id
-    p.status = PostingStatus.APPLIED
-    p.discard_reason = p.discard_note = None
-    p.updated_at = clock.now()
+    set_status(p, PostingStatus.APPLIED, clock.now())
     repo.update_posting(p)
     return p, app
 

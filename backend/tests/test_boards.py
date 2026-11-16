@@ -238,12 +238,15 @@ def test_run_reads_the_watchlist():
     assert (by_slug["Gone"].last_status, by_slug["Gone"].enabled) == ("gone", False)
     assert by_slug["broken"].enabled and "500" in by_slug["broken"].last_status
     assert by_slug["off"].last_checked_at is None
+    assert (by_slug["mural"].last_found_at, by_slug["mural"].fail_streak) == (NOW, 0)
+    assert (by_slug["broken"].last_found_at, by_slug["broken"].fail_streak) == (None, 1)
     assert (seen[0].searches_total, seen[-1].searches_done, seen[-1].phase) == (3, 3, "done")
 
     # the next day: nothing new, the gone board isn't asked again
     boards.calls.clear()
     again = discovery.run_discovery(repo, {}, None, clock, boards=boards)
     assert again.run.new == 0 and ("lever", "Gone") not in boards.calls
+    assert next(c for c in repo.list_watched() if c.slug == "broken").fail_streak == 2
 
 
 def test_only_source_picks_searches_or_boards():

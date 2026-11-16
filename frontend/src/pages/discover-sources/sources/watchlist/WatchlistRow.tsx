@@ -2,20 +2,13 @@ import { ExternalLink } from "lucide-react";
 import type { WatchedCompany } from "@/api/discoverySettings";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TableCell, TableRow } from "@/components/ui/table";
-import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { safeUrl } from "@/lib/links";
+import { FetchStatus } from "@/pages/discover-sources/sources/FetchStatus";
+import { LastFound } from "@/pages/discover-sources/sources/LastFound";
 import { ATS_LABELS } from "./constants";
 
-function StatusText({ c }: { c: WatchedCompany }) {
-  if (!c.last_checked_at) return <span className="text-muted-foreground">not read yet</span>;
-  const when = timeAgo(c.last_checked_at);
-  if (c.last_status === "gone") return <span className="text-destructive">board gone · {when}</span>;
-  if (c.last_status && c.last_status !== "ok") return <span className="text-destructive" title={c.last_status}>failed · {when}</span>;
-  return <span className="text-muted-foreground">{when}</span>;
-}
-
-/** One watched company: on/off, its board, what the last read kept. */
+/** One watched company: on/off, its board, what the last read kept, when it last had a role. */
 export function WatchlistRow({ c, onToggle, busy }: { c: WatchedCompany; onToggle: (on: boolean) => void; busy: boolean }) {
   const url = c.board_url ? safeUrl(c.board_url) : null;
   return (
@@ -39,7 +32,8 @@ export function WatchlistRow({ c, onToggle, busy }: { c: WatchedCompany; onToggl
       <TableCell className="text-right text-xs tabular-nums" title="Engineering roles in your locations / every job on the board, at the last read">
         {c.jobs_total === null ? "–" : <><span className={cn(c.jobs_kept ? "font-medium text-foreground" : "")}>{c.jobs_kept ?? 0}</span> / {c.jobs_total}</>}
       </TableCell>
-      <TableCell className="text-xs whitespace-nowrap"><StatusText c={c} /></TableCell>
+      <TableCell className="text-xs whitespace-nowrap"><LastFound at={c.last_found_at} readAt={c.last_checked_at} /></TableCell>
+      <TableCell className="text-xs whitespace-nowrap"><FetchStatus at={c.last_checked_at} status={c.last_status} failStreak={c.fail_streak} /></TableCell>
     </TableRow>
   );
 }

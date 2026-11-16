@@ -4,12 +4,9 @@ Only open work is listed here. When something is done, it comes out of this file
 
 ## Discover
 
-### Insights and source status (after the Discover / Track nav split)
+### Insights page (after the Discover / Track nav split)
 
-- **Record when a posting is reviewed** (saved, applied or discarded): `job_postings` only has `fetched_at` and a general `updated_at`, which scoring, re-applying the rules and blocking a company also move.
-- **Record per-search last fetch and last fetch with results**: `discovery_companies` has `last_checked_at`, `discovery_searches` has nothing, and `discovery_runs` stores only totals.
-- **Insights page** (no nav item until it exists): new postings per day by source, reviewed per day, applied, and discarded by reason. The discard part is the old "what the discards say" item: from `job_postings.discard_reason` (codes in `discovery.DISCARD_REASONS`), a count per reason, split by source, publisher, seniority and company, with the rule or criteria change each one points to ("12 × asks too much, 9 of them senior with 8+ years: lower `max_years`"). `closed`, `fake` and `no_apply` say more about the source than about the criteria. Needs the reviewed-at timestamp above.
-- **Per-source status table on the Sources page**: each search and watched board with its last fetch, last fetch with results, and errors. Needs the per-search timestamps above.
+- **Insights page** (no nav item until it exists): new postings per day by source, reviewed per day, applied, and discarded by reason. The discard part is the old "what the discards say" item: from `job_postings.discard_reason` (codes in `discovery.DISCARD_REASONS`), a count per reason, split by source, publisher, seniority and company, with the rule or criteria change each one points to ("12 × asks too much, 9 of them senior with 8+ years: lower `max_years`"). `closed`, `fake` and `no_apply` say more about the source than about the criteria. The data is all stored since migration `0016`: `job_postings.reviewed_at` (when a posting left the queue; backfilled from `updated_at`), plus `source`, `fetched_at`, `drop_reason`, `status` and the search fields.
 
 ### Review screen (one posting at a time)
 

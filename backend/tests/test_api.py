@@ -246,6 +246,13 @@ def test_discover_page_flow(repo):
 
     page = client.get("/api/discover").json()
     assert [p["company"] for p in page["postings"]] == ["Northwind Pay", "Contoso"]  # by score
+    searched = next(x for x in client.get("/api/discover/settings").json()["searches"] if x["id"] == mine["id"])  # fmt: skip
+    assert (searched["last_status"], searched["last_count"], searched["fail_streak"]) == (
+        "ok",
+        3,
+        0,
+    )
+    assert searched["last_fetched_at"] and searched["last_found_at"]
     assert page["counts"] == {"total": 3, "hidden": 1, "unscored": 0}
     assert page["postings"][0]["search_label"] == mine["label"]
     hidden = client.get("/api/discover", params={"hidden": True}).json()["postings"]
@@ -281,12 +288,14 @@ def test_discover_page_flow(repo):
     url = f"/api/discover/{contoso['id']}"
     r = client.patch(url, json={"status": "dismissed", "discard_reason": "too_senior", "discard_note": " 10+ years "}).json()  # fmt: skip
     assert (r["discard_reason"], r["discard_note"]) == ("too_senior", "10+ years")
+    assert r["reviewed_at"] is not None
     listed = client.get("/api/discover", params={"status": "dismissed"}).json()["postings"]
     assert listed[0]["discard_reason"] == "too_senior" and listed[0]["discard_note"] == "10+ years"
     assert client.patch(url, json={"status": "dismissed", "discard_reason": "bogus"}).status_code == 422  # fmt: skip
     # Any other status clears the reason, even when one is sent.
     r = client.patch(url, json={"status": "new", "discard_reason": "salary"}).json()
     assert r["status"] == "new" and r["discard_reason"] is None and r["discard_note"] is None
+    assert r["reviewed_at"] is None
     assert set(s.DiscardReason.__args__) == set(discovery.DISCARD_REASONS)
     assert client.patch(f"/api/discover/{contoso['id']}", json={"status": "bogus"}).status_code == 422  # fmt: skip
 

@@ -61,6 +61,7 @@ export function WatchlistCard({ state, onChange }: { state: DiscoveryState; onCh
                 <TableHead>Company</TableHead>
                 <TableHead>Board</TableHead>
                 <TableHead className="text-right" title="Engineering roles in your locations / every job on the board">Roles</TableHead>
+                <TableHead title="The last read that kept an engineering role in your locations">Last with roles</TableHead>
                 <TableHead>Last read</TableHead>
               </TableRow>
             </TableHeader>

@@ -371,6 +371,8 @@ class JobPosting:
     # Why it was dismissed by hand (discovery.DISCARD_REASONS), and a note (migration 0014).
     discard_reason: str | None = None
     discard_note: str | None = None
+    # When it left the review queue (saved, applied or discarded); None while new (migration 0016).
+    reviewed_at: datetime | None = None
     # Search fields (migration 0012): copied from ai_result by discovery.sync_search_fields.
     seniority: str | None = None
     years_required: int | None = None
@@ -419,6 +421,12 @@ class DiscoverySearch:
     id: uuid.UUID = field(default_factory=new_id)
     enabled: bool = True
     created_at: datetime | None = None
+    # How the last fetch went (migration 0016), written by discovery runs only.
+    last_fetched_at: datetime | None = None
+    last_found_at: datetime | None = None  # the last fetch that brought any posting
+    last_status: str | None = None  # "ok" | the error
+    last_count: int | None = None  # postings the last fetch that worked brought
+    fail_streak: int = 0  # failed fetches in a row
 
 
 @dataclass(slots=True)
@@ -436,6 +444,8 @@ class WatchedCompany:
     last_status: str | None = None  # "ok" | "gone" | the error
     jobs_total: int | None = None  # on the board at the last check
     jobs_kept: int | None = None  # of those, engineering roles in an allowed location
+    last_found_at: datetime | None = None  # the last check that kept a role (migration 0016)
+    fail_streak: int = 0  # failed checks in a row
 
 
 @dataclass(slots=True)

@@ -1,15 +1,14 @@
-import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/api/client";
 import { errorText } from "@/lib/errors";
 import { type DiscoverySearch } from "@/api/discovery";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SettingsCard } from "@/features/discovery/SettingsCard";
 import { AddSearchForm } from "./AddSearchForm";
-import { paramsSummary } from "./paramsSummary";
+import { SearchRow } from "./SearchRow";
 
-/** The saved searches (enable, delete) and the form to add one. */
+/** The saved searches as a table (enable, delete, how each one's last fetch went) and the form
+ * to add one. */
 export function SearchesSection({ searches, onChange }: { searches: DiscoverySearch[]; onChange: () => void }) {
   const run = async (fn: () => Promise<unknown>) => {
     try {
@@ -22,21 +21,40 @@ export function SearchesSection({ searches, onChange }: { searches: DiscoverySea
 
   const hint = "remoteyeah feeds, getonbrd categories and Workable searches. All free.";
   const on = searches.filter((x) => x.enabled).length;
+  const failing = searches.filter((x) => x.enabled && x.last_status !== null && x.last_status !== "ok").length;
+  const aside = (
+    <>
+      {failing > 0 && <span className="text-destructive tabular-nums">{failing} failing</span>}
+      <span className="tabular-nums">{on} of {searches.length} on</span>
+    </>
+  );
 
   return (
-    <SettingsCard title="Saved searches" hint={hint} aside={<span className="tabular-nums">{on} of {searches.length} on</span>}>
-      <ul className="divide-y rounded-lg border">
-        {searches.map((x) => (
-          <li key={x.id} className="flex items-center gap-3 px-3 py-2">
-            <Checkbox checked={x.enabled} onCheckedChange={(c) => run(() => api.updateSearch(x.id, { enabled: c === true }))} aria-label={`Enable ${x.label}`} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm">{x.label}</div>
-              <div className="truncate text-xs text-muted-foreground">{x.source} · {paramsSummary(x)}</div>
-            </div>
-            <Button variant="ghost" size="icon-sm" aria-label={`Delete ${x.label}`} onClick={() => run(() => api.deleteSearch(x.id))}><Trash2 /></Button>
-          </li>
-        ))}
-      </ul>
+    <SettingsCard title="Saved searches" hint={hint} aside={aside}>
+      {searches.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-8"><span className="sr-only">On</span></TableHead>
+              <TableHead>Search</TableHead>
+              <TableHead className="text-right" title="Postings the last fetch that worked brought">Found</TableHead>
+              <TableHead title="The last fetch that brought any posting">Last with results</TableHead>
+              <TableHead>Last read</TableHead>
+              <TableHead className="w-8"><span className="sr-only">Delete</span></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {searches.map((x) => (
+              <SearchRow
+                key={x.id}
+                x={x}
+                onToggle={(enabled) => void run(() => api.updateSearch(x.id, { enabled }))}
+                onDelete={() => void run(() => api.deleteSearch(x.id))}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      )}
       <AddSearchForm run={run} />
     </SettingsCard>
   );
