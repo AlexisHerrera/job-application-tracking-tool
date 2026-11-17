@@ -13,7 +13,7 @@ from jobtracker.adapters.db.repo import PostgresRepo
 from jobtracker.core import services, stats
 from jobtracker.core.models import AliasKind, MatchMethod, Stage, StepKind, StepLink
 from jobtracker.core.pipeline import Pipeline, PipelineConfig
-from tests.conftest import ME, TZ, load
+from tests.conftest import ME, TZ, load, no_postgres
 from tests.fakes import FakeLLM, extraction
 
 ADMIN_URL = os.environ.get(
@@ -27,7 +27,7 @@ def test_url():
     try:
         admin = psycopg.connect(ADMIN_URL, autocommit=True, connect_timeout=2)
     except psycopg.OperationalError:
-        pytest.skip("local Postgres not running (docker compose up db)")
+        no_postgres()
     with admin:
         admin.execute(f"DROP DATABASE IF EXISTS {TEST_DB}")
         admin.execute(f"CREATE DATABASE {TEST_DB}")

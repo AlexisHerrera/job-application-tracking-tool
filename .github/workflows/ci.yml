@@ -1,0 +1,239 @@
+# Tests on every pull request; on a push to main, the same tests and then the deploy.
+#
+# Only the parts a change touches run (job `changes`):
+#   backend   backend/**, the Lambda build/deploy scripts     → tests, zip smoke test, deploy
+#   frontend  frontend/**, the frontend deploy script         → typecheck + build, deploy
+#   infra     infra/**/*.tf                                   → fmt + validate (never applied here)
+#   this file, smoke-prod.sh, a manual run                    → everything
+# A change to both sides deploys the backend first, then the frontend.
+#
+# Deploys need the repository variables from `terraform output github_variables` (infra/prod).
+# Each deploy runs a smoke test against the live site and rolls back if it fails.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: # Actions → CI → Run workflow (on main): test and deploy everything
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run at a time on main, never cancelled halfway through a deploy; a new push to a PR
+  # cancels that PR's previous run.
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # the last successful run on main
+    outputs:
+      backend: ${{ steps.diff.outputs.backend }}
+      frontend: ${{ steps.diff.outputs.frontend }}
+      infra: ${{ steps.diff.outputs.infra }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # A PR: what it changes. Main: everything since the last run that passed, not just this
+      # push, so nothing is lost when GitHub drops a queued run or a deploy failed.
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          all() { for k in backend frontend infra; do echo "$k=true" >>"$GITHUB_OUTPUT"; done; }
+          if [[ "$EVENT" == pull_request ]]; then
+            BASE="$PR_BASE"
+          elif [[ "$EVENT" == push ]]; then
+            BASE="$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main \
+              --status success --limit 1 --json headSha --jq '.[0].headSha // ""' || true)"
+          fi
+          if [[ -z "${BASE:-}" ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "manual run, or no earlier passing run on main: everything"; all; exit 0
+          fi
+          echo "changed since $BASE:"
+          files="$(git diff --name-only "$BASE" HEAD)"
+          echo "$files"
+          if grep -qE '^(\.github/workflows/ci\.yml|infra/scripts/smoke-prod\.sh)$' <<<"$files"; then
+            all; exit 0
+          fi
+          has() { grep -qE "$1" <<<"$files" && echo true || echo false; }
+          {
+            echo "backend=$(has '^(backend/|infra/scripts/(build-lambda|smoke-lambda|smoke_lambda|deploy-backend))')"
+            echo "frontend=$(has '^(frontend/|infra/scripts/deploy-frontend)')"
+            echo "infra=$(has '^infra/.*\.tf$')"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  backend-test:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: jobtracker
+          POSTGRES_PASSWORD: jobtracker
+          POSTGRES_DB: jobtracker
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jobtracker" --health-interval 2s --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TEST_ADMIN_DATABASE_URL: postgresql://jobtracker:jobtracker@localhost:5433/jobtracker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+      - run: uv run pytest -q
+
+  backend-package:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: infra/scripts/build-lambda.sh
+      # The Lambda image is arm64; the runner is x86, so it runs under QEMU.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+      - run: infra/scripts/smoke-lambda.sh
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lambda-zip
+          path: infra/build/lambda.zip
+          retention-days: 3
+          if-no-files-found: error
+
+  frontend-test:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 3
+          if-no-files-found: error
+
+  infra-check:
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      - run: terraform fmt -check -recursive infra
+      # No backend and no credentials: only checks the configuration itself.
+      - run: |
+          for stack in infra/bootstrap infra/prod; do
+            terraform -chdir="$stack" init -backend=false -input=false
+            terraform -chdir="$stack" validate
+          done
+
+  deploy-backend:
+    needs: [backend-test, backend-package]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the OIDC token for the AWS role
+    env:
+      DSQL_ENDPOINT: ${{ vars.DSQL_ENDPOINT }}
+      APP_URL: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: lambda-zip
+          path: infra/build
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-backend-${{ github.run_id }}
+      - run: infra/scripts/deploy-backend.sh
+
+  deploy-frontend:
+    needs: [changes, frontend-test, backend-test, backend-package, deploy-backend]
+    # After the backend when both changed. Runs when the backend wasn't part of this change
+    # (skipped), never after a backend test or deploy failed.
+    if: >-
+      always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.frontend == 'true' && needs.frontend-test.result == 'success' &&
+      contains(fromJSON('["success", "skipped"]'), needs.backend-test.result) &&
+      contains(fromJSON('["success", "skipped"]'), needs.backend-package.result) &&
+      contains(fromJSON('["success", "skipped"]'), needs.deploy-backend.result)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      WEB_BUCKET: ${{ vars.WEB_BUCKET }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+      APP_URL: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-frontend-${{ github.run_id }}
+      - run: infra/scripts/deploy-frontend.sh frontend/dist
+
+  # One check that sums up the run, for a branch rule if the plan ever allows one: skipped
+  # parts count as passed, failed or cancelled ones don't.
+  ci-ok:
+    needs: [backend-test, backend-package, frontend-test, infra-check, deploy-backend, deploy-frontend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          ! grep -qE 'failure|cancelled' <<<"$RESULTS"

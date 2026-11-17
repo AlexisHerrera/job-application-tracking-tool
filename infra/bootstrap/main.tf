@@ -3,6 +3,8 @@
 # (`use_lockfile = true`), so there is no DynamoDB table.
 #
 #   cd infra/bootstrap && terraform init && terraform plan -out tfplan && terraform apply tfplan
+#
+# The account ID lives in terraform.tfvars (gitignored); copy it from terraform.tfvars.example.
 
 terraform {
   required_version = ">= 1.10.0" # S3 native state locking
@@ -16,8 +18,13 @@ variable "aws_profile" {
   default = "jobtracker"
 }
 
+variable "aws_account_id" {
+  type        = string
+  description = "The only account this stack may touch, and the state bucket's suffix."
+}
+
 locals {
-  account_id = "630773215521"
+  account_id = var.aws_account_id
   region     = "us-east-1"
   bucket     = "jobtracker-tfstate-${local.account_id}"
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -14,6 +15,14 @@ from tests.fakes import FakeLLM, MemoryRepo
 FIXTURES = Path(__file__).parent / "fixtures" / "emails"
 TZ = ZoneInfo("America/Buenos_Aires")
 ME = "alex.candidate@gmail.com"
+
+
+def no_postgres() -> None:
+    """Skip a Postgres test when the compose `db` isn't up, except in CI (GitHub sets `CI`),
+    where a skipped database test must not pass as green."""
+    if os.environ.get("CI"):
+        pytest.fail("Postgres isn't reachable in CI (TEST_ADMIN_DATABASE_URL)")
+    pytest.skip("local Postgres not running (docker compose up db)")
 
 
 def load(name: str, *, uid: int | None = None, thread: str | None = None):

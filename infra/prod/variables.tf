@@ -6,13 +6,17 @@ variable "aws_profile" {
 variable "lambda_zip" {
   type        = string
   default     = "../build/lambda.zip"
-  description = "Built by ../scripts/build-lambda.sh"
+  description = "Built by ../scripts/build-lambda.sh. Only used to create a function; CI deploys code after that."
+}
+
+variable "aws_account_id" {
+  type        = string
+  description = "The only account this stack may touch (provider allowed_account_ids). Set in terraform.tfvars."
 }
 
 variable "owner_email" {
   type        = string
-  default     = "alexysaguilar@gmail.com"
-  description = "Inbox, calendar ID, the only user the API lets in, and where budget alerts go."
+  description = "Inbox, calendar ID, the only user the API lets in, and where budget alerts go. Set in terraform.tfvars."
 }
 
 variable "domain" {
@@ -52,4 +56,10 @@ variable "monthly_budget_usd" {
 variable "log_retention_days" {
   type    = number
   default = 14
+}
+
+variable "github_repo" {
+  type        = string
+  default     = "AlexisHerrera/job-application-tracking-tool"
+  description = "owner/name of the repository whose main branch may deploy."
 }
