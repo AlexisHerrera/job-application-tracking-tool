@@ -4,6 +4,9 @@
 #   ../scripts/build-lambda.sh          # → ../build/lambda.zip (all three functions)
 #   terraform init -backend-config=backend.hcl && terraform plan -out tfplan && terraform apply tfplan
 #
+# The zip only matters when a function is created. After that the code ships from GitHub Actions on
+# a merge to main (.github/workflows/ci.yml, github.tf) and Terraform ignores it.
+#
 # The account ID and owner email live in terraform.tfvars, the state bucket in backend.hcl. Both
 # are gitignored; copy them from the .example files.
 

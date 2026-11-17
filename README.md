@@ -95,7 +95,7 @@ terraform apply tfplan
 terraform output next_steps     # the commands for step 3, with the real endpoint and role ARNs
 ```
 
-This creates the DSQL cluster (deletion protection on), both Lambdas, the ingest schedule (**disabled**), the Function URL (IAM auth), CloudFront + OAC, the private SPA bucket, the ACM certificate (validated through its Route 53 record), the Cognito user pool and login pages, the `jobs` DNS records, the $5 budget alert and 14-day log groups. Rebuild the zip and plan again to ship backend code.
+This creates the DSQL cluster (deletion protection on), both Lambdas, the ingest schedule (**disabled**), the Function URL (IAM auth), CloudFront + OAC, the private SPA bucket, the ACM certificate (validated through its Route 53 record), the Cognito user pool and login pages, the `jobs` DNS records, the $5 budget alert, 14-day log groups and the GitHub Actions deploy role. The zip is only uploaded when a function is created: after that, code ships through CI (*Shipping changes* below) and Terraform ignores it, so an apply never rolls the code back.
 
 ### 3. Database, secrets, data (from `backend/`)
 
@@ -133,11 +133,37 @@ From then on the ingest Lambda reads the inbox every 15 minutes.
 
 ### 5. Frontend
 
+The first time, from the laptop (afterwards CI deploys it, see *Shipping changes*):
+
 ```bash
-AWS_PROFILE=jobtracker infra/scripts/deploy-frontend.sh   # build, upload to S3, invalidate
+AWS_PROFILE=jobtracker infra/scripts/deploy-frontend.sh   # build, upload to S3, invalidate, smoke test
 ```
 
 The app is at **https://jobs.alexisherrera.dev**. The page itself is public; every API call needs a Cognito sign-in, and without one the API answers 401 (there's no bypass in AWS). The Function URL answers 403 to anything not signed by CloudFront.
+
+### Shipping changes (GitHub Actions)
+
+Work on a branch, open a PR, merge it to `main`. `.github/workflows/ci.yml` does the rest:
+
+- **On the PR:** the tests for what it touches. Backend: ruff, pytest with a real Postgres (the database tests fail in CI instead of skipping), and the zip built and smoke-tested inside AWS's Lambda image for arm64 (`infra/scripts/smoke-lambda.sh`). Frontend: typecheck and build. `.tf` files: `terraform fmt` and `validate`, with no AWS access.
+- **On `main`:** the same tests again, then the deploy of each side that changed since the last passing run on main. A frontend-only change never touches the Lambdas, and a backend-only change never touches the bucket. When both change, the backend goes first.
+  - Backend (`infra/scripts/deploy-backend.sh`): if the zip is what's already live, nothing happens. Otherwise it saves the live zip, applies pending migrations to DSQL, updates the three functions, and runs the smoke test.
+  - Frontend (`infra/scripts/deploy-frontend.sh`): new assets first, then `index.html`, a CloudFront invalidation, and the smoke test. Assets the new build doesn't use are deleted only after the smoke test passes.
+  - Smoke test (`infra/scripts/smoke-prod.sh`), read-only, through CloudFront: `/api/health`, the Cognito config, a 401 without a token, and the live page serving this build's JS. If it fails, the previous Lambda code or `index.html` goes back and the run fails. It never invokes ingest or discover (inbox, paid LLM calls).
+- Infrastructure (`.tf`) never deploys from CI: plan and apply it from the laptop as above. A change that needs both (say, a new env var the code reads) is applied before merging.
+- *Actions → CI → Run workflow* on `main` tests and deploys everything (it still skips a Lambda zip that's already live).
+
+The workflow assumes the role `jobtracker-github-deploy` through GitHub's OIDC (no AWS keys in GitHub). Only pushes to `main` of this repository can assume it, and it can only replace the three functions' code, write the SPA bucket, invalidate the distribution and connect to DSQL as admin (migrations). Its settings are repository variables, set once after the apply:
+
+```bash
+terraform -chdir=infra/prod output -json github_variables \
+  | jq -r 'to_entries[] | "\(.key) \(.value)"' \
+  | while read -r k v; do gh variable set "$k" --body "$v"; done
+```
+
+The same scripts run from the laptop (`AWS_PROFILE=jobtracker infra/scripts/deploy-backend.sh` after `build-lambda.sh`) if GitHub is down.
+
+GitHub's free plan doesn't enforce required checks on private repositories, so a red PR can still be merged. The gate is on `main` itself: nothing deploys unless the tests in that same run pass.
 
 ### 6. Signing in (Cognito)
 

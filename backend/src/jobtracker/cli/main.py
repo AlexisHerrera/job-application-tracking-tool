@@ -134,11 +134,15 @@ def _show_outcome(email, out) -> None:
 DSQL_OPT = typer.Option(
     None, "--dsql", help="Aurora DSQL cluster endpoint (<id>.dsql.<region>.on.aws), as admin."
 )
-PROFILE_OPT = typer.Option("jobtracker", "--profile", help="AWS profile for the IAM token.")
+PROFILE_OPT = typer.Option(
+    "jobtracker",
+    "--profile",
+    help="AWS profile for the IAM token. Empty = the default credential chain (CI's OIDC role).",
+)
 
 
 def _dsql(endpoint: str, profile: str):
-    return connect_dsql(DsqlTarget(endpoint, ADMIN, profile=profile))
+    return connect_dsql(DsqlTarget(endpoint, ADMIN, profile=profile or None))
 
 
 @db_app.command("migrate")

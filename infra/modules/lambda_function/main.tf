@@ -10,7 +10,10 @@ terraform {
 variable "name" { type = string }
 variable "description" { type = string }
 variable "handler" { type = string }
-variable "zip_path" { type = string }
+variable "zip_path" {
+  type        = string
+  description = "Only read when the function is created; CI deploys the code after that."
+}
 variable "memory_mb" { type = number }
 variable "timeout_s" { type = number }
 variable "environment" { type = map(string) }
@@ -97,7 +100,6 @@ resource "aws_lambda_function" "this" {
   architectures                  = ["arm64"]
   handler                        = var.handler
   filename                       = var.zip_path
-  source_code_hash               = filebase64sha256(var.zip_path)
   memory_size                    = var.memory_mb
   timeout                        = var.timeout_s
   reserved_concurrent_executions = var.reserved_concurrency
@@ -109,6 +111,12 @@ resource "aws_lambda_function" "this" {
   logging_config {
     log_format = "Text"
     log_group  = aws_cloudwatch_log_group.this.name
+  }
+
+  # Terraform only uploads the first zip. From then on CI owns the code
+  # (infra/scripts/deploy-backend.sh), so an apply with an old local zip can't roll it back.
+  lifecycle {
+    ignore_changes = [filename, source_code_hash]
   }
 
   # The log group (with its retention) and the permissions exist before the first invocation,

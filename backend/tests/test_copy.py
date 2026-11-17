@@ -15,6 +15,7 @@ from jobtracker.adapters.db.migrate import migrate
 from jobtracker.adapters.db.repo import PostgresRepo
 from jobtracker.core import services
 from jobtracker.core.ports import SyncState
+from tests.conftest import no_postgres
 from tests.test_postgres import ADMIN_URL
 
 SRC, DST = "jobtracker_copy_src", "jobtracker_copy_dst"
@@ -25,7 +26,7 @@ def urls():
     try:
         admin = psycopg.connect(ADMIN_URL, autocommit=True, connect_timeout=2)
     except psycopg.OperationalError:
-        pytest.skip("local Postgres not running (docker compose up db)")
+        no_postgres()
     base = ADMIN_URL.rsplit("/", 1)[0]
     with admin:
         for db in (SRC, DST):
