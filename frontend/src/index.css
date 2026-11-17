@@ -1,13 +1,24 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+/* IBM Plex, one superfamily in three voices: Sans for the interface, Serif for long reading text
+   (posting descriptions, notes), Mono for code. */
+@import "@fontsource-variable/ibm-plex-sans";
+@import "@fontsource-variable/ibm-plex-sans/wght-italic.css";
+@import "@fontsource/ibm-plex-serif/400.css";
+@import "@fontsource/ibm-plex-serif/400-italic.css";
+@import "@fontsource/ibm-plex-serif/600.css";
+@import "@fontsource/ibm-plex-serif/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    --font-sans: 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif;
+    --font-serif: 'IBM Plex Serif', ui-serif, Georgia, serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -39,6 +50,9 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
+    --color-good: var(--good);
+    --color-warn: var(--warn);
+    --color-bad: var(--bad);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -48,73 +62,75 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Neutral theme: grays with a faint trace of hue 280 (chroma ≤ 0.006, reads as black and white),
+   and the primary is plain ink (near-black; near-white in dark). Colour is left to the signals below. */
 :root {
-    --background: oklch(0.99 0.003 285);
-    --foreground: oklch(0.18 0.02 280);
+    --background: oklch(0.985 0.002 280);
+    --foreground: oklch(0.18 0.006 280);
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.18 0.02 280);
+    --card-foreground: oklch(0.18 0.006 280);
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.18 0.02 280);
-    --primary: oklch(0.511 0.262 276.966);
+    --popover-foreground: oklch(0.18 0.006 280);
+    --primary: oklch(0.22 0.006 280);
     --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.962 0.018 272.314);
-    --secondary-foreground: oklch(0.359 0.144 278.697);
-    --muted: oklch(0.967 0.006 285);
-    --muted-foreground: oklch(0.52 0.02 280);
-    --accent: oklch(0.962 0.018 272.314);
-    --accent-foreground: oklch(0.359 0.144 278.697);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.92 0.008 285);
-    --input: oklch(0.92 0.008 285);
-    --ring: oklch(0.673 0.182 276.935);
+    --secondary: oklch(0.955 0.003 280);
+    --secondary-foreground: oklch(0.2 0.006 280);
+    --muted: oklch(0.965 0.003 280);
+    --muted-foreground: oklch(0.5 0.01 280);
+    --accent: oklch(0.955 0.003 280);
+    --accent-foreground: oklch(0.2 0.006 280);
+    --destructive: var(--bad);
+    --border: oklch(0.91 0.004 280);
+    --input: oklch(0.89 0.004 280);
+    --ring: oklch(0.6 0.01 280);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
     --radius: 0.625rem;
-    --sidebar: oklch(0.975 0.008 285);
-    --sidebar-foreground: oklch(0.18 0.02 280);
-    --sidebar-primary: oklch(0.511 0.262 276.966);
+    --sidebar: oklch(0.975 0.003 280);
+    --sidebar-foreground: oklch(0.18 0.006 280);
+    --sidebar-primary: oklch(0.22 0.006 280);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.94 0.025 275);
-    --sidebar-accent-foreground: oklch(0.359 0.144 278.697);
-    --sidebar-border: oklch(0.92 0.008 285);
-    --sidebar-ring: oklch(0.673 0.182 276.935);
+    --sidebar-accent: oklch(0.94 0.004 280);
+    --sidebar-accent-foreground: oklch(0.18 0.006 280);
+    --sidebar-border: oklch(0.91 0.004 280);
+    --sidebar-ring: oklch(0.6 0.01 280);
 }
 
 .dark {
-    --background: oklch(0.16 0.015 280);
-    --foreground: oklch(0.97 0.005 280);
-    --card: oklch(0.21 0.018 280);
-    --card-foreground: oklch(0.97 0.005 280);
-    --popover: oklch(0.21 0.018 280);
-    --popover-foreground: oklch(0.97 0.005 280);
-    --primary: oklch(0.585 0.233 277.117);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.28 0.03 280);
-    --secondary-foreground: oklch(0.97 0.005 280);
-    --muted: oklch(0.27 0.02 280);
-    --muted-foreground: oklch(0.72 0.02 280);
-    --accent: oklch(0.3 0.05 278);
-    --accent-foreground: oklch(0.97 0.005 280);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.585 0.233 277.117);
+    --background: oklch(0.155 0.004 280);
+    --foreground: oklch(0.96 0.003 280);
+    --card: oklch(0.195 0.006 280);
+    --card-foreground: oklch(0.96 0.003 280);
+    --popover: oklch(0.205 0.006 280);
+    --popover-foreground: oklch(0.96 0.003 280);
+    --primary: oklch(0.94 0.004 280);
+    --primary-foreground: oklch(0.18 0.006 280);
+    --secondary: oklch(0.26 0.006 280);
+    --secondary-foreground: oklch(0.96 0.003 280);
+    --muted: oklch(0.25 0.006 280);
+    --muted-foreground: oklch(0.7 0.008 280);
+    --accent: oklch(0.26 0.006 280);
+    --accent-foreground: oklch(0.96 0.003 280);
+    --destructive: var(--bad);
+    --border: oklch(1 0 0 / 8%);
+    --input: oklch(1 0 0 / 13%);
+    --ring: oklch(0.65 0.01 280);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.19 0.018 280);
-    --sidebar-foreground: oklch(0.97 0.005 280);
-    --sidebar-primary: oklch(0.585 0.233 277.117);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.3 0.05 278);
-    --sidebar-accent-foreground: oklch(0.97 0.005 280);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.585 0.233 277.117);
+    --sidebar: oklch(0.175 0.005 280);
+    --sidebar-foreground: oklch(0.96 0.003 280);
+    --sidebar-primary: oklch(0.94 0.004 280);
+    --sidebar-primary-foreground: oklch(0.18 0.006 280);
+    --sidebar-accent: oklch(0.25 0.006 280);
+    --sidebar-accent-foreground: oklch(0.96 0.003 280);
+    --sidebar-border: oklch(1 0 0 / 8%);
+    --sidebar-ring: oklch(0.65 0.01 280);
 }
 
 @layer base {
@@ -178,6 +194,19 @@
   --insight-aside: #475569;
 }
 
+/* Good / warn / bad: muted on purpose (low chroma), for text, icons and thin strokes, never for
+   filled buttons. They read as signals next to neutral surfaces instead of a traffic light. */
+:root {
+  --good: oklch(0.5 0.09 165);
+  --warn: oklch(0.55 0.1 70);
+  --bad: oklch(0.53 0.13 25);
+}
+.dark {
+  --good: oklch(0.78 0.08 165);
+  --warn: oklch(0.8 0.09 80);
+  --bad: oklch(0.73 0.1 25);
+}
+
 @layer base {
   html {
     color-scheme: light;
@@ -193,14 +222,14 @@
 /* Notes editor (Tiptap). No typography plugin: just enough for notes. */
 @layer components {
   .notes-doc {
-    @apply min-h-[40vh] pb-16 text-[0.95rem] leading-relaxed outline-none;
+    @apply min-h-[40vh] pb-16 font-serif text-[0.95rem] leading-relaxed outline-none;
   }
   .notes-doc > * + * {
     @apply mt-2.5;
   }
-  .notes-doc h1 { @apply mt-6 text-2xl font-semibold tracking-tight; }
-  .notes-doc h2 { @apply mt-5 text-lg font-semibold tracking-tight; }
-  .notes-doc h3 { @apply mt-4 text-base font-semibold; }
+  .notes-doc h1 { @apply mt-6 font-sans text-2xl font-semibold tracking-tight; }
+  .notes-doc h2 { @apply mt-5 font-sans text-lg font-semibold tracking-tight; }
+  .notes-doc h3 { @apply mt-4 font-sans text-base font-semibold; }
   .notes-doc > :first-child { @apply mt-0; }
   .notes-doc ul { @apply list-disc pl-6; }
   .notes-doc ol { @apply list-decimal pl-6; }
@@ -215,7 +244,7 @@
   .notes-doc ul[data-type="taskList"] { @apply list-none pl-1; }
   .notes-doc ul[data-type="taskList"] li { @apply flex items-start gap-2; }
   .notes-doc ul[data-type="taskList"] li > label { @apply mt-1 shrink-0; }
-  .notes-doc ul[data-type="taskList"] li > label input { @apply size-3.5 accent-indigo-500; }
+  .notes-doc ul[data-type="taskList"] li > label input { @apply size-3.5 accent-primary; }
   .notes-doc ul[data-type="taskList"] li > div { @apply min-w-0 flex-1; }
   .notes-doc ul[data-type="taskList"] li[data-checked="true"] > div { @apply text-muted-foreground line-through; }
   .notes-doc p.is-editor-empty:first-child::before {

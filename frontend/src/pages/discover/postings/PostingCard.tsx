@@ -61,7 +61,7 @@ export function PostingCard({ p, onChange, onBlocked, onTech }: { p: Posting; on
             )}
           </div>
           <CollapsibleContent>
-            <p className="mt-2 max-h-96 overflow-y-auto rounded-md bg-muted/50 p-3 text-sm whitespace-pre-line">{p.description}</p>
+            <p className="mt-2 max-h-96 overflow-y-auto rounded-md bg-muted/50 p-3 font-serif text-[0.9375rem] leading-relaxed whitespace-pre-line">{p.description}</p>
           </CollapsibleContent>
         </Collapsible>
       </CardContent>
