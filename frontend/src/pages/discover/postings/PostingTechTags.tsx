@@ -14,7 +14,7 @@ export function PostingTechTags({ p, onTech }: { p: Posting; onTech: (tech: stri
           type="button"
           onClick={() => onTech(t)}
           title={`Only postings that ask for ${t}${overlap.has(t.toLowerCase()) ? " (on your CV)" : ""}`}
-          className={cn("rounded px-1.5 py-0.5 text-xs hover:ring-1 hover:ring-ring", overlap.has(t.toLowerCase()) ? "bg-primary/15 font-medium" : "bg-muted")}
+          className={cn("rounded px-1.5 py-0.5 text-xs hover:ring-1 hover:ring-ring", overlap.has(t.toLowerCase()) ? "bg-foreground/12 font-medium text-foreground ring-1 ring-foreground/20" : "bg-muted text-muted-foreground")}
         >
           {t}
         </button>

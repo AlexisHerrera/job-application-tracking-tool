@@ -21,10 +21,10 @@ export function DiscardPanel({ company, busy, onPick, onCancel, onHideCompany }:
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h3 className="text-sm font-semibold">Why is it out?</h3>
-        <span className="text-xs text-muted-foreground">The reasons add up, so the filters can be tuned later.</span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={onCancel}><X /> Cancel <Kbd>Esc</Kbd></Button>
+        <span className="text-xs text-muted-foreground max-sm:hidden">The reasons add up, so the filters can be tuned later.</span>
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onCancel}><X /> Cancel <Kbd className="pointer-coarse:hidden">Esc</Kbd></Button>
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         {DISCARD_REASONS.map((r, i) => (
@@ -34,11 +34,11 @@ export function DiscardPanel({ company, busy, onPick, onCancel, onHideCompany }:
             disabled={busy}
             onClick={() => pick(r.value)}
             title={r.hint}
-            className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-left text-sm font-medium transition-colors outline-none hover:border-rose-500/40 hover:bg-rose-500/10 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg border border-input px-3 py-2 text-left text-sm font-medium transition-colors outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
           >
-            <r.icon className="size-4 shrink-0 text-rose-600 dark:text-rose-400" />
+            <r.icon className="size-4 shrink-0 text-bad" />
             <span className="min-w-0 flex-1">{r.label}</span>
-            {i < 9 && <Kbd>{i + 1}</Kbd>}
+            {i < 9 && <Kbd className="pointer-coarse:hidden">{i + 1}</Kbd>}
           </button>
         ))}
       </div>
@@ -52,11 +52,11 @@ export function DiscardPanel({ company, busy, onPick, onCancel, onHideCompany }:
           }}
           maxLength={500}
           placeholder="Optional note, then pick a reason (Enter saves it as Other)"
-          className="min-w-64 flex-1"
+          className="min-w-0 basis-full sm:min-w-64 sm:basis-0 sm:flex-1"
         />
         {onHideCompany && (
-          <Button variant="ghost" className="text-muted-foreground" disabled={busy} onClick={onHideCompany} title={`Never show ${company} again: hides its postings and blocks new ones`}>
-            <Ban /> Hide everything from {company}
+          <Button variant="ghost" className="max-w-full text-muted-foreground" disabled={busy} onClick={onHideCompany} title={`Never show ${company} again: hides its postings and blocks new ones`}>
+            <Ban /> <span className="truncate">Hide everything from {company}</span>
           </Button>
         )}
       </div>
