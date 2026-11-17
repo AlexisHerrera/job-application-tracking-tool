@@ -9,7 +9,7 @@ export function ProgressStep({ state, title, children }: { state: StepState; tit
     <li className="flex gap-2.5">
       <span className="mt-0.5 shrink-0">
         {state === "done" ? (
-          <Check className="size-4 text-emerald-600 dark:text-emerald-400" />
+          <Check className="size-4 text-good" />
         ) : state === "active" ? (
           <Loader2 className="size-4 animate-spin text-primary" />
         ) : (

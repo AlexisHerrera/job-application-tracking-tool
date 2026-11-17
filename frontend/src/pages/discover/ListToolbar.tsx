@@ -17,7 +17,7 @@ export function ListToolbar({ params, counts, set, filtersOpen, onToggleFilters 
         <ToggleGroupItem value="review" title="One posting at a time"><Layers /> One by one</ToggleGroupItem>
         <ToggleGroupItem value="list" title="All of them in a list"><LayoutList /> List</ToggleGroupItem>
       </ToggleGroup>
-      <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(v) => v && set("view", v === "all" ? null : v)} aria-label="Verdict">
+      <ToggleGroup type="single" variant="outline" size="sm" className="max-w-full overflow-x-auto" value={view} onValueChange={(v) => v && set("view", v === "all" ? null : v)} aria-label="Verdict">
         {VIEWS.map((v) => (
           <ToggleGroupItem key={v.value} value={v.value}>
             {v.label}
