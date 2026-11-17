@@ -50,7 +50,7 @@ All tests use **fake fixture emails** (`backend/tests/fixtures/emails`). They ne
 
 ## Deploying to AWS
 
-Everything lives in us-east-1, account 630773215521, through the AWS profile `jobtracker` (SSO session `personal`). Design and decisions: §18 of `git show 95af9fb:docs/plan.md`. Requirements: Terraform ≥ 1.10, AWS CLI v2, uv.
+Everything lives in us-east-1, in one AWS account, through the AWS profile `jobtracker` (SSO session `personal`). Design and decisions: §18 of `git show 95af9fb:docs/plan.md`. Requirements: Terraform ≥ 1.10, AWS CLI v2, uv.
 
 ⚠️ Each step below touches the AWS account. `terraform apply` only ever runs a plan file you've read.
 
@@ -59,10 +59,18 @@ Everything lives in us-east-1, account 630773215521, through the AWS profile `jo
 ```bash
 aws configure sso --profile jobtracker
 #   SSO session name: personal          (reuses the existing session)
-#   account: 630773215521 · role: AdministratorAccess
+#   account: <your account ID> · role: AdministratorAccess
 #   default region: us-east-1 · output: json
 aws sso login --sso-session personal
 aws sts get-caller-identity --profile jobtracker
+```
+
+The account ID and your email stay out of git: each stack reads them from a gitignored `terraform.tfvars` (prod also reads its state bucket from `backend.hcl`). Copy the templates and fill them in:
+
+```bash
+cp infra/bootstrap/terraform.tfvars.example infra/bootstrap/terraform.tfvars
+cp infra/prod/terraform.tfvars.example infra/prod/terraform.tfvars
+cp infra/prod/backend.hcl.example infra/prod/backend.hcl
 ```
 
 ### 1. State bucket (once)
@@ -74,14 +82,14 @@ terraform plan -out tfplan      # read it
 terraform apply tfplan
 ```
 
-It creates `jobtracker-tfstate-630773215521`, versioned, encrypted and private. Prod's state uses S3's native lockfile (no DynamoDB table). The bootstrap's own state is the local `terraform.tfstate` here (gitignored, holds only the bucket). If it's lost, `terraform import aws_s3_bucket.state jobtracker-tfstate-630773215521`.
+It creates `jobtracker-tfstate-<account ID>`, versioned, encrypted and private. Prod's state uses S3's native lockfile (no DynamoDB table). The bootstrap's own state is the local `terraform.tfstate` here (gitignored, holds only the bucket). If it's lost, `terraform import aws_s3_bucket.state jobtracker-tfstate-<account ID>`.
 
 ### 2. Prod stack
 
 ```bash
 infra/scripts/build-lambda.sh   # → infra/build/lambda.zip (no AWS access)
 cd infra/prod
-terraform init
+terraform init -backend-config=backend.hcl
 terraform plan -out tfplan      # read it
 terraform apply tfplan
 terraform output next_steps     # the commands for step 3, with the real endpoint and role ARNs
@@ -139,7 +147,7 @@ The prod stack creates a user pool with one user, `owner_email`, and sign-up tur
    ```bash
    aws cognito-idp admin-create-user --profile jobtracker \
      --user-pool-id "$(terraform -chdir=infra/prod output -raw user_pool_id)" \
-     --username alexysaguilar@gmail.com --message-action RESEND
+     --username <owner_email> --message-action RESEND
    ```
 2. Open https://jobs.alexisherrera.dev. It sends you to the login page: sign in with the email and the temporary password, choose a new password (12+ characters, upper and lower case, a number), then scan the QR code with an authenticator app (Google Authenticator, 1Password, …) and enter its code.
 3. From then on every sign-in is password + authenticator code. The session renews itself for 7 days; **Sign out** in the sidebar ends it.
@@ -148,7 +156,7 @@ The prod stack creates a user pool with one user, `owner_email`, and sign-up tur
 
 ### Costs
 
-Everything is meant to stay in the free tiers (Lambda, DSQL's 100k DPU + 1 GB, CloudFront, S3, SSM Standard, Scheduler). The budget emails `alexysaguilar@gmail.com` when actual or forecasted monthly spend passes $5. Anthropic usage is billed separately by Anthropic.
+Everything is meant to stay in the free tiers (Lambda, DSQL's 100k DPU + 1 GB, CloudFront, S3, SSM Standard, Scheduler). The budget emails `owner_email` when actual or forecasted monthly spend passes $5. Anthropic usage is billed separately by Anthropic.
 
 ## Getting the credentials
 

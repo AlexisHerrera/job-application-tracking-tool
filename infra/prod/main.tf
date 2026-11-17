@@ -2,7 +2,10 @@
 # S3's native lockfile (no DynamoDB table).
 #
 #   ../scripts/build-lambda.sh          # → ../build/lambda.zip (all three functions)
-#   terraform init && terraform plan -out tfplan && terraform apply tfplan
+#   terraform init -backend-config=backend.hcl && terraform plan -out tfplan && terraform apply tfplan
+#
+# The account ID and owner email live in terraform.tfvars, the state bucket in backend.hcl. Both
+# are gitignored; copy them from the .example files.
 
 terraform {
   required_version = ">= 1.10.0"
@@ -10,7 +13,7 @@ terraform {
     aws = { source = "hashicorp/aws", version = "~> 6.71" }
   }
   backend "s3" {
-    bucket       = "jobtracker-tfstate-630773215521"
+    # bucket comes from backend.hcl (terraform init -backend-config=backend.hcl)
     key          = "prod/terraform.tfstate"
     region       = "us-east-1"
     profile      = "jobtracker"
@@ -29,7 +32,7 @@ provider "aws" {
 }
 
 locals {
-  account_id = "630773215521"
+  account_id = var.aws_account_id
   region     = "us-east-1"
   name       = "jobtracker"
   ssm_prefix = "/jobtracker/prod/"

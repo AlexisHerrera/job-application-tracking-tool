@@ -26,7 +26,7 @@ from jobtracker.settings import Settings
 from tests.fakes import MemoryRepo
 
 ENDPOINT = "abcdefghijklmnopqrstuvwxyz.dsql.us-east-1.on.aws"
-ARN = "arn:aws:iam::630773215521:role/jobtracker-api-lambda"
+ARN = "arn:aws:iam::123456789012:role/jobtracker-api-lambda"
 FEDERATION_ENV = {
     "ANTHROPIC_FEDERATION_RULE_ID": "fdrl_test",
     "ANTHROPIC_ORGANIZATION_ID": "00000000-0000-0000-0000-000000000000",

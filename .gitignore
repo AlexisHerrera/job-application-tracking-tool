@@ -34,6 +34,7 @@ crash.log
 *.auto.tfvars
 terraform.tfvars
 !*.tfvars.example
+backend.hcl
 
 # local data: real email metadata never leaves the machine
 eval/

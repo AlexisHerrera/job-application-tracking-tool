@@ -3,7 +3,7 @@ name = "jobtracker"
 version = "0.1.0"
 description = "Personal job application tracker: Gmail ingestion, classification, matching and stats"
 authors = [
-    { name = "Alexis Herrera", email = "alexysaguilar@gmail.com" }
+    { name = "Alexis Herrera" }
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [

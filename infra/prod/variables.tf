@@ -9,10 +9,14 @@ variable "lambda_zip" {
   description = "Built by ../scripts/build-lambda.sh"
 }
 
+variable "aws_account_id" {
+  type        = string
+  description = "The only account this stack may touch (provider allowed_account_ids). Set in terraform.tfvars."
+}
+
 variable "owner_email" {
   type        = string
-  default     = "alexysaguilar@gmail.com"
-  description = "Inbox, calendar ID, the only user the API lets in, and where budget alerts go."
+  description = "Inbox, calendar ID, the only user the API lets in, and where budget alerts go. Set in terraform.tfvars."
 }
 
 variable "domain" {
