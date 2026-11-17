@@ -4,9 +4,7 @@ A personal app that runs my job search: it finds open positions that fit me, and
 
 It's a single-user app deployed on AWS behind a login, so only I can use it. This README shows what it does.
 
-<!-- MEDIA: hero. A short GIF (~15 s) of the app: Discover review, then the Applications board, then the Dashboard.
-![Job Tracker](docs/media/hero.gif)
--->
+https://github.com/user-attachments/assets/336a14d1-ae73-4fec-867e-292ded094769
 
 ## Why
 
@@ -23,14 +21,21 @@ Every few hours the app collects new postings and keeps the ones that fit my cri
 - **Insights**: how many new postings came in, what I reviewed, and what my discard reasons suggest changing in the rules or the profile.
 - **Daily digest**: an email in the morning with the new matches.
 
-<!-- MEDIA: Discover review. GIF of going through a few cards with the keyboard (save, discard with a reason, apply).
-![Reviewing postings](docs/media/discover-review.gif)
--->
+https://github.com/user-attachments/assets/4b7040f4-3384-423d-807e-783ea3ffe829
 
-<!-- MEDIA: Criteria and Insights. Two screenshots side by side: the rules with their hit counts, and the Insights page.
-![Criteria](docs/media/discover-criteria.png)
-![Insights](docs/media/discover-insights.png)
--->
+<table>
+  <tr>
+    <td><img alt="Criteria: the profile the AI reads" src="https://github.com/user-attachments/assets/5945f812-cfcd-4d9f-ab8d-aaf204217fe2" /></td>
+    <td><img alt="Criteria: rules with hit counts" src="https://github.com/user-attachments/assets/f51d81e5-df2e-4c28-ab58-8df1b757cd32" /></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td><img alt="Insights: new postings by source" src="https://github.com/user-attachments/assets/920d7d75-2a13-42f0-b9b4-b5a8957c212b" /></td>
+    <td><img alt="Insights: reviews and discard reasons" src="https://github.com/user-attachments/assets/b6b4520a-c1b5-4343-8a36-5ddccfb83fcb" /></td>
+  </tr>
+</table>
 
 ## Track: following applications
 
@@ -44,17 +49,12 @@ The app reads my Gmail and Google Calendar (read-only) and builds the applicatio
 - **Dashboard**: what needs a reply, upcoming interviews, applications with no news, and a sankey of where the applications went.
 - **Campaigns**: each job-search period with its own stats (applications per week, days to the first interview).
 
-<!-- MEDIA: Applications board. GIF of dragging a card to another stage and opening its side panel.
-![Applications board](docs/media/applications-board.gif)
--->
-
-<!-- MEDIA: Dashboard. Screenshot of the dashboard with the sankey visible.
-![Dashboard](docs/media/dashboard.png)
--->
-
-<!-- MEDIA: Paste with AI. GIF of pasting a recruiter message and reviewing the proposed changes.
-![Paste with AI](docs/media/paste.gif)
--->
+<table>
+  <tr>
+    <td><img alt="Interviews" src="https://github.com/user-attachments/assets/8519af27-c556-4379-ad7f-e30ed017026a" /></td>
+    <td><img alt="Calendar" src="https://github.com/user-attachments/assets/ac1ba2ec-116c-43b3-93f8-20274a73730e" /></td>
+  </tr>
+</table>
 
 ## Privacy
 
