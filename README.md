@@ -4,7 +4,7 @@ A personal app that runs my job search: it finds open positions that fit me, and
 
 It's a single-user app deployed on AWS behind a login, so only I can use it. This README shows what it does.
 
-https://github.com/user-attachments/assets/336a14d1-ae73-4fec-867e-292ded094769
+[https://github.com/user-attachments/assets/336a14d1-ae73-4fec-867e-292ded094769](https://github.com/user-attachments/assets/b099166d-31fb-4288-acac-689d0583db7a)
 
 ## Why
 
@@ -21,7 +21,7 @@ Every few hours the app collects new postings and keeps the ones that fit my cri
 - **Insights**: how many new postings came in, what I reviewed, and what my discard reasons suggest changing in the rules or the profile.
 - **Daily digest**: an email in the morning with the new matches.
 
-https://github.com/user-attachments/assets/4b7040f4-3384-423d-807e-783ea3ffe829
+[https://github.com/user-attachments/assets/4b7040f4-3384-423d-807e-783ea3ffe829](https://github.com/user-attachments/assets/eee95cea-bdf9-4d62-bc3e-8a188b216ddb)
 
 <table>
   <tr>
