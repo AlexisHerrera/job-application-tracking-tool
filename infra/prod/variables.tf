@@ -63,3 +63,12 @@ variable "github_repo" {
   default     = "AlexisHerrera/job-application-tracking-tool"
   description = "owner/name of the repository whose main branch may deploy."
 }
+
+variable "github_oidc_subject" {
+  type    = string
+  default = "repo:AlexisHerrera@52416190/job-application-tracking-tool@1425957208"
+  # GitHub's immutable subject format: owner and repository with their numeric IDs, so a renamed
+  # or re-created repo with the same name can't deploy. `sub_claim_prefix` in
+  #   gh api repos/<owner>/<repo>/actions/oidc/customization/sub
+  description = "Start of the `sub` claim in the repository's OIDC tokens (before `:ref:...`)."
+}
