@@ -41,7 +41,7 @@ docker compose down -v         # before deleting the worktree
 
 The script adds `COMPOSE_PROJECT_NAME` and the next free ports (8001/5174/5434, then 8002/5175/5435, …) to the worktree's `.env`. Tests there use the same `DB_PORT`.
 
-The worktree's `.env` has no API keys, and the UI doesn't need them. If you copy the main `.env` in, run the script again afterwards.
+Orca does the first and last steps itself through `orca.yaml`: on create it copies the main `.env` (so the worktree has the real API keys) and runs the script; on archive it runs `down -v`. Elsewhere, if you copy the main `.env` in by hand, run the script again afterwards.
 
 ### Looking at the data with a SQL client
 

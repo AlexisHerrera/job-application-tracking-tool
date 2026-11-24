@@ -1,0 +1,8 @@
+# Orca worktree hooks. Each worktree gets its own compose stack (docs/setup.md "Several worktrees at once").
+scripts:
+  setup: |
+    if [ -f "$ORCA_ROOT_PATH/.env" ]; then cp "$ORCA_ROOT_PATH/.env" .env; fi
+    scripts/worktree-env.sh
+  archive: |
+    # Guarded: without the worktree's COMPOSE_PROJECT_NAME, `down -v` would delete the main stack's database.
+    if grep -q '^COMPOSE_PROJECT_NAME=' .env 2>/dev/null; then docker compose down -v; fi
