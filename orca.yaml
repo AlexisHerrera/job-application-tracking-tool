@@ -1,0 +1,6 @@
+scripts:
+  setup: |
+    cp "$ORCA_ROOT_PATH/.env" .env 2>/dev/null || true
+    scripts/worktree-env.sh
+  archive: |
+    grep -q '^COMPOSE_PROJECT_NAME=' .env 2>/dev/null && docker compose down -v || true

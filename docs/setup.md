@@ -28,6 +28,21 @@ Locally, `AUTH_DEV_BYPASS=true` skips the login (Cognito in prod). The app **ref
 
 Editing anything under `backend/src` reloads the API; editing `frontend/src` hot-reloads the page.
 
+### Several worktrees at once (agents in Orca etc.)
+
+Without this, `docker compose up` in a git worktree replaces the main checkout's stack. Give each worktree its own:
+
+```bash
+scripts/worktree-env.sh        # once per worktree; prints its URLs
+docker compose up -d --build
+docker compose exec api jobtracker dev seed   # optional: its database starts empty
+docker compose down -v         # before deleting the worktree
+```
+
+The script adds `COMPOSE_PROJECT_NAME` and the next free ports (8001/5174/5434, then 8002/5175/5435, …) to the worktree's `.env`. Tests there use the same `DB_PORT`.
+
+Orca does the first and last steps itself through `orca.yaml`: on create it copies the main `.env` (so the worktree has the real API keys) and runs the script; on archive it runs `down -v`. Elsewhere, if you copy the main `.env` in by hand, run the script again afterwards.
+
 ### Looking at the data with a SQL client
 
 **Locally (DBeaver / DataGrip):** a new PostgreSQL connection with host `localhost`, port `5433`, database `jobtracker`, user `jobtracker`, password `jobtracker`.
