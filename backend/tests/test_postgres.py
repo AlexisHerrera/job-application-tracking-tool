@@ -4,6 +4,7 @@ Uses a throwaway `jobtracker_test` database so local data is never touched.
 """
 
 import os
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -16,8 +17,21 @@ from jobtracker.core.pipeline import Pipeline, PipelineConfig
 from tests.conftest import ME, TZ, load, no_postgres
 from tests.fakes import FakeLLM, extraction
 
+
+def _compose_db_port() -> str:
+    """This checkout's compose `db`: a git worktree gets its own port in its `.env`
+    (scripts/worktree-env.sh), so agents in parallel worktrees don't share `jobtracker_test`."""
+    if port := os.environ.get("DB_PORT"):
+        return port
+    env = Path(__file__).resolve().parents[2] / ".env"
+    lines = env.read_text().splitlines() if env.exists() else []
+    ports = [line.split("=", 1)[1].strip() for line in lines if line.startswith("DB_PORT=")]
+    return ports[-1] if ports else "5433"
+
+
 ADMIN_URL = os.environ.get(
-    "TEST_ADMIN_DATABASE_URL", "postgresql://jobtracker:jobtracker@localhost:5433/jobtracker"
+    "TEST_ADMIN_DATABASE_URL",
+    f"postgresql://jobtracker:jobtracker@localhost:{_compose_db_port()}/jobtracker",
 )
 TEST_DB = "jobtracker_test"
 

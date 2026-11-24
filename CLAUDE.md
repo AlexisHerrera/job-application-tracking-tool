@@ -8,6 +8,7 @@ Local app (docker compose): FastAPI + Postgres backend in `backend/`, React + Vi
 - Build in phases and stop for review at the end of each one.
 - Ask before anything that reads the real Gmail inbox or Google Calendar, touches AWS, or costs money (LLM calls). The app stays local for now.
 - Never mutate the real local `jobtracker` database while testing. Use the test suite, or a throwaway database.
+- In a git worktree (Orca and other agents), run `scripts/worktree-env.sh` before any `docker compose` command. Without it, compose replaces the main checkout's stack, which serves the real database. Details: `docs/setup.md` "Several worktrees at once".
 - Work on a branch and open a PR. Merging to `main` deploys the parts that changed (`.github/workflows/ci.yml`, `docs/setup.md` "Shipping changes"). Don't run the deploy scripts against prod yourself; `.tf` changes are still planned here and applied by the user, before the merge that needs them.
 
 ## Frontend structure
