@@ -1,7 +1,6 @@
 # Local stack: Postgres + API (hot reload) + Vite (HMR). Ingestion of the real inbox is opt-in:
 #   docker compose --profile ingest up ingest
-# In a git worktree, run scripts/worktree-env.sh first: it puts COMPOSE_PROJECT_NAME and the ports
-# below in the worktree's .env, so its stack (and database) doesn't replace the main checkout's.
+# In a git worktree, run scripts/worktree-env.sh first so it gets its own stack.
 name: jobtracker
 
 services:

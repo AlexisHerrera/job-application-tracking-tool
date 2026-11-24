@@ -19,8 +19,7 @@ from tests.fakes import FakeLLM, extraction
 
 
 def _compose_db_port() -> str:
-    """This checkout's compose `db`: a git worktree gets its own port in its `.env`
-    (scripts/worktree-env.sh), so agents in parallel worktrees don't share `jobtracker_test`."""
+    """A worktree's own db port, from its `.env` (scripts/worktree-env.sh)."""
     if port := os.environ.get("DB_PORT"):
         return port
     env = Path(__file__).resolve().parents[2] / ".env"

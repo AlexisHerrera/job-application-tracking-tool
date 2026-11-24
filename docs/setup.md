@@ -30,18 +30,18 @@ Editing anything under `backend/src` reloads the API; editing `frontend/src` hot
 
 ### Several worktrees at once (agents in Orca etc.)
 
-The compose stack is named `jobtracker` and serves the folder it was started from, so `docker compose up` from a git worktree would replace the main checkout's containers. Give each worktree its own stack first:
+Without this, `docker compose up` in a git worktree replaces the main checkout's stack. Give each worktree its own:
 
 ```bash
 scripts/worktree-env.sh        # once per worktree; prints its URLs
-docker compose up -d --build   # this worktree's db + API + Vite, on its own ports
-docker compose exec api jobtracker dev seed   # its database starts empty: FAKE sample data
-docker compose down -v         # before deleting the worktree (removes its containers and volumes)
+docker compose up -d --build
+docker compose exec api jobtracker dev seed   # optional: its database starts empty
+docker compose down -v         # before deleting the worktree
 ```
 
-The script appends `COMPOSE_PROJECT_NAME=jobtracker-<folder>` and the next free `API_PORT` / `WEB_PORT` / `DB_PORT` (8001/5174/5434, 8002/5175/5435, …) to the worktree's `.env`, which compose reads on every command, so plain `docker compose` stays isolated there. `uv run pytest` in that worktree uses the same `DB_PORT`, so parallel test runs don't share `jobtracker_test`. In the main checkout the script does nothing.
+The script adds `COMPOSE_PROJECT_NAME` and the next free ports (8001/5174/5434, then 8002/5175/5435, …) to the worktree's `.env`. Tests there use the same `DB_PORT`.
 
-A worktree has no `.env` of its own until the script creates one, so it has no Gmail / Anthropic / Calendar keys, and the UI works without them. If you copy the main `.env` in, the worktree's API can reach the real calendar and the paid LLM, and you need to run the script again (the copy overwrote its block).
+The worktree's `.env` has no API keys, and the UI doesn't need them. If you copy the main `.env` in, run the script again afterwards.
 
 ### Looking at the data with a SQL client
 
