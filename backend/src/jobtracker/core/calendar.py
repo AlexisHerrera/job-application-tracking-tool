@@ -6,8 +6,6 @@ import logging
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
-from icalendar import Calendar
-
 from jobtracker.core.models import CalendarEvent
 
 log = logging.getLogger(__name__)
@@ -22,6 +20,8 @@ def _to_utc(value: datetime | date, default_tz: ZoneInfo) -> datetime | None:
 
 
 def parse_ics(data: bytes, default_tz: ZoneInfo) -> list[CalendarEvent]:
+    from icalendar import Calendar  # here, not at the top: the API's cold start doesn't need it
+
     try:
         cal = Calendar.from_ical(data)
     except ValueError:

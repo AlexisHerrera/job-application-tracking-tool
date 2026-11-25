@@ -18,6 +18,11 @@ from jobtracker.adapters.db.connect import DsqlTarget, SharedConnection
 from jobtracker.settings import Settings
 
 ENDPOINT = "abcdefghijklmnopqrstuvwxyz.dsql.us-east-1.on.aws"
+FEDERATION_ENV = {
+    "ANTHROPIC_FEDERATION_RULE_ID": "fdrl_test",
+    "ANTHROPIC_ORGANIZATION_ID": "00000000-0000-0000-0000-000000000000",
+    "ANTHROPIC_SERVICE_ACCOUNT_ID": "svac_test",
+}
 IDLE = psycopg.pq.TransactionStatus.IDLE
 INTRANS = psycopg.pq.TransactionStatus.INTRANS
 
@@ -319,3 +324,90 @@ def test_cold_start_prefetches_the_keys_opens_the_connection_and_logs_it(monkeyp
     repo = handler.app.state.make_repo()
     repo.close()
     assert repo.conn is opened[0] and len(opened) == 1
+
+
+# --- what the API imports at cold start ---
+
+# Only some routes need these, and they import them when they run (a paste, a scan, a calendar
+# sync, a discovery run). The API's cold start and the routes a page load calls must not.
+LAZY_MODULES = (
+    "anthropic",
+    "icalendar",
+    "rapidfuzz",
+    "imaplib",
+    "smtplib",
+    "googleapiclient",
+    "google.auth",  # /api/shell makes a calendar source, which only loads it to call Google
+    "google.oauth2",
+    "requests",
+    "jobtracker.adapters.anthropic_llm",
+    "jobtracker.adapters.imap_gmail",
+    "jobtracker.adapters.smtp_mail",
+    "jobtracker.adapters.job_sources",
+    "jobtracker.adapters.ats_boards",
+    "jobtracker.adapters.seeds",
+)
+
+_PAGE_LOAD = """
+import sys
+LAZY = {lazy!r}
+loaded = lambda: sorted(m for m in LAZY if m in sys.modules)
+
+import jobtracker.api.app as app_mod
+print("after import:", loaded())
+
+from fastapi.testclient import TestClient
+from jobtracker.core import services
+from jobtracker.core.clock import SystemClock
+from jobtracker.settings import Settings
+from tests.fakes import MemoryRepo, posting
+
+repo = MemoryRepo()
+services.create_application(repo, SystemClock(), services.ApplicationInput("Northwind", "Engineer"))
+repo.add_posting(posting())
+settings = Settings.from_env({env!r})
+client = TestClient(app_mod.create_app(settings, repo_factory=lambda: repo))
+print("after create_app:", loaded())
+
+for path in ("/api/shell", "/api/dashboard", "/api/campaigns", "/api/stats", "/api/insights",
+             "/api/applications", "/api/discover", "/api/discover/settings"):
+    assert client.get(path).status_code == 200, path
+assert client.get("/api/shell").json()["calendar"]["auth"] == "service_account"
+pid = client.get("/api/discover").json()["postings"][0]["id"]
+assert client.patch(f"/api/discover/{{pid}}", json={{"status": "interested"}}).status_code == 200
+print("after page load:", loaded())
+"""
+
+
+def test_cold_start_and_page_load_routes_skip_the_heavy_imports():
+    """Like prod where it matters: Anthropic through federation (no `ant auth login` check) and a
+    Calendar service account, so /api/shell makes a real calendar source. Locally, with no auth."""
+    from jobtracker.adapters.google_calendar import encode_service_account_key
+
+    key = {
+        "type": "service_account",
+        "client_email": "tracker@test-project.iam.gserviceaccount.com",
+        "private_key": "never parsed: the page-load routes don't call Google",
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+    env = {
+        "APP_ENV": "local",
+        "AUTH_DEV_BYPASS": "true",
+        "GOOGLE_SERVICE_ACCOUNT_KEY": encode_service_account_key(key),
+        "GOOGLE_CALENDAR_ID": "me@example.com",
+        **FEDERATION_ENV,
+    }
+    code = _PAGE_LOAD.format(lazy=LAZY_MODULES, env=env)
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=os.path.dirname(os.path.dirname(__file__)),  # backend/, for `tests.fakes`
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.splitlines() == [
+        "after import: []",
+        "after create_app: []",
+        "after page load: []",
+    ]

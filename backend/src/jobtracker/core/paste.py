@@ -12,8 +12,6 @@ from datetime import UTC, date, datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from rapidfuzz import fuzz
-
 from jobtracker.core.matching import company_similarity, normalize_company
 from jobtracker.core.models import Application, Stage
 
@@ -403,6 +401,8 @@ def _stage_change(app: Application | None, rec: ProposedRecord) -> StageChange |
 
 
 def candidates(rec: ProposedRecord, apps: list[Application]) -> list[tuple[float, Application]]:
+    from rapidfuzz import fuzz  # only a paste needs it, not the API's cold start
+
     if not rec.company:
         return []  # a role alone is too weak to update an existing application
     target = normalize_company(rec.company)
