@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import type { DiscoveryStatus } from "@/api/discovery";
 import { useShellStatus } from "@/features/shell/shellStatus";
 
@@ -15,10 +15,4 @@ export function useDiscoveryStatus(): DiscoveryStatusState {
   const { shell, refresh } = useShellStatus();
   const status = shell?.discovery ?? null;
   return useMemo(() => ({ status, refresh }), [status, refresh]);
-}
-
-/** Loads nothing any more: the shell's one request (ShellStatusProvider, in App) has the status.
- * Kept only because main.tsx still mounts it; drop both together. */
-export function DiscoveryStatusProvider({ children }: { children: ReactNode }) {
-  return children;
 }
