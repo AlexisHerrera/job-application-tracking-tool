@@ -1,3 +1,5 @@
+import { PendingButton } from "@/components/PendingButton";
+import { usePending } from "@/lib/usePending";
 import { useState } from "react";
 import { ExternalLink, MoreHorizontal, NotebookPen, Pencil, Trash2, Video } from "lucide-react";
 import { toast } from "sonner";
@@ -14,13 +16,14 @@ import { SOURCE_ICON, SOURCE_LABEL, interviewName } from "@/lib/interviews";
 import { InterviewForm } from "./InterviewForm";
 
 export function InterviewRow({ iv, preview, onOpen, onDone }: { iv: Interview; preview: string; onOpen: () => void; onDone: () => void }) {
+  const { pending, run: runPending } = usePending<"remove">();
   const [editing, setEditing] = useState(false);
   const Icon = SOURCE_ICON[iv.source];
   const upcoming = new Date(iv.starts_at) > new Date();
   const cancelled = iv.status === "cancelled";
   if (editing) return <li><InterviewForm initial={iv} onDone={() => { setEditing(false); onDone(); }} onCancel={() => setEditing(false)} /></li>;
 
-  async function remove() {
+  const remove = () => runPending("remove", async () => {
     try {
       await api.removeInterview(iv.id);
       toast.success(iv.source === "manual" ? "Interview deleted" : "Hidden. It won't come back on the next sync.");
@@ -28,7 +31,7 @@ export function InterviewRow({ iv, preview, onOpen, onDone }: { iv: Interview; p
     } catch (e) {
       toast.error(errorText(e));
     }
-  }
+  });
 
   return (
     <li className="flex items-center gap-2 rounded-lg border p-1 pr-1.5 transition-colors">
@@ -58,7 +61,7 @@ export function InterviewRow({ iv, preview, onOpen, onDone }: { iv: Interview; p
       )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-xs" aria-label="Interview actions"><MoreHorizontal /></Button>
+          <PendingButton pending={pending !== null} variant="ghost" size="icon-xs" aria-label="Interview actions">{!pending && <MoreHorizontal />}</PendingButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setEditing(true)}><Pencil /> Edit round, type, title</DropdownMenuItem>

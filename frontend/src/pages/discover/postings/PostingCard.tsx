@@ -1,3 +1,4 @@
+import { type WritePosting } from "./usePostingWrites";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import { daysAgo } from "@/lib/format";
 import { type Posting } from "@/api/discovery";
@@ -12,7 +13,7 @@ import { PostingChips } from "./PostingChips";
 import { PostingTechTags } from "./PostingTechTags";
 import { VerdictBadge } from "./VerdictBadge";
 
-export function PostingCard({ p, onChange, onBlocked, onTech }: { p: Posting; onChange: () => void; onBlocked: () => void; onTech: (tech: string) => void }) {
+export function PostingCard({ p, write, onBlocked, onTech }: { p: Posting; write: WritePosting; onBlocked: () => void; onTech: (tech: string) => void }) {
   const url = safeUrl(p.url);
   const salary = salaryOf(p) ?? usdSalary(p);
   const meta = [p.location, salary, p.employment_type, p.posted_at ? `posted ${daysAgo(p.posted_at)}` : null, p.publisher ? `via ${p.publisher}` : null].filter(Boolean);
@@ -51,7 +52,7 @@ export function PostingCard({ p, onChange, onBlocked, onTech }: { p: Posting; on
 
         <Collapsible>
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <PostingActions p={p} onChange={onChange} onBlocked={onBlocked} />
+            <PostingActions p={p} write={write} onBlocked={onBlocked} />
             {p.description && (
               <CollapsibleTrigger asChild>
                 <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground">

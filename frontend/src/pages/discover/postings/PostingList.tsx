@@ -1,3 +1,4 @@
+import { usePostingWrites } from "./usePostingWrites";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { PostingPage } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ export function PostingList({
   page,
   loading,
   set,
-  onChange,
+  reload,
   onBlocked,
   onTech,
 }: {
@@ -19,10 +20,11 @@ export function PostingList({
   page: number;
   loading: boolean;
   set: (key: string, value: string | null) => void;
-  onChange: () => void;
+  reload: () => Promise<boolean>;
   onBlocked: () => void;
   onTech: (tech: string) => void;
 }) {
+  const { updates, write } = usePostingWrites(reload);
   return (
     <div className={cn("space-y-3 transition-opacity", loading && "opacity-60")}>
       <p className="text-xs text-muted-foreground">
@@ -30,7 +32,7 @@ export function PostingList({
         {data.total > PAGE_SIZE && ` · showing ${page * PAGE_SIZE + 1}–${Math.min(data.total, (page + 1) * PAGE_SIZE)}`}
       </p>
       {data.postings.map((p) => (
-        <PostingCard key={p.id} p={p} onChange={onChange} onBlocked={onBlocked} onTech={onTech} />
+        <PostingCard key={p.id} p={updates.get(p.id) ?? p} write={write} onBlocked={onBlocked} onTech={onTech} />
       ))}
       {data.total > PAGE_SIZE && (
         <div className="flex items-center justify-end gap-2 pt-1">

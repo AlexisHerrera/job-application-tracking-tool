@@ -1,3 +1,5 @@
+import { PendingButton } from "@/components/PendingButton";
+import { usePending } from "@/lib/usePending";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,6 +13,7 @@ import { Field } from "@/components/Field";
 import { INTERVIEW_TYPES } from "@/lib/interviews";
 
 export function InterviewForm({ appId, initial, round, onDone, onCancel }: { appId?: string; initial?: Interview; round?: number; onDone: () => void; onCancel: () => void }) {
+  const { pending, run: runPending } = usePending<"save">();
   const fromCalendar = initial?.source === "calendar"; // the calendar owns its time and title
   const [f, setF] = useState({
     starts_at: isoToDateTime(initial?.starts_at ?? null),
@@ -26,13 +29,15 @@ export function InterviewForm({ appId, initial, round, onDone, onCancel }: { app
       interview_type: f.interview_type || null,
       round: f.round ? Number(f.round) : null,
     };
-    try {
-      if (initial) await api.updateInterview(initial.id, data);
-      else await api.addInterview(appId!, data);
-      onDone();
-    } catch (err) {
-      toast.error(errorText(err));
-    }
+    await runPending("save", async () => {
+      try {
+        if (initial) await api.updateInterview(initial.id, data);
+        else await api.addInterview(appId!, data);
+        onDone();
+      } catch (err) {
+        toast.error(errorText(err));
+      }
+    });
   }
   return (
     <form className="space-y-3 rounded-lg border p-3" onSubmit={submit}>
@@ -52,8 +57,8 @@ export function InterviewForm({ appId, initial, round, onDone, onCancel }: { app
         <Field label="Round" id="iv-round"><Input type="number" min={1} max={20} {...bind("round")} /></Field>
       </div>
       <div className="flex gap-2">
-        <Button type="submit" size="sm">{initial ? "Save" : "Add interview"}</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
+        <PendingButton pending={pending !== null} type="submit" size="sm">{initial ? "Save" : "Add interview"}</PendingButton>
+        <Button type="button" size="sm" variant="ghost" disabled={pending !== null} onClick={onCancel}>Cancel</Button>
       </div>
     </form>
   );

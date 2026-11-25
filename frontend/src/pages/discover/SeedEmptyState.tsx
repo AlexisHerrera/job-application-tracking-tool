@@ -1,18 +1,20 @@
+import { PendingButton } from "@/components/PendingButton";
+import { usePending } from "@/lib/usePending";
 import { Telescope } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/api/client";
 import { errorText } from "@/lib/errors";
 import { Empty } from "@/components/common";
-import { Button } from "@/components/ui/button";
 
 /** "No saved searches yet" + Load the defaults. */
 export function SeedEmptyState({ onSeeded }: { onSeeded: () => void }) {
+  const { pending, run: runPending } = usePending<"seed">();
   return (
     <Empty icon={<Telescope className="size-8" />}>
       <p>No saved searches yet.</p>
-      <Button
+      <PendingButton pending={pending !== null}
         size="sm"
-        onClick={async () => {
+        onClick={() => runPending("seed", async () => {
           try {
             await api.seedDiscovery();
             toast.success("Loaded the default searches, criteria and company watchlist. Review them, then run.");
@@ -20,10 +22,10 @@ export function SeedEmptyState({ onSeeded }: { onSeeded: () => void }) {
           } catch (e) {
             toast.error(errorText(e));
           }
-        }}
+        })}
       >
         Load the defaults
-      </Button>
+      </PendingButton>
     </Empty>
   );
 }

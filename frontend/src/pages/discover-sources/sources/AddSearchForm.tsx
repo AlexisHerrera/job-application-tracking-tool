@@ -1,14 +1,16 @@
+import { PendingButton } from "@/components/PendingButton";
+import { usePending } from "@/lib/usePending";
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { api } from "@/api/client";
 import { type DiscoverySearch, type SearchSource } from "@/api/discovery";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { GETONBRD_CATEGORIES } from "./constants";
 
 /** A new saved search: the source, then that source's inputs. `run` reports errors and reloads. */
 export function AddSearchForm({ run }: { run: (fn: () => Promise<unknown>) => Promise<void> }) {
+  const { pending, run: runPending } = usePending<"add">();
   const [source, setSource] = useState<SearchSource>("getonbrd");
   const [category, setCategory] = useState("programming");
   const [labelText, setLabelText] = useState("");
@@ -19,11 +21,11 @@ export function AddSearchForm({ run }: { run: (fn: () => Promise<unknown>) => Pr
   async function add() {
     const params: DiscoverySearch["params"] = source === "workable" ? { query: query.trim(), location: place.trim() } : source === "getonbrd" ? { category } : { feed };
     const fallback = source === "workable" ? `Workable · ${[query.trim(), place.trim()].filter(Boolean).join(" in ")}` : source === "getonbrd" ? `getonbrd · ${category}` : feed.split("/").pop() ?? "feed";
-    await run(async () => {
+    await runPending("add", () => run(async () => {
       await api.addSearch({ source, label: labelText || fallback, params, enabled: true });
       setLabelText("");
       setQuery("");
-    });
+    }));
   }
 
   return (
@@ -50,9 +52,9 @@ export function AddSearchForm({ run }: { run: (fn: () => Promise<unknown>) => Pr
       ) : (
         <Input className="h-7" placeholder="https://remoteyeah.com/remote-…-jobs.xml" value={feed} onChange={(e) => setFeed(e.target.value)} />
       )}
-      <Button size="sm" variant="outline" disabled={source === "workable" ? !(query.trim() || place.trim()) : source === "remoteyeah" ? !feed.endsWith(".xml") : false} onClick={add}>
-        <Plus /> Add search
-      </Button>
+      <PendingButton pending={pending !== null} size="sm" variant="outline" disabled={source === "workable" ? !(query.trim() || place.trim()) : source === "remoteyeah" ? !feed.endsWith(".xml") : false} onClick={add}>
+        {!pending && <Plus />} Add search
+      </PendingButton>
     </div>
   );
 }

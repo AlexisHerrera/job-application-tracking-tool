@@ -1,5 +1,6 @@
+import { usePending } from "@/lib/usePending";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,8 @@ export function ReviewDialog({ open, onOpenChange, campaign = "all" }: { open: b
   const [reviewed, setReviewed] = useState(0);
   const [role, setRole] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { pending, run: runPending } = usePending<"confirm" | "delete">();
+  const busy = pending !== null;
   const roleInput = useRef<HTMLInputElement>(null);
   const content = useRef<HTMLDivElement>(null);
 
@@ -53,19 +55,15 @@ export function ReviewDialog({ open, onOpenChange, campaign = "all" }: { open: b
     setIndex((i) => (next.length ? Math.min(i, next.length - 1) : 0));
   };
 
-  async function run(fn: () => Promise<void>) {
-    if (busy) return;
-    setBusy(true);
+  const run = (action: "confirm" | "delete", fn: () => Promise<void>) => runPending(action, async () => {
     try {
       await fn();
     } catch (e) {
       toast.error(errorText(e));
-    } finally {
-      setBusy(false);
     }
-  }
+  });
 
-  const confirm = () => run(async () => {
+  const confirm = () => run("confirm", async () => {
     if (!current) return;
     if (role.trim() && role.trim() !== current.role_title) await api.updateApplication(current.id, { role_title: role.trim() });
     await api.markReviewed(current.id);
@@ -75,9 +73,9 @@ export function ReviewDialog({ open, onOpenChange, campaign = "all" }: { open: b
   });
 
   const remove = () => {
-    if (!current) return;
+    if (!current || busy) return;
     if (!confirmDelete) return setConfirmDelete(true);
-    void run(async () => {
+    void run("delete", async () => {
       await api.deleteApplication(current.id);
       toast.success(`Deleted ${current.company}. Its emails are back in the inbox.`);
       drop(current.id);
@@ -88,7 +86,7 @@ export function ReviewDialog({ open, onOpenChange, campaign = "all" }: { open: b
   const move = (step: number) => queue?.length && setIndex((i) => (i + step + queue.length) % queue.length);
 
   function onKeyDown(e: KeyboardEvent) {
-    if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (busy || e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (e.target instanceof HTMLButtonElement && (k === "enter" || k === " ")) return; // a focused button keeps its meaning
     if (k === "enter" || k === "y") void confirm();
@@ -140,6 +138,7 @@ export function ReviewDialog({ open, onOpenChange, campaign = "all" }: { open: b
                 <span className="text-sm text-muted-foreground">applied {fmtDate(current.applied_at)}</span>
               </div>
               <Input
+                disabled={busy}
                 ref={roleInput}
                 aria-label="Role"
                 value={role}
@@ -153,15 +152,23 @@ export function ReviewDialog({ open, onOpenChange, campaign = "all" }: { open: b
 
             <ReviewEmailPreview detail={detail.data} loading={detail.loading} />
 
-            <ReviewActions
-              busy={busy}
-              confirmDelete={confirmDelete}
-              canConfirm={!!role.trim()}
-              onDelete={remove}
-              onOpen={() => { onOpenChange(false); navigate(`/applications/${current.id}`); }}
-              onMove={move}
-              onConfirm={() => void confirm()}
-            />
+            <fieldset disabled={busy} className="min-w-0">
+              <ReviewActions
+                busy={busy}
+                confirmDelete={confirmDelete}
+                canConfirm={!!role.trim()}
+                onDelete={remove}
+                onOpen={() => { onOpenChange(false); navigate(`/applications/${current.id}`); }}
+                onMove={move}
+                onConfirm={() => void confirm()}
+              />
+            </fieldset>
+            {pending && (
+              <p role="status" className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 motion-safe:animate-spin" />
+                {pending === "delete" ? "Deleting application…" : "Confirming review…"}
+              </p>
+            )}
           </div>
         )}
       </DialogContent>
