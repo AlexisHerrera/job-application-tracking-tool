@@ -93,9 +93,11 @@ resource "aws_cloudfront_distribution" "main" {
   enabled             = true
   comment             = local.name
   default_root_object = "index.html"
-  price_class         = "PriceClass_100"
-  http_version        = "http2and3"
-  is_ipv6_enabled     = true
+  # All edge locations: PriceClass_100 served Buenos Aires from Miami (~125 ms round trip, TLS
+  # included). South American edges cost more per GB, which is pennies at this traffic.
+  price_class     = "PriceClass_All"
+  http_version    = "http2and3"
+  is_ipv6_enabled = true
 
   origin {
     origin_id                = "web"
