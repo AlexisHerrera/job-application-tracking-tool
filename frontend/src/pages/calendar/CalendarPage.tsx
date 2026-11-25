@@ -11,8 +11,9 @@ import { ProcessesView } from "./processes/ProcessesView";
 export default function CalendarPage() {
   const [params, set] = useSearchParamsPatch();
   const view = params.get("view") === "processes" ? "processes" : "month";
-  const { selected: campaign } = useCampaign();
-  const { data, error, loading } = useAsync(() => api.activity(campaign), [campaign]);
+  // Per campaign, so it waits until the selection is settled (else it'd load twice).
+  const { selected: campaign, ready } = useCampaign();
+  const { data, error, loading } = useAsync(() => (ready ? api.activity(campaign) : Promise.resolve(null)), [campaign, ready]);
 
   return (
     <>
@@ -27,7 +28,7 @@ export default function CalendarPage() {
         }
       />
       {!data ? (
-        <Loading error={error} loading={loading} rows={6} />
+        <Loading error={error} loading={loading || !ready} rows={6} />
       ) : view === "month" ? (
         <MonthView items={data.items} month={params.get("month")} day={params.get("day")} set={set} />
       ) : (

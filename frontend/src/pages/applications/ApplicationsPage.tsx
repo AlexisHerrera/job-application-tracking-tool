@@ -27,9 +27,10 @@ export default function ApplicationsPage() {
   const openId = params.get("open");
   const [reviewing, setReviewing] = useState(false);
 
-  const { selected: campaign } = useCampaign();
-  const { data, error, loading, setData } = useAsync(() => api.applications({ campaign }), [campaign]);
-  const flowData = useAsync(() => (flow ? api.stats(campaign).then((s) => s.flow) : Promise.resolve(null)), [campaign, !!flow]).data;
+  // Per campaign, so both wait until the selection is settled (else they'd load twice).
+  const { selected: campaign, ready } = useCampaign();
+  const { data, error, loading, setData } = useAsync(() => (ready ? api.applications({ campaign }) : Promise.resolve(null)), [campaign, ready]);
+  const flowData = useAsync(() => (ready && flow ? api.stats(campaign).then((s) => s.flow) : Promise.resolve(null)), [campaign, ready, !!flow]).data;
   const { searched, counts, listed } = useApplicationFilters(data, flowData, { q, status, reviewOnly, flow });
   const { move, confirm } = useBoardActions(data, setData);
   const toReview = (data ?? []).filter((a) => a.needs_review).length;
@@ -60,7 +61,7 @@ export default function ApplicationsPage() {
       <ApplicationsToolbar view={view} onViewChange={setView} q={q} reviewOnly={reviewOnly} flow={flow} flowData={flowData} set={set} />
       {view === "all" && <StatusFilterChips status={status} counts={counts} set={set} />}
 
-      <Loading error={error} loading={loading && !data} />
+      <Loading error={error} loading={(loading || !ready) && !data} />
       {data && data.length === 0 && <Empty>No applications in this campaign yet. <Link to="/add" className="text-primary underline-offset-4 hover:underline">Add one</Link></Empty>}
       {data && data.length > 0 && view === "board" && (
         <Board apps={searched} onOpen={(id) => set({ open: id })} onMove={move} onConfirm={confirm} />

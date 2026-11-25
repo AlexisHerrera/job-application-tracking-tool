@@ -1,7 +1,8 @@
+import { PendingButton } from "@/components/PendingButton";
+import { usePending } from "@/lib/usePending";
 import { useState } from "react";
 import { Ban, CalendarDays, MessagesSquare } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/api/client";
 import { errorText } from "@/lib/errors";
@@ -12,12 +13,13 @@ import { useRefresh } from "@/lib/refresh";
 import { ApplicationPicker } from "./ApplicationPicker";
 
 export function CalendarMatchItem({ iv, apps }: { iv: Interview; apps: Application[] }) {
+  const { pending, run: runPending } = usePending<"assign" | "general" | "dismiss">();
   const { bump } = useRefresh();
   const hint = (iv.company ?? "").toLowerCase();
   const suggested = hint ? apps.filter((a) => a.company.toLowerCase() === hint).map((a) => a.id) : [];
   const [target, setTarget] = useState(suggested.length === 1 ? suggested[0] : "");
   const others = iv.attendees.filter((a) => a !== iv.organizer).slice(0, 3);
-  const run = async (fn: () => Promise<unknown>, done: string) => {
+  const run = (key: NonNullable<typeof pending>, fn: () => Promise<unknown>, done: string) => runPending(key, async () => {
     try {
       await fn();
       toast.success(done);
@@ -25,7 +27,7 @@ export function CalendarMatchItem({ iv, apps }: { iv: Interview; apps: Applicati
     } catch (err) {
       toast.error(errorText(err));
     }
-  };
+  });
   return (
     <Card className="gap-3 py-4">
       <CardContent className="space-y-3 px-4">
@@ -40,11 +42,11 @@ export function CalendarMatchItem({ iv, apps }: { iv: Interview; apps: Applicati
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ApplicationPicker apps={apps} value={target} onChange={setTarget} suggested={suggested} placeholder="Assign to… (type company, role, status)" />
-          <Button size="sm" disabled={!target} onClick={() => run(() => api.assignInterview(iv.id, target), "Assigned. The attendees' company domain is remembered.")}>Assign</Button>
-          <Button size="sm" variant="outline" onClick={() => run(() => api.markGeneral(iv.id), "Kept as a general talk. Add notes on the Interviews page.")}>
-            <MessagesSquare /> General talk, no application
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => run(() => api.removeInterview(iv.id), "Hidden")}><Ban /> Not an interview</Button>
+          <PendingButton pending={pending === "assign"} size="sm" disabled={!target || pending !== null} onClick={() => run("assign", () => api.assignInterview(iv.id, target), "Assigned. The attendees' company domain is remembered.")}>Assign</PendingButton>
+          <PendingButton pending={pending === "general"} disabled={pending !== null} size="sm" variant="outline" onClick={() => run("general", () => api.markGeneral(iv.id), "Kept as a general talk. Add notes on the Interviews page.")}>
+            {pending !== "general" && <MessagesSquare />} General talk, no application
+          </PendingButton>
+          <PendingButton pending={pending === "dismiss"} disabled={pending !== null} size="sm" variant="ghost" onClick={() => run("dismiss", () => api.removeInterview(iv.id), "Hidden")}>{pending !== "dismiss" && <Ban />} Not an interview</PendingButton>
         </div>
       </CardContent>
     </Card>

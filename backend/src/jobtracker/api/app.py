@@ -97,7 +97,7 @@ def create_app(
     verifier = TokenVerifier(settings)
     clock = SystemClock()
     tz = settings.tz
-    make_repo = repo_factory or (lambda: PostgresRepo.open(settings))
+    make_repo = repo_factory or PostgresRepo.factory(settings)
 
     def default_llm() -> LLMClient:
         from jobtracker.adapters.anthropic_llm import AnthropicLLM
@@ -187,6 +187,8 @@ def create_app(
                 repo.close()
 
     app = FastAPI(title="jobtracker", docs_url=None, redoc_url=None, openapi_url=None)
+    # For the Lambda's cold start (`lambdas/handlers.py`): fetch the keys, open the connection.
+    app.state.verifier, app.state.make_repo = verifier, make_repo
 
     @app.exception_handler(services.NotFound)
     def _not_found(_req, _exc):
@@ -979,6 +981,21 @@ def create_app(
         to_review = repo.count_postings(PostingQuery(statuses=(PostingStatus.NEW.value,)))
         last = repo.last_run(except_trigger="rescore")
         return {"to_review": to_review, "last_run": s.run_json(last)}
+
+    @api.get("/shell")
+    def shell(repo: PostgresRepo = Depends(get_repo)):
+        """Everything the sidebar shows, in one request on one connection: in prod each request
+        that a page fires at the same time costs its own (often cold) Lambda instance. The parts
+        are the same as GET /scan, /calendar and /discover/status, plus the inbox counts."""
+        return {
+            "inbox": {
+                "unassigned": len(repo.list_unassigned()),
+                "unassigned_interviews": len(repo.list_unassigned_interviews()),
+            },
+            "scan": scan_status(repo),
+            "calendar": calendar_status(repo),
+            "discovery": discovery_status(repo),
+        }
 
     # the company watchlist (plan §21, round 6)
     @api.get("/discover/companies")

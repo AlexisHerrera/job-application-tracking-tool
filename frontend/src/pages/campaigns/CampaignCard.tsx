@@ -1,3 +1,5 @@
+import { PendingButton } from "@/components/PendingButton";
+import { usePending } from "@/lib/usePending";
 import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,7 @@ import { Field } from "@/components/Field";
 import { today } from "./today";
 
 export function CampaignCard({ c, run }: { c: CampaignSummary; run: (fn: () => Promise<unknown>) => Promise<boolean> }) {
+  const { pending, run: runPending } = usePending<"save" | "end" | "delete">();
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState({ name: c.name, started_on: c.started_on, ended_on: c.ended_on ?? "" });
   return (
@@ -26,7 +29,7 @@ export function CampaignCard({ c, run }: { c: CampaignSummary; run: (fn: () => P
           {c.first_interview_on && <> · first interview {fmtDate(c.first_interview_on)}</>}
           {c.first_response_on && <> · first response {fmtDate(c.first_response_on)}</>}
         </CardDescription>
-        <CardAction><Button variant="ghost" size="sm" onClick={() => setEditing(!editing)}><Pencil /> {editing ? "Close" : "Edit"}</Button></CardAction>
+        <CardAction><Button variant="ghost" size="sm" disabled={pending !== null} onClick={() => setEditing(!editing)}><Pencil /> {editing ? "Close" : "Edit"}</Button></CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -36,16 +39,16 @@ export function CampaignCard({ c, run }: { c: CampaignSummary; run: (fn: () => P
         </div>
         {c.notes && <p className="text-sm">{c.notes}</p>}
         {editing && (
-          <form className="space-y-4 rounded-lg border p-4" onSubmit={(e) => { e.preventDefault(); void run(() => api.updateCampaign(c.id, { ...f, ended_on: f.ended_on || null })); }}>
+          <form className="space-y-4 rounded-lg border p-4" onSubmit={(e) => { e.preventDefault(); void runPending("save", () => run(() => api.updateCampaign(c.id, { ...f, ended_on: f.ended_on || null }))); }}>
             <Field label="Name" id={`n-${c.id}`}><Input id={`n-${c.id}`} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Starts on" id={`s-${c.id}`}><Input id={`s-${c.id}`} type="date" value={f.started_on} onChange={(e) => setF({ ...f, started_on: e.target.value })} /></Field>
               <Field label="Ends on (empty = ongoing)" id={`e-${c.id}`}><Input id={`e-${c.id}`} type="date" value={f.ended_on} onChange={(e) => setF({ ...f, ended_on: e.target.value })} /></Field>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" size="sm">Save</Button>
-              {c.ongoing && <Button type="button" size="sm" variant="outline" onClick={() => run(() => api.updateCampaign(c.id, { ended_on: today() }))}>End today</Button>}
-              <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => run(() => api.deleteCampaign(c.id))}>Delete (applications stay)</Button>
+              <PendingButton pending={pending === "save"} disabled={pending !== null} type="submit" size="sm">Save</PendingButton>
+              {c.ongoing && <PendingButton pending={pending === "end"} disabled={pending !== null} type="button" size="sm" variant="outline" onClick={() => runPending("end", () => run(() => api.updateCampaign(c.id, { ended_on: today() })))}>End today</PendingButton>}
+              <PendingButton pending={pending === "delete"} disabled={pending !== null} type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => runPending("delete", () => run(() => api.deleteCampaign(c.id)))}>Delete (applications stay)</PendingButton>
             </div>
           </form>
         )}

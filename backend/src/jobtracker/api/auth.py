@@ -47,7 +47,16 @@ class TokenVerifier:
                 )
             self.issuer = cognito_issuer(settings.cognito_user_pool_id)
             # PyJWKClient caches keys and refetches when it sees an unknown `kid` (key rotation).
-            self.jwks = jwt.PyJWKClient(f"{self.issuer}/.well-known/jwks.json", lifespan=3600)
+            # A short timeout: the Lambda fetches them during its 10 s init (`prefetch`).
+            self.jwks = jwt.PyJWKClient(
+                f"{self.issuer}/.well-known/jwks.json", lifespan=3600, timeout=5
+            )
+
+    def prefetch(self) -> None:
+        """Fetch the pool's signing keys now (the Lambda's cold start), not in the first request.
+        Cached for `lifespan`, like a fetch from `verify`."""
+        if not self.bypass:
+            self.jwks.get_jwk_set()
 
     def verify(self, token: str | None) -> User:
         if self.bypass:

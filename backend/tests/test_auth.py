@@ -132,7 +132,7 @@ def test_auth_config_locally_says_there_is_no_login():
     ],
 )
 def test_rejects_invalid_tokens(client, headers):
-    for path in ("/api/me", "/api/applications", "/api/stats"):
+    for path in ("/api/me", "/api/applications", "/api/stats", "/api/shell"):
         assert client.get(path, headers=headers).status_code == 401
 
 

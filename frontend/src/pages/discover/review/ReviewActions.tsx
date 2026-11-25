@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Bookmark, BookmarkX, Check, ThumbsDown, Undo2 } from "lucide-react";
+import { Bookmark, BookmarkX, Check, Loader2, ThumbsDown, Undo2 } from "lucide-react";
 import type { Posting } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -30,7 +30,8 @@ function Label({ full, short }: { full: string; short: string }) {
 }
 
 /** Discard / Save for later / Applied for a posting still to decide; what was decided, with an undo, for the others. */
-export function ReviewActions({ p, pending, busy, onDiscard, onSave, onApply, onUndo, onOpenApplication }: { p: Posting; pending: boolean; busy: boolean; onDiscard: () => void; onSave: () => void; onApply: () => void; onUndo: () => void; onOpenApplication: () => void }) {
+export function ReviewActions({ p, pending, busy, saving, onDiscard, onSave, onApply, onUndo, onOpenApplication }: { p: Posting; pending: boolean; busy: boolean; saving: boolean; onDiscard: () => void; onSave: () => void; onApply: () => void; onUndo: () => void; onOpenApplication: () => void }) {
+  if (saving) return <span role="status" className="inline-flex items-center gap-2 text-sm"><Loader2 className="size-4 motion-safe:animate-spin" /> Saving…</span>;
   if (p.status === "applied") {
     return (
       <div className="flex flex-wrap items-center gap-3">

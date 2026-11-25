@@ -39,9 +39,23 @@ if missing:
     sys.exit(f"imported by the Lambda code but not in the zip: {missing} (a runtime dependency?)")
 PY
 
-# Bytecode, caches and test data aren't needed at runtime.
+# Caches and test data aren't needed at runtime, nor bytecode from the install: it's compiled anew.
 find "$pkg" -type d \( -name __pycache__ -o -name tests \) -prune -exec rm -rf {} +
 find "$pkg" -name '*.pyc' -delete
+
+# Bytecode. /var/task is read-only, so without .pyc files every cold start compiles every module
+# from source (the API's imports take ~3x as long). It has to be CPython 3.12, the runtime's
+# version (a .pyc of another version is ignored), whatever `python3` this machine has.
+# unchecked-hash: Python loads the .pyc without comparing it to the source's mtime. -s/-p record
+# the Lambda's paths, so the bytes don't depend on where this build ran.
+# Not anthropic: its bytecode is 2.5 MB zipped, and deploy-backend.sh's 50 MB direct upload limit
+# leaves too little room for it. The API's cold start doesn't import it (only a paste and the
+# ingest and discover runs do, which then spend seconds on the LLM anyway).
+py312=(uv run --no-project --python 3.12 python)
+"${py312[@]}" -c 'import sys
+if sys.implementation.name != "cpython" or sys.version_info[:2] != (3, 12):
+    sys.exit(f"need CPython 3.12 to compile the bytecode, got {sys.version}")'
+"${py312[@]}" -m compileall -q -j0 --invalidation-mode unchecked-hash -x "/package/anthropic/" -s "$pkg" -p /var/task "$pkg"
 
 # Fixed timestamps and order, so an unchanged build gives the same zip (and Terraform sees no
 # change in source_code_hash).

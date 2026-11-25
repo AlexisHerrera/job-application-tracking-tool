@@ -18,10 +18,11 @@ import { NoNewsCard } from "./NoNewsCard";
 import { UpcomingInterviewsCard } from "./UpcomingInterviewsCard";
 
 export default function DashboardPage() {
-  const { selected: campaign } = useCampaign();
+  const { selected: campaign, ready } = useCampaign();
   const { data, error, loading } = useAsync(api.dashboard);
-  const stats = useAsync(() => api.stats(campaign), [campaign]).data;
-  const insights = useAsync(() => api.insights(campaign), [campaign]).data;
+  // Per campaign, so they wait until the selection is settled (else they'd load twice).
+  const stats = useAsync(() => (ready ? api.stats(campaign) : Promise.resolve(null)), [campaign, ready]).data;
+  const insights = useAsync(() => (ready ? api.insights(campaign) : Promise.resolve(null)), [campaign, ready]).data;
   const [reviewing, setReviewing] = useState(false);
   if (!data) return <Loading error={error} loading={loading} rows={4} />;
   const { upcoming_interviews: upcoming, recent_interviews: recent, follow_ups: fu } = data;
