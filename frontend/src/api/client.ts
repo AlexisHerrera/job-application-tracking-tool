@@ -12,6 +12,7 @@ import type {
   StepInput,
   TimelineEvent,
 } from "./applications";
+import type { Experience, ExperienceInput, Fact, FormQuestion, QuestionCategory, QuestionInput, QuestionPatch } from "./apply";
 import type { CampaignSummary } from "./campaigns";
 import type { ActivityItem, Dashboard, Insights, Process, Stats } from "./dashboard";
 import type {
@@ -103,6 +104,18 @@ export const api = {
   updateCampaign: (id: string, data: Partial<Pick<CampaignSummary, "name" | "started_on" | "ended_on" | "notes">>) =>
     request<CampaignSummary>("PATCH", `/campaigns/${id}`, data),
   deleteCampaign: (id: string) => request<void>("DELETE", `/campaigns/${id}`),
+  applyQuestions: () => request<{ categories: QuestionCategory[]; questions: FormQuestion[] }>("GET", "/apply/questions"),
+  addApplyQuestion: (data: QuestionInput) => request<{ created: boolean; question: FormQuestion }>("POST", "/apply/questions", data),
+  patchApplyQuestion: (id: string, data: QuestionPatch) => request<FormQuestion>("PATCH", `/apply/questions/${id}`, data),
+  deleteApplyQuestion: (id: string) => request<void>("DELETE", `/apply/questions/${id}`),
+  experiences: () => request<Experience[]>("GET", "/apply/experiences"),
+  addExperience: (data: ExperienceInput) => request<Experience>("POST", "/apply/experiences", data),
+  patchExperience: (id: string, data: Partial<ExperienceInput> & { position?: number }) => request<Experience>("PATCH", `/apply/experiences/${id}`, data),
+  deleteExperience: (id: string) => request<void>("DELETE", `/apply/experiences/${id}`),
+  applyFacts: () => request<Fact[]>("GET", "/apply/facts"),
+  addApplyFact: (label: string) => request<Fact>("POST", "/apply/facts", { label }),
+  patchApplyFact: (key: string, data: Partial<Pick<Fact, "label" | "value" | "notes">>) => request<Fact>("PATCH", `/apply/facts/${encodeURIComponent(key)}`, data),
+  deleteApplyFact: (key: string) => request<void>("DELETE", `/apply/facts/${encodeURIComponent(key)}`),
   inbox: () => request<TimelineEvent[]>("GET", "/inbox"),
   assign: (eventId: string, applicationId: string) =>
     request<TimelineEvent>("POST", `/events/${eventId}/assign`, { application_id: applicationId }),

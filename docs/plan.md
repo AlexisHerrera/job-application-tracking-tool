@@ -4,13 +4,24 @@ Open work only; remove an item once it's done. History and design of what's buil
 
 ## Discover
 
-- [ ] Mark postings closed when they leave their board (today a stored posting stays open forever).
+- [ ] Mark postings closed when they leave their board (today a stored posting stays open forever). The form endpoints in `adapters/ats_forms.py` answer 404 for a closed posting: one cheap check per posting (4 of the top 20 matches were closed on 2026-11-24).
 - [ ] A posting discarded as `closed` or `fake` also hides its duplicates at the same company.
 - [ ] Dedupe the same role listed in several locations at one company.
 - [ ] Show a company's watch status on the Discover page (watched or not, on its postings).
 - [ ] Drop fake-looking postings whose apply link goes through known redirect or aggregator domains (e.g. remotejobs.dedyn.io, victorytuitions.in → Bluelight Consulting).
 - [ ] Monthly directory scan (`jobtracker discover companies scan`, ~20 min) against prod: needs a `--dsql` option; stays a laptop command (too long for Lambda's 15 min).
 - [ ] Batch `reset_scores` (Re-score) and `reapply_rules` (saving the rules) before they near DSQL's per-transaction limits (3,000 rows, 10 MiB; ~800 rows today).
+
+## Apply
+
+The Questions, Experience and Facts pages are built (migration 0017, `core/apply.py`). The questions come from `jobtracker apply collect-questions`, never from the repo (it's public). Next:
+
+- [ ] Fill in Experience and Facts, answer the questions (you). The answers are the examples the drafts below learn the format from.
+- [ ] "Draft an answer" on the Questions page: paste a question (and optionally pick the posting, for "why us"), get a draft from your Experience, your answers in that category and their style notes, edit, copy. One paid call per draft (prompt-cache the experience), so ask first. A free "Copy prompt" alternative to paste into claude.ai.
+- [ ] Collect new questions on their own: `apply collect-questions` after each discovery run, or when a posting is marked applied.
+- [ ] Applications with no `job_url` (recruiters, direct) have no form to read: paste their questions by hand when you meet them.
+- [ ] "Most likely to apply" ranking: learn from what you applied to versus dismissed (with `discard_reason`), on top of the AI score.
+- [ ] Filling forms: a Chrome extension that matches a form's fields to saved answers and facts (no tokens for questions you've answered), or Claude in Chrome for one form to measure its real cost first. You always press submit.
 
 ## Tuning (from what the scored postings show)
 
@@ -31,4 +42,3 @@ Open work only; remove an item once it's done. History and design of what's buil
 - WeRemoto and the a16z portfolio board (plain HTML pages).
 - Wellfound, Built In, Kaszek portfolio board: bot challenges, so only through your browser, and only if other sources fall short.
 - Add a company by its website from the page (today only `jobtracker discover companies add <url>`); fetching a typed URL needs more care than a local command.
-- Chrome extension (Phase 7).

@@ -1,4 +1,4 @@
-import { CalendarDays, CalendarRange, ChartColumn, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, Rss, Target, Telescope, type LucideIcon } from "lucide-react";
+import { BriefcaseBusiness, CalendarDays, CalendarRange, ChartColumn, Inbox as InboxIcon, KanbanSquare, LayoutDashboard, ListChecks, MessageSquareText, Rss, Target, Telescope, type LucideIcon } from "lucide-react";
 
 /** A number after the label. */
 export type NavCount = "review" | "inbox";
@@ -29,6 +29,14 @@ export const NAV: NavGroup[] = [
       { to: "/discover/sources", label: "Sources", icon: Rss, alert: "sources" },
       { to: "/discover/criteria", label: "Criteria", icon: Target },
       { to: "/discover/insights", label: "Insights", icon: ChartColumn },
+    ],
+  },
+  {
+    label: "Apply",
+    items: [
+      { to: "/apply", label: "Questions", icon: MessageSquareText, end: true },
+      { to: "/apply/experience", label: "Experience", icon: BriefcaseBusiness },
+      { to: "/apply/facts", label: "Facts", icon: ListChecks },
     ],
   },
   {

@@ -11,6 +11,7 @@ from enum import Enum
 import psycopg
 from psycopg.types.json import Jsonb
 
+from jobtracker.adapters.db.apply_repo import ApplyRepoMixin
 from jobtracker.adapters.db.connect import DsqlTarget, connect_dsql, connect_url
 from jobtracker.core.models import (
     AliasKind,
@@ -332,7 +333,7 @@ INGEST_LOCK_KEY = 0x6A6F6273  # arbitrary, constant across processes
 DISCOVERY_LOCK_KEY = 0x6A6F6274
 
 
-class PostgresRepo:
+class PostgresRepo(ApplyRepoMixin):
     def __init__(self, conn: psycopg.Connection):
         self.conn = conn
         self._providers: dict[str, tuple[str, str]] | None = None

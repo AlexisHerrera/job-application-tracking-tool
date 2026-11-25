@@ -23,6 +23,7 @@ from jobtracker.core.models import (
     ProcessStep,
 )
 from jobtracker.core.ports import LLMError, LLMUsage, SyncState, ThreadMatch
+from tests.fake_apply import MemoryApplyMixin
 
 FETCH_FIELDS = ("last_fetched_at", "last_found_at", "last_status", "last_count", "fail_streak")
 
@@ -39,7 +40,7 @@ ATS = {
 AGENCIES = {"talentbridge.test": "talentbridge"}
 
 
-class MemoryRepo:
+class MemoryRepo(MemoryApplyMixin):
     def __init__(self, ats: dict[str, str] | None = None, agencies: dict[str, str] | None = None):
         self.ats = dict(ATS if ats is None else ats)
         self.agencies = dict(AGENCIES if agencies is None else agencies)
@@ -58,6 +59,7 @@ class MemoryRepo:
         self.postings: dict[uuid.UUID, JobPosting] = {}
         self.searches: dict[uuid.UUID, DiscoverySearch] = {}
         self.discovery_settings: dict[str, object] = {}
+        self._apply_init()
         self.watched: dict = {}
         self.runs: dict[uuid.UUID, DiscoveryRun] = {}
 

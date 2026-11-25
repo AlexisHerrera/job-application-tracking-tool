@@ -14,6 +14,7 @@ import typer
 from jobtracker.adapters.db.connect import ADMIN, DsqlTarget, connect_dsql, connect_url
 from jobtracker.adapters.db.migrate import migrate, migrate_connection
 from jobtracker.adapters.db.repo import PostgresRepo
+from jobtracker.cli.apply import apply_app
 from jobtracker.core import campaigns, services, stats
 from jobtracker.core.clock import SystemClock
 from jobtracker.core.email_parse import parse_email
@@ -51,6 +52,7 @@ discover_app = typer.Typer(
     no_args_is_help=True, help="Job discovery: collect new postings and score them (plan §20)."
 )
 app.add_typer(discover_app, name="discover")
+app.add_typer(apply_app, name="apply")
 DETAILS_DIR = Path("../eval/details")
 
 

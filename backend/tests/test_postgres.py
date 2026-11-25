@@ -482,3 +482,42 @@ def test_settings_page_queries(pg):
     for day in range(3):
         pg.save_run(DiscoveryRun(started_at=now - timedelta(days=day), trigger="page", notes=[str(day)]))  # fmt: skip
     assert [r.notes for r in pg.list_runs(2)] == [["0"], ["1"]]
+
+
+def test_apply_tables_and_seed(pg):
+    from datetime import UTC, datetime
+
+    from jobtracker.core import apply
+    from jobtracker.core.clock import FixedClock
+
+    # Migration 0017 seeds the facts with no values, and no questions.
+    facts = pg.list_facts()
+    assert len(facts) == 24 and facts[0].key == "location" and not any(f.value for f in facts)
+
+    clock = FixedClock(datetime(2026, 11, 24, 12, tzinfo=UTC))
+    one = apply.FormSource(url="https://a.test/1", company="Acme", ats="ashby")
+    two = apply.FormSource(url="https://b.test/2", company="Initech", ats="lever")
+    q, created, _ = apply.record(pg, clock, "Why Acme?", one)
+    assert created and q.category == "why_us"
+    again, created, added = apply.record(pg, clock, "Why Initech?", two)
+    assert (again.id, created, added) == (q.id, False, True)
+    assert apply.record(pg, clock, "Why Initech?", two)[2] is False  # same form twice
+    apply.update_question(pg, clock, q, answer="Because")
+    stored = pg.find_question("why company")
+    assert stored.answer == "Because"
+    assert [s.text for s in stored.sources] == ["Why Acme?", "Why Initech?"]
+    assert [x.id for x in pg.list_questions()] == [q.id]
+    pg.delete_question(q.id)
+    assert pg.get_question(q.id) is None and pg.list_questions() == []
+
+    e = apply.Experience(title="Tracker", contribution="All", created_at=clock.now())
+    pg.save_experience(e)
+    e.results = "Saved time"
+    pg.save_experience(e)
+    assert [(x.title, x.results) for x in pg.list_experiences()] == [("Tracker", "Saved time")]
+    pg.delete_experience(e.id)
+
+    fact = facts[0]
+    fact.value = "Somewhere"
+    pg.save_fact(fact)
+    assert pg.list_facts()[0].value == "Somewhere"

@@ -1,6 +1,9 @@
 import { Navigate, Route, Routes, useSearchParams } from "react-router-dom";
 import AddApplication from "@/pages/add-application/AddApplicationPage";
 import ApplicationPage from "@/pages/application/ApplicationPage";
+import ApplyExperiencePage from "@/pages/apply-experience/ApplyExperiencePage";
+import ApplyFactsPage from "@/pages/apply-facts/ApplyFactsPage";
+import ApplyQuestionsPage from "@/pages/apply-questions/ApplyQuestionsPage";
 import Applications from "@/pages/applications/ApplicationsPage";
 import CalendarPage from "@/pages/calendar/CalendarPage";
 import Campaigns from "@/pages/campaigns/CampaignsPage";
@@ -44,6 +47,9 @@ export function AppRoutes() {
       <Route path="/discover/criteria" element={<DiscoverCriteria />} />
       <Route path="/discover/insights" element={<DiscoverInsights />} />
       <Route path="/discover/settings" element={<DiscoverSettingsRedirect />} />
+      <Route path="/apply" element={<ApplyQuestionsPage />} />
+      <Route path="/apply/experience" element={<ApplyExperiencePage />} />
+      <Route path="/apply/facts" element={<ApplyFactsPage />} />
       <Route path="*" element={<p className="text-muted-foreground">Not found.</p>} />
     </Routes>
   );

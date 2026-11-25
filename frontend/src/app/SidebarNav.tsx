@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { NAV, type NavAlert, type NavCount } from "./nav";
 import { SidebarNavItem } from "./SidebarNavItem";
 
-/** The pages in two labelled groups, Discover and Track. `alerts` holds what each dot says. */
+/** The pages in labelled groups: Discover, Apply and Track. `alerts` holds what each dot says. */
 export function SidebarNav({ counts, alerts, onNavigate }: { counts: Record<NavCount, number>; alerts: Record<NavAlert, string | null>; onNavigate?: () => void }) {
   return (
     <nav className="flex flex-col gap-4">

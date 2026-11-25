@@ -276,6 +276,7 @@ Run from `backend/` with `uv run jobtracker …` (it reads `../.env`), or inside
 | `calendar login` / `logout` | Fallback: connect with a browser consent (expires in 7 days while in Testing) / forget that login |
 | `calendar sync [--full]` | Pull calendar changes and match them to applications. Free: no AI. `ingest` and **Scan inbox & calendar** run it too when connected |
 | `calendar list` | The interviews the app knows about |
+| `apply collect-questions [--top 20] [--url URL --company NAME] [--dry-run] [--dsql ENDPOINT]` | Reads the application forms of your applications and the best-scored matches (Greenhouse, Ashby, Lever, Workable public endpoints: no login, nothing submitted, free) and adds the questions you answer in your own words to the Apply → Questions page. A question you already have only gets one more place it was seen. `--dsql` ⚠️ AWS: against prod |
 | `dev seed` | Fake sample data (local only) |
 | `eval paste [DIR] [--only NAME]` | ⚠️ Runs the paste prompt over the real pastes in `eval/paste/*.txt` (one paid call each, asks first) and checks each against its approved `.expected.json` |
 | `eval details collect` → `snapshot` → `run` | The details eval (files in `eval/details/`): `collect` ⚠️ re-reads each application's emails from Gmail (read-only, no AI); `snapshot` saves the fields you reviewed in the app as the expected result; `run` ⚠️ runs the prompt over the collected emails (one paid call per application, asks first) and reports wrong fills / misses per field, compared with the previous run |

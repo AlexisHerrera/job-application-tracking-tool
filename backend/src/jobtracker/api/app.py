@@ -21,8 +21,10 @@ from jobtracker.adapters.lambda_ingest import (
     LambdaIngest,
 )
 from jobtracker.api import schemas as s
+from jobtracker.api.apply_routes import apply_router
 from jobtracker.api.auth import TokenVerifier, User, cognito_issuer
 from jobtracker.core import (
+    apply,
     campaigns,
     discovery,
     discovery_insights,
@@ -194,6 +196,10 @@ def create_app(
 
     @app.exception_handler(campaigns.CampaignError)
     def _campaign_invalid(_req, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=422)
+
+    @app.exception_handler(apply.ApplyError)
+    def _apply_invalid(_req, exc):
         return JSONResponse({"detail": str(exc)}, status_code=422)
 
     @app.exception_handler(services.InvalidInput)
@@ -1177,5 +1183,6 @@ def create_app(
         log.info("discover rescore: %s", s.run_json(run))
         return s.run_json(run)
 
+    api.include_router(apply_router(get_repo, clock))
     app.include_router(api)
     return app
