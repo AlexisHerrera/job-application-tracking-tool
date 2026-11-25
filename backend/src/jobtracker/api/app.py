@@ -144,6 +144,34 @@ def create_app(
 
     make_calendar = calendar_factory or default_calendar
 
+    def calendar_connection(repo: PostgresRepo, oauth_stored: bool | None = None):
+        """(connected, auth): whether make_calendar would return a source, and which login, without
+        building it. Building one imports Google's libraries and parses the key: ~0.4 s on an
+        instance's first call and ~35 ms on every call after, for a status line. `oauth_stored`
+        when the caller already read it (GET /shell)."""
+        from jobtracker.adapters.google_calendar import PROVIDER, decode_service_account_key
+
+        if calendar_factory is not None:  # tests
+            source = calendar_factory(repo)
+            return source is not None, getattr(source, "auth", None)
+        if settings.google_service_account_key:
+            # Stdlib only; a bad key fails here the way building the source would.
+            decode_service_account_key(settings.google_service_account_key)
+            return True, "service_account"
+        if settings.app_env != "local":
+            return False, None
+        if oauth_stored is None:
+            oauth_stored = bool(repo.get_oauth(PROVIDER))
+        return (True, "oauth") if oauth_stored else (False, None)
+
+    def calendar_needs_oauth() -> bool:
+        """Whether calendar_connection reads the stored Google login (local, no service account)."""
+        return (
+            calendar_factory is None
+            and not settings.google_service_account_key
+            and settings.app_env == "local"
+        )
+
     def default_discovery() -> tuple[dict[str, JobSource], LLMClient | None]:
         from jobtracker.adapters.anthropic_llm import AnthropicLLM
         from jobtracker.adapters.job_sources import discovery_sources
@@ -537,11 +565,12 @@ def create_app(
 
     @api.get("/calendar")
     def calendar_status(repo: PostgresRepo = Depends(get_repo)):
-        last = repo.last_calendar_sync_at()
-        source = make_calendar(repo)
+        return calendar_json(repo.last_calendar_sync_at(), *calendar_connection(repo))
+
+    def calendar_json(last, connected: bool, auth: str | None) -> dict:
         return {
-            "connected": source is not None,
-            "auth": getattr(source, "auth", None),
+            "connected": connected,
+            "auth": auth,
             "calendar_id": settings.google_calendar_id,
             "last_sync_at": last.isoformat() if last else None,
         }
@@ -676,7 +705,9 @@ def create_app(
 
     @api.get("/scan")
     def scan_status(repo: PostgresRepo = Depends(get_repo)):
-        last = repo.last_sync_at()
+        return scan_json(repo.last_sync_at())
+
+    def scan_json(last) -> dict:
         return {
             "available": make_scan is not None or remote_scan is not None,
             "last_scan_at": last.isoformat() if last else None,
@@ -973,12 +1004,15 @@ def create_app(
             waiting=repo.count_postings(PostingQuery(statuses=(PostingStatus.NEW.value,))),
         )
 
+    # The default review queue: let through by the rules, still new.
+    review_queue = PostingQuery(statuses=(PostingStatus.NEW.value,))
+
     @api.get("/discover/status")
     def discovery_status(repo: PostgresRepo = Depends(get_repo)):
         """What the sidebar shows on every page, so two cheap queries: the postings left to look
         at (the default review queue: let through by the rules, still new) and the last run
         that wasn't a re-score (the "Job sources" line: a re-score reads no source)."""
-        to_review = repo.count_postings(PostingQuery(statuses=(PostingStatus.NEW.value,)))
+        to_review = repo.count_postings(review_queue)
         last = repo.last_run(except_trigger="rescore")
         return {"to_review": to_review, "last_run": s.run_json(last)}
 
@@ -986,15 +1020,25 @@ def create_app(
     def shell(repo: PostgresRepo = Depends(get_repo)):
         """Everything the sidebar shows, in one request on one connection: in prod each request
         that a page fires at the same time costs its own (often cold) Lambda instance. The parts
-        are the same as GET /scan, /calendar and /discover/status, plus the inbox counts."""
+        are the same as GET /scan, /calendar and /discover/status, plus the inbox counts. One
+        SQL statement: on DSQL each one is a network round trip."""
+        from jobtracker.adapters.google_calendar import PROVIDER
+
+        st = repo.sidebar_status(
+            review_queue,
+            run_except_trigger="rescore",
+            oauth_provider=PROVIDER if calendar_needs_oauth() else None,
+        )
         return {
             "inbox": {
-                "unassigned": len(repo.list_unassigned()),
-                "unassigned_interviews": len(repo.list_unassigned_interviews()),
+                "unassigned": st.unassigned,
+                "unassigned_interviews": st.unassigned_interviews,
             },
-            "scan": scan_status(repo),
-            "calendar": calendar_status(repo),
-            "discovery": discovery_status(repo),
+            "scan": scan_json(st.last_scan_at),
+            "calendar": calendar_json(
+                st.last_calendar_sync_at, *calendar_connection(repo, st.oauth_stored)
+            ),
+            "discovery": {"to_review": st.to_review, "last_run": s.run_json(st.last_run)},
         }
 
     # the company watchlist (plan §21, round 6)

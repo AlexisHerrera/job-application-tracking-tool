@@ -220,6 +220,25 @@ def test_status_says_which_login_is_used(key_info):
     )
 
 
+@pytest.mark.parametrize("setup", ["service_account", "oauth", "none"])
+def test_status_matches_the_source_it_would_build(key_info, setup):
+    """/calendar and /shell say what make_source would connect with, without building it (Google's
+    libraries and the key parse cost ~0.4 s on an instance's first call, ~35 ms after)."""
+    key = encode_service_account_key(key_info) if setup == "service_account" else ""
+    env = {"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "GOOGLE_SERVICE_ACCOUNT_KEY": key}
+    settings = Settings.from_env({**env, "GOOGLE_CALENDAR_ID": "me@example.com"})
+    repo = MemoryRepo()
+    if setup != "none":
+        repo.oauth["google_calendar"] = OAUTH  # the service account wins when both are set
+    source = make_source(key, "me@example.com", repo.get_oauth("google_calendar"))
+    expected = (source is not None, getattr(source, "auth", None))
+
+    client = TestClient(create_app(settings, repo_factory=lambda: repo))
+    status = client.get("/api/calendar").json()
+    assert (status["connected"], status["auth"]) == expected
+    assert client.get("/api/shell").json()["calendar"] == status
+
+
 def test_use_service_account_checks_access_saves_and_moves_interviews(
     key_info, tmp_path, monkeypatch
 ):

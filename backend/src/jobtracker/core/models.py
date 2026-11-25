@@ -449,6 +449,19 @@ class WatchedCompany:
 
 
 @dataclass(slots=True)
+class SidebarStatus:
+    """What the sidebar shows on every page (GET /api/shell), read in one query."""
+
+    unassigned: int  # inbox emails not matched to an application (not dismissed)
+    unassigned_interviews: int  # scheduled calendar interviews to match
+    last_scan_at: datetime | None
+    last_calendar_sync_at: datetime | None
+    to_review: int  # postings in the default review queue
+    last_run: DiscoveryRun | None  # the newest run that wasn't the excluded trigger
+    oauth_stored: bool  # a Google login is stored (only asked for locally)
+
+
+@dataclass(slots=True)
 class DiscoveryRun:
     started_at: datetime
     trigger: str
