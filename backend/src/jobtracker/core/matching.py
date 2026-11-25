@@ -7,8 +7,6 @@ import unicodedata
 import uuid
 from dataclasses import dataclass
 
-from rapidfuzz import fuzz
-
 from jobtracker.core.filtering import (
     FREEMAIL_DOMAINS,
     GENERIC_LOCALPARTS,
@@ -26,6 +24,9 @@ from jobtracker.core.models import (
 )
 from jobtracker.core.ports import Repository
 from jobtracker.core.stages import is_active
+
+# rapidfuzz is imported in the functions that use it: the API's cold start never needs it
+# (it costs ~25 ms there), only the mail pipeline, a paste and discovery runs do.
 
 _SUFFIXES = {
     "inc", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "gmbh", "sa", "srl",
@@ -55,6 +56,8 @@ def normalize_company(name: str) -> str:
 
 def company_similarity(a: str, b: str) -> float:
     """'pearl' vs 'pearl talent' should match; 'pearl' vs 'pearson' should not."""
+    from rapidfuzz import fuzz
+
     if not a or not b:
         return 0.0
     plain = fuzz.ratio(a, b)
@@ -116,6 +119,8 @@ def _company_from_sender(
 
 
 def pick_by_role(apps: list[Application], role: str | None, cfg: MatchConfig) -> Application | None:
+    from rapidfuzz import fuzz
+
     if len(apps) == 1:
         return apps[0]
     if not role or not apps:
@@ -138,6 +143,8 @@ def match(
     thread_app_id: uuid.UUID | None,
     cfg: MatchConfig | None = None,
 ) -> MatchResult:
+    from rapidfuzz import fuzz
+
     cfg = cfg or MatchConfig()
     ats = repo.ats_domains()
 
@@ -226,6 +233,8 @@ def _should_create(extraction: Extraction, cfg: MatchConfig) -> bool:
 
 
 def _role_exists(apps: list[Application], role: str | None) -> bool:
+    from rapidfuzz import fuzz
+
     if not role:
         return bool(apps)
     return any(fuzz.token_set_ratio(role.lower(), a.role_title.lower()) >= 90 for a in apps)

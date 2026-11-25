@@ -17,8 +17,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
-from rapidfuzz import fuzz
-
 from jobtracker.core.criteria import DEFAULT_PROFILE
 from jobtracker.core.criteria import render as render_criteria
 from jobtracker.core.matching import normalize_company
@@ -39,6 +37,9 @@ from jobtracker.core.ports import (
     LLMError,
     SourceError,
 )
+
+# rapidfuzz is imported in the functions that use it: the API's cold start never needs it
+# (it costs ~25 ms there), only the mail pipeline, a paste and discovery runs do.
 
 log = logging.getLogger(__name__)
 
@@ -371,6 +372,8 @@ def board_keep(p: JobPosting, rules: Rules) -> bool:
 
 def is_duplicate(p: JobPosting, recent: list[tuple[str, str]]) -> bool:
     """The same job reposted by another board (JobLeads, BeBee, LinkedIn…) or another source."""
+    from rapidfuzz import fuzz
+
     title = normalize_title(p.title)
     same_company = (other for company, other in recent if company == p.company_normalized)
     return any(fuzz.ratio(title, normalize_title(o)) >= DUPLICATE_TITLE_SCORE for o in same_company)
