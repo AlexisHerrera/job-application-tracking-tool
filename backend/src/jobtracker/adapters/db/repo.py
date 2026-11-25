@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -11,7 +11,12 @@ from enum import Enum
 import psycopg
 from psycopg.types.json import Jsonb
 
-from jobtracker.adapters.db.connect import DsqlTarget, connect_dsql, connect_url
+from jobtracker.adapters.db.connect import (
+    DsqlTarget,
+    SharedConnection,
+    connect_dsql,
+    connect_url,
+)
 from jobtracker.core.models import (
     AliasKind,
     Application,
@@ -333,8 +338,13 @@ DISCOVERY_LOCK_KEY = 0x6A6F6274
 
 
 class PostgresRepo:
-    def __init__(self, conn: psycopg.Connection):
+    def __init__(
+        self,
+        conn: psycopg.Connection,
+        release: Callable[[psycopg.Connection], None] | None = None,
+    ):
         self.conn = conn
+        self._release = release  # set when the connection is borrowed (`factory`)
         self._providers: dict[str, tuple[str, str]] | None = None
 
     @classmethod
@@ -348,8 +358,30 @@ class PostgresRepo:
             return cls(connect_dsql(DsqlTarget(settings.dsql_endpoint, settings.dsql_user)))
         return cls.connect(settings.database_url)
 
+    @classmethod
+    def factory(cls, settings: Settings) -> Callable[[], PostgresRepo]:
+        """A repo per API request. On DSQL they borrow one connection kept per process (it saves
+        a TLS handshake and an IAM token per request); locally each opens its own."""
+        if not settings.dsql_endpoint:
+            return lambda: cls.open(settings)
+        target = DsqlTarget(settings.dsql_endpoint, settings.dsql_user)
+
+        def connect() -> psycopg.Connection:
+            conn = connect_dsql(target)
+            # No server-side prepared statements on a connection that lives for 50 minutes: a
+            # migration in that time would break a prepared `SELECT *` ("cached plan must not
+            # change result type").
+            conn.prepare_threshold = None
+            return conn
+
+        shared = SharedConnection(connect)
+        return lambda: cls(shared.acquire(), shared.release)
+
     def close(self) -> None:
-        self.conn.close()
+        if self._release is not None:
+            self._release(self.conn)
+        else:
+            self.conn.close()
 
     @contextmanager
     def transaction(self) -> Iterator[None]:

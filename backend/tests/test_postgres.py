@@ -482,3 +482,31 @@ def test_settings_page_queries(pg):
     for day in range(3):
         pg.save_run(DiscoveryRun(started_at=now - timedelta(days=day), trigger="page", notes=[str(day)]))  # fmt: skip
     assert [r.notes for r in pg.list_runs(2)] == [["0"], ["1"]]
+
+
+def test_shared_connection_on_real_postgres(test_url):
+    """The API's per-container connection (`SharedConnection`, used on DSQL) with a real one:
+    reused while idle, dropped when a request leaves a transaction open, replaced when the
+    server kills it."""
+    from jobtracker.adapters.db.connect import SharedConnection, connect_url
+
+    shared = SharedConnection(lambda: connect_url(test_url), ping_after_s=0)
+    first = shared.acquire()
+    with pytest.raises(ZeroDivisionError), first.transaction():  # rolled back: still idle
+        first.execute("SELECT 1")
+        raise ZeroDivisionError
+    shared.release(first)
+    again = shared.acquire()
+    assert again is first
+    again.execute("BEGIN")  # left open: not lent to the next request
+    shared.release(again)
+    assert first.closed
+    fresh = shared.acquire()
+    pid = fresh.info.backend_pid
+    shared.release(fresh)
+    with psycopg.connect(ADMIN_URL, autocommit=True) as admin:
+        admin.execute("SELECT pg_terminate_backend(%s)", (pid,))
+    replaced = shared.acquire()  # the ping finds it gone
+    assert replaced is not fresh and replaced.execute("SELECT 1 AS ok").fetchone()["ok"] == 1
+    shared.release(replaced)
+    replaced.close()

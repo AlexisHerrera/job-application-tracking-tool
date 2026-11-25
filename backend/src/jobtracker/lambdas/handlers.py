@@ -1,18 +1,28 @@
 """AWS Lambda entry points. Thin: all logic lives in core/services.
 
 Three functions share the zip: `api`, `ingest` (mail + calendar) and `discover` (job discovery
-and its digest). Each reads its secrets from SSM once per cold start (see `adapters/ssm_secrets`)
-and opens one Aurora DSQL connection per request / run (IAM token auth, `PostgresRepo.open`).
+and its digest). Each reads its secrets from SSM once per cold start (see `adapters/ssm_secrets`).
+The ingest and discover runs open one Aurora DSQL connection per run (IAM token auth,
+`PostgresRepo.open`); the API keeps one per container (`PostgresRepo.factory`).
+
+The API does its setup while Lambda initializes the container, not in its first request: when
+this module is imported for the `api` handler (Lambda's `_HANDLER`), it imports the app, loads
+the secrets, builds it, fetches the Cognito keys and opens the DSQL connection, and logs how long
+each part took (`api cold start: ...`). Imported for `ingest` or `discover`, it does none of that.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import time
 
 logging.getLogger().setLevel(logging.INFO)
 # Never log request bodies or headers from HTTP clients.
 for _noisy in ("httpx", "httpcore", "anthropic", "urllib3", "botocore"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+log = logging.getLogger(__name__)
 
 _api_handler = None
 _secrets_loaded = False
@@ -28,16 +38,67 @@ def _load_secrets() -> list[str]:
     return missing
 
 
+def _build_api():
+    """The Mangum handler, plus one INFO line with the duration of each step in ms. The Cognito
+    keys and the DSQL connection are only a head start: if either fails here, the first request
+    that needs it tries again."""
+    ms: dict[str, float] = {}
+    mark = time.perf_counter()
+
+    def lap(name: str) -> None:
+        nonlocal mark
+        now = time.perf_counter()
+        ms[name] = round((now - mark) * 1000, 1)
+        mark = now
+
+    start = mark
+    import boto3  # noqa: F401  (SSM and DSQL need it: count it with the imports)
+    from mangum import Mangum
+
+    from jobtracker.adapters.db import connect
+    from jobtracker.api.app import create_app
+
+    lap("imports")
+    _load_secrets()  # a missing one only disables its feature (paste → 503)
+    lap("ssm")
+    app = create_app()
+    handler = Mangum(app, lifespan="off")
+    lap("create_app")
+    try:
+        app.state.verifier.prefetch()
+    except Exception as err:
+        log.warning("cold start: Cognito keys not fetched (%s: %s)", type(err).__name__, err)
+    lap("jwks")
+    try:
+        connect.last_open_ms.clear()
+        app.state.make_repo().close()  # opens the container's connection and keeps it
+    except Exception as err:
+        log.warning("cold start: no DSQL connection yet (%s: %s)", type(err).__name__, err)
+    lap("db")
+    ms.update(connect.last_open_ms)
+    ms["total"] = round((time.perf_counter() - start) * 1000, 1)
+    log.info("api cold start: %s", " ".join(f"{k}={v:g}ms" for k, v in ms.items()))
+    return handler
+
+
+def _init_api() -> None:
+    global _api_handler
+    try:
+        _api_handler = _build_api()
+    except Exception:  # the first request tries again, and its error reaches the caller
+        log.exception("api cold start failed")
+
+
 def api(event, context):
     global _api_handler
     if _api_handler is None:
-        _load_secrets()  # a missing one only disables its feature (paste → 503)
-        from mangum import Mangum
-
-        from jobtracker.api.app import create_app
-
-        _api_handler = Mangum(create_app(), lifespan="off")
+        _api_handler = _build_api()
     return _api_handler(event, context)
+
+
+# Lambda sets `_HANDLER` to the function's handler string (`jobtracker.lambdas.handlers.api`).
+if os.environ.get("_HANDLER", "").rsplit(".", 1)[-1] == "api":
+    _init_api()
 
 
 def ingest(event, context):
