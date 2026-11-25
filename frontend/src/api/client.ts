@@ -31,6 +31,7 @@ import type {
 import type { DiscoveryInsights } from "./discoveryInsights";
 import type { Ats, CriteriaPreview, CriteriaProfile, RuleHits, SettingsSaved, WatchedCompany, WatchlistPage } from "./discoverySettings";
 import type { CalendarSyncResult, Interview, InterviewDetail, InterviewInput, Note, NoteDetail } from "./interviews";
+import type { Shell } from "./shell";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -76,6 +77,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   dashboard: () => request<Dashboard>("GET", "/dashboard"),
+  shell: () => request<Shell>("GET", "/shell"),
   stats: (campaign: string) => request<Stats>("GET", `/stats?${new URLSearchParams({ campaign })}`),
   insights: (campaign: string) => request<Insights>("GET", `/insights?${new URLSearchParams({ campaign })}`),
   activity: (campaign: string) =>

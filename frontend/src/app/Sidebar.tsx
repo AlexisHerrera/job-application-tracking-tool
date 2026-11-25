@@ -1,7 +1,7 @@
 import { LogOut } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useDiscoveryStatus } from "@/features/discovery/discoveryStatus";
+import { useShellStatus } from "@/features/shell/shellStatus";
 import { canSignOut, signOut } from "@/lib/auth";
 import { JobSourcesStatus } from "./JobSourcesStatus";
 import { MailStatus } from "./MailStatus";
@@ -10,8 +10,10 @@ import { SidebarCampaignPicker } from "./SidebarCampaignPicker";
 import { SidebarNav } from "./SidebarNav";
 import { ThemeSwitch } from "./ThemeSwitch";
 
-export function Sidebar({ inbox, onNavigate }: { inbox: number; onNavigate?: () => void }) {
-  const { status } = useDiscoveryStatus();
+export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+  const { shell } = useShellStatus();
+  const status = shell?.discovery;
+  const inbox = (shell?.inbox.unassigned ?? 0) + (shell?.inbox.unassigned_interviews ?? 0);
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-3">
       <Link to="/" onClick={onNavigate} className="flex items-center gap-2 px-2 pt-1 font-semibold tracking-tight">
