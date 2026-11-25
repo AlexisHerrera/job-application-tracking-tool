@@ -17,8 +17,10 @@ import base64
 import binascii
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 from jobtracker.core.models import CalendarItem
@@ -139,35 +141,64 @@ def parse_event(ev: dict) -> CalendarItem | None:
 
 
 class GoogleCalendarSource:
-    def __init__(self, creds, calendar_id: str, *, auth: str, session=None):
-        """`auth` is "service_account" or "oauth"; `session` is for tests."""
-        from google.auth.transport.requests import AuthorizedSession
-
+    def __init__(
+        self,
+        creds,
+        calendar_id: str,
+        *,
+        auth: str,
+        session=None,
+        make_creds: Callable[[], Any] | None = None,
+        account: str | None = None,
+    ):
+        """`auth` is "service_account" or "oauth"; `session` is for tests. `make_creds` instead of
+        `creds` defers google-auth (~50-80 ms of imports in Lambda) to the first call to Google:
+        GET /api/shell, on every page load, makes a source only to say the calendar is connected.
+        """
         self.calendar_id = calendar_id
         self.auth = auth
-        self._account = getattr(creds, "service_account_email", None)
-        self.session = session or AuthorizedSession(creds)
+        self._account = account or getattr(creds, "service_account_email", None)
+        self._creds, self._make_creds, self._session = creds, make_creds, session
+
+    @property
+    def session(self):
+        if self._session is None:
+            from google.auth.transport.requests import AuthorizedSession
+
+            creds = self._creds if self._make_creds is None else self._make_creds()
+            self._session = AuthorizedSession(creds)
+        return self._session
 
     @classmethod
     def from_oauth(cls, credentials: dict, calendar_id: str = "primary") -> GoogleCalendarSource:
-        from google.oauth2.credentials import Credentials
+        def make_creds():
+            from google.oauth2.credentials import Credentials
 
-        creds = Credentials(
-            token=None,
-            refresh_token=credentials["refresh_token"],
-            token_uri=credentials["token_uri"],
-            client_id=credentials["client_id"],
-            client_secret=credentials["client_secret"],
-            scopes=credentials.get("scopes", SCOPES),
-        )
-        return cls(creds, calendar_id, auth="oauth")
+            return Credentials(
+                token=None,
+                refresh_token=credentials["refresh_token"],
+                token_uri=credentials["token_uri"],
+                client_id=credentials["client_id"],
+                client_secret=credentials["client_secret"],
+                scopes=credentials.get("scopes", SCOPES),
+            )
+
+        return cls(None, calendar_id, auth="oauth", make_creds=make_creds)
 
     @classmethod
     def from_service_account(cls, info: dict, calendar_id: str) -> GoogleCalendarSource:
-        from google.oauth2 import service_account
+        def make_creds():
+            from google.oauth2 import service_account
 
-        creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
-        return cls(creds, calendar_id, auth="service_account")
+            return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+
+        return cls(
+            None,
+            calendar_id,
+            auth="service_account",
+            make_creds=make_creds,
+            account=info.get("client_email"),
+        )
 
     def _get(self, url: str, params: dict[str, str] | None = None):
         """GET with Google's auth failures turned into CalendarAuthError."""
