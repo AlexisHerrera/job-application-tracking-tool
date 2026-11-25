@@ -502,6 +502,7 @@ DiscardReason = Literal[
     "no_apply",
     "fake",
     "duplicate",
+    "already_applied",
     "too_senior",
     "too_junior",
     "stack",

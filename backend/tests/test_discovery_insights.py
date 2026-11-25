@@ -101,6 +101,15 @@ def test_discards_by_reason_with_splits_verdicts_and_notes():
                                    "closed": 1, "fake": 0, "no_apply": 0, "duplicate": 0}  # fmt: skip
 
 
+def test_already_applied_is_an_application_reason_without_tuning_hints():
+    rows = discarded("already_applied", 2, ai_verdict="match")
+    out = discovery_insights.discards(rows, ctx(rows))
+    (row,) = out["reasons"]
+    assert (row["reason"], row["about"], row["count"]) == ("already_applied", "application", 2)
+    assert row["hints"] == []
+    assert out["sources"][0]["duplicate"] == 0
+
+
 def test_summary_counts_the_window_and_keeps_the_all_time_saved_for_the_checks():
     old_save = reviewed(PostingStatus.INTERESTED, at=NOON - timedelta(days=60), years_required=4)
     group = discarded("too_senior", 3, years_required=4, title="Engineer")

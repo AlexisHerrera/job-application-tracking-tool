@@ -19,20 +19,21 @@ export function DiscardsCard({ data }: { data: DiscoveryInsights }) {
   const max = Math.max(1, ...d.reasons.map((r) => r.count));
   const role = d.reasons.filter((r) => r.about === "criteria");
   const posting = d.reasons.filter((r) => r.about === "source");
+  const application = d.reasons.filter((r) => r.about === "application");
   const group = { max, open, onToggle: toggle };
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><MessageSquareX className="size-4 text-muted-foreground" /> Why postings were discarded</CardTitle>
-        <CardDescription>By the reason picked when discarding, each with the rule or criteria change it points to. Open a reason for its split by source, board, seniority and company, and the notes you left.</CardDescription>
+        <CardDescription>Open a reason for its breakdown, the notes you left, and any suggested changes to your rules or criteria.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {d.total === 0 ? (
           <Empty>Nothing discarded in the last {data.days.length} days.</Empty>
         ) : withReason === 0 ? (
           <Empty>
-            {plural(d.total, "posting")} discarded, none with a reason. Pick one when you discard (keys 1–9 in <Link to="/discover" className="text-primary hover:underline">Review</Link>), and each reason shows up here with the change it points to.
+            {plural(d.total, "posting")} discarded without a reason. Pick a reason in <Link to="/discover" className="text-primary hover:underline">Review</Link> to see it here.
           </Empty>
         ) : (
           <>
@@ -44,6 +45,7 @@ export function DiscardsCard({ data }: { data: DiscoveryInsights }) {
             )}
             {role.length > 0 && <ReasonGroup title="The role and its conditions" hint="These point at the criteria the AI reads and the rules that hide postings before it." rows={role} {...group} />}
             {posting.length > 0 && <ReasonGroup title="The posting itself" hint="These say more about the sources than about the criteria." rows={posting} {...group} />}
+            {application.length > 0 && <ReasonGroup title="Application history" hint="You already applied for the same or a similar role at the company." rows={application} {...group} />}
             {d.sources.length > 0 && <SourceQualityTable rows={d.sources} />}
           </>
         )}

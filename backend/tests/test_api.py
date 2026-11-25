@@ -317,11 +317,12 @@ def test_discover_page_flow(repo):
     contoso = after[1]
     assert client.patch(f"/api/discover/{contoso['id']}", json={"status": "dismissed"}).json()["status"] == "dismissed"  # fmt: skip
     url = f"/api/discover/{contoso['id']}"
-    r = client.patch(url, json={"status": "dismissed", "discard_reason": "too_senior", "discard_note": " 10+ years "}).json()  # fmt: skip
-    assert (r["discard_reason"], r["discard_note"]) == ("too_senior", "10+ years")
+    r = client.patch(url, json={"status": "dismissed", "discard_reason": "already_applied", "discard_note": " Similar backend role "}).json()  # fmt: skip
+    assert (r["discard_reason"], r["discard_note"]) == ("already_applied", "Similar backend role")
     assert r["reviewed_at"] is not None
     listed = client.get("/api/discover", params={"status": "dismissed"}).json()["postings"]
-    assert listed[0]["discard_reason"] == "too_senior" and listed[0]["discard_note"] == "10+ years"
+    assert listed[0]["discard_reason"] == "already_applied"
+    assert listed[0]["discard_note"] == "Similar backend role"
     assert client.patch(url, json={"status": "dismissed", "discard_reason": "bogus"}).status_code == 422  # fmt: skip
     # Any other status clears the reason, even when one is sent.
     r = client.patch(url, json={"status": "new", "discard_reason": "salary"}).json()

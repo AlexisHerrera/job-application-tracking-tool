@@ -175,11 +175,14 @@ def discards(reviewed: list[JobPosting], ctx: Context) -> dict:
     rows = []
     for reason, group in sorted(groups.items(), key=lambda kv: (-len(kv[1]), order.get(kv[0], 99))):  # fmt: skip
         verdicts = Counter(p.ai_verdict or "unscored" for p in group)
+        about = "source" if reason in SOURCE_REASONS else "criteria"
+        if reason == "already_applied":
+            about = "application"
         rows.append(
             {
                 "reason": reason,
                 "count": len(group),
-                "about": "source" if reason in SOURCE_REASONS else "criteria",
+                "about": about,
                 "splits": {k: _split(group, k) for k in SPLITS},
                 "detail": _detail(reason, group, ctx.profile),
                 "verdicts": {v: verdicts[v] for v in ("match", "maybe", "no", "unscored")},
