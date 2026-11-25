@@ -28,13 +28,13 @@ export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPa
   const saving = !!p && writes.current.has(p.id);
   const pending = !!p && q.isPending(p) && p.status !== "applied" && p.status !== "dismissed";
 
-  async function decide(before: Posting, optimistic: Posting, write: () => Promise<Posting>) {
+  async function decide(before: Posting, optimistic: Posting, advance: boolean, write: () => Promise<Posting>) {
     if (busy || writes.current.has(before.id)) return;
     writes.current.add(before.id);
     setWriting(writes.current.size);
     q.replace(optimistic);
     setDiscarding(false);
-    q.next();
+    if (advance) q.next();
     try {
       q.replace(await write());
     } catch (e) {
@@ -53,7 +53,7 @@ export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPa
   const setStatus = (next: PostingStatus, discard?: Discard) => {
     if (!p) return;
     const optimistic = { ...p, status: next, discard_reason: discard?.reason ?? null, discard_note: discard?.note ?? null };
-    return decide(p, optimistic, async () => {
+    return decide(p, optimistic, !q.isPending(optimistic) || next === "dismissed", async () => {
       const r = await api.setPostingStatus(p.id, next, discard);
       return { ...p, status: r.status, discard_reason: r.discard_reason, discard_note: r.discard_note };
     });
@@ -61,7 +61,7 @@ export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPa
   const apply = () => {
     if (!p) return;
     const optimistic = { ...p, status: "applied" as const, discard_reason: null, discard_note: null };
-    return decide(p, optimistic, async () => {
+    return decide(p, optimistic, true, async () => {
       const r = await api.applyPosting(p.id);
       toast.success(`Added ${r.application.company} to your applications`, { action: { label: "Open", onClick: () => navigate(`/applications/${r.application.id}`) } });
       return { ...optimistic, application_id: r.application.id };

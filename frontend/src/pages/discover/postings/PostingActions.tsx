@@ -1,4 +1,3 @@
-import { type WritePosting } from "./usePostingWrites";
 import { useState } from "react";
 import { Ban, Check, Loader2, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -9,6 +8,7 @@ import { errorText } from "@/lib/errors";
 import { type DiscardReason, type Posting, type PostingStatus } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { DiscardMenu } from "./DiscardMenu";
+import { type WritePosting } from "./usePostingWrites";
 
 /** Applied / Save for later / Discard (with a reason) / Hide company, or Open application once applied. One `busy` for all. */
 export function PostingActions({ p, write, onBlocked }: { p: Posting; write: WritePosting; onBlocked: () => void }) {
