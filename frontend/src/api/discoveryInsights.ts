@@ -36,7 +36,7 @@ export interface DiscardReasonRow {
   reason: DiscardReason;
   count: number;
   /** "source": the posting itself (closed, fake, no way to apply, duplicate). */
-  about: "criteria" | "source";
+  about: "criteria" | "source" | "application";
   splits: { source: Tally<PostingSource>; publisher: Tally; seniority: Tally; company: Tally };
   /** One more split where a field says the most (years asked, technologies…). Salary values
    * are 10k bands: 40 is USD 40–50k. */

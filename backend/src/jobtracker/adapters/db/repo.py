@@ -825,6 +825,29 @@ class PostgresRepo:
         r = self._one("SELECT * FROM job_postings WHERE id = %s", (posting_id,))
         return _posting_from(r) if r else None
 
+    _OTHER_UNREVIEWED = (
+        " WHERE company_normalized = %s AND id <> %s AND status = 'new'"
+        " AND reviewed_at IS NULL AND drop_reason IS NULL"
+    )
+
+    def count_other_unreviewed(self, posting: JobPosting) -> int:
+        if not posting.company_normalized:
+            return 0
+        row = self._one(
+            "SELECT count(*) AS n FROM job_postings" + self._OTHER_UNREVIEWED,
+            (posting.company_normalized, posting.id),
+        )
+        return row["n"]
+
+    def discard_other_unreviewed(self, posting: JobPosting, now: datetime) -> int:
+        if not posting.company_normalized:
+            return 0
+        return self.conn.execute(
+            "UPDATE job_postings SET status = 'dismissed', discard_reason = 'already_applied',"
+            " discard_note = NULL, reviewed_at = %s, updated_at = %s" + self._OTHER_UNREVIEWED,
+            (now, now, posting.company_normalized, posting.id),
+        ).rowcount
+
     def list_postings(self, since: datetime | None = None) -> list[JobPosting]:
         if since is None:
             rows = self._all("SELECT * FROM job_postings ORDER BY fetched_at DESC, id")

@@ -893,24 +893,48 @@ def create_app(
             "facets": summary,
         }
 
+    @api.get("/discover/{posting_id}/other-unreviewed")
+    def other_unreviewed(posting_id: str, repo: PostgresRepo = Depends(get_repo)):
+        p = repo.get_posting(_uuid(posting_id))
+        if p is None:
+            raise services.NotFound(posting_id)
+        return {"count": repo.count_other_unreviewed(p)}
+
     @api.patch("/discover/{posting_id}")
     def patch_posting(
         posting_id: str, body: s.PostingPatch, repo: PostgresRepo = Depends(get_repo)
     ):
+        expected = body.other_unreviewed_count
+        bulk = expected is not None
+        if bulk and (
+            body.status != PostingStatus.DISMISSED or body.discard_reason != "already_applied"
+        ):
+            raise services.InvalidInput("Company-wide discard requires the Already applied reason")
+        other_discarded = 0
         with repo.transaction():
             p = repo.get_posting(_uuid(posting_id))
             if p is None:
                 raise services.NotFound(posting_id)
-            discovery.set_status(
-                p, body.status, clock.now(), body.discard_reason, body.discard_note
-            )
-            repo.update_posting(p)
+            if not bulk or p.status in (PostingStatus.NEW, PostingStatus.INTERESTED):
+                now = clock.now()
+                discovery.set_status(p, body.status, now, body.discard_reason, body.discard_note)
+                repo.update_posting(p)
+                if bulk:
+                    other_discarded = repo.discard_other_unreviewed(p, now)
+                    if other_discarded != expected:
+                        raise HTTPException(
+                            409,
+                            "The company’s review queue changed. Check the count and try again.",
+                        )
+            elif p.status != PostingStatus.DISMISSED or p.discard_reason != "already_applied":
+                raise services.InvalidInput("This posting has already been reviewed")
         return {
             "id": str(p.id),
             "status": p.status.value,
             "discard_reason": p.discard_reason,
             "discard_note": p.discard_note,
             "reviewed_at": p.reviewed_at.isoformat() if p.reviewed_at else None,
+            "other_discarded": other_discarded,
         }
 
     @api.post("/discover/{posting_id}/apply", status_code=201)

@@ -8,13 +8,14 @@ export type Verdict = "match" | "maybe" | "no";
 export type PostingStatus = "new" | "interested" | "dismissed" | "applied";
 /** Why a posting was discarded by hand (the backend's discovery.DISCARD_REASONS). */
 export type DiscardReason =
-  | "closed" | "no_apply" | "fake" | "duplicate"
+  | "closed" | "no_apply" | "fake" | "duplicate" | "already_applied"
   | "too_senior" | "too_junior" | "stack" | "role" | "language"
   | "location" | "work_mode" | "salary" | "contract"
   | "company" | "intermediary" | "other";
 export interface Discard {
   reason: DiscardReason | null;
   note?: string;
+  otherUnreviewedCount?: number;
 }
 export interface PostingStatusSaved {
   id: string;
@@ -22,6 +23,7 @@ export interface PostingStatusSaved {
   discard_reason: DiscardReason | null;
   discard_note: string | null;
   reviewed_at: string | null;
+  other_discarded: number;
 }
 
 export interface Posting {

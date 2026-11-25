@@ -387,6 +387,7 @@ VERDICTS = ("match", "maybe", "no")
 # stable, because they are what the rules and the criteria get tuned from later.
 DISCARD_REASONS = (
     "closed", "no_apply", "fake", "duplicate",  # the posting itself
+    "already_applied",  # prior application for the same or a similar role
     "too_senior", "too_junior", "stack", "role", "language",  # the role
     "location", "work_mode", "salary", "contract",  # the conditions
     "company", "intermediary",  # who is hiring
