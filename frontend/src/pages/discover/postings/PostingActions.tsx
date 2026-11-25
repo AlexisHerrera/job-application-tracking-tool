@@ -1,5 +1,6 @@
+import { type WritePosting } from "./usePostingWrites";
 import { useState } from "react";
-import { Ban, Check, Star } from "lucide-react";
+import { Ban, Check, Loader2, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/api/client";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { DiscardMenu } from "./DiscardMenu";
 
 /** Applied / Save for later / Discard (with a reason) / Hide company, or Open application once applied. One `busy` for all. */
-export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChange: () => void; onBlocked: () => void }) {
+export function PostingActions({ p, write, onBlocked }: { p: Posting; write: WritePosting; onBlocked: () => void }) {
   const navigate = useNavigate();
   const status = useDiscoveryStatus();
   const [busy, setBusy] = useState(false);
@@ -18,15 +19,17 @@ export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChang
   async function setStatus(next: PostingStatus, reason?: DiscardReason) {
     setBusy(true);
     try {
-      await api.setPostingStatus(p.id, next, reason && { reason });
-      onChange();
-      status.refresh();
-    } catch (e) {
-      toast.error(errorText(e));
+      await write({ ...p, status: next, discard_reason: reason ?? null, discard_note: null }, async () => {
+        const saved = await api.setPostingStatus(p.id, next, reason && { reason });
+        return { ...p, status: saved.status, discard_reason: saved.discard_reason, discard_note: saved.discard_note };
+      });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
+  const [blocking, setBlocking] = useState(false);
   async function hideCompany() {
+    setBlocking(true);
     setBusy(true);
     try {
       const r = await api.blockCompany(p.company);
@@ -37,24 +40,27 @@ export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChang
       toast.error(errorText(e));
     }
     setBusy(false);
+    setBlocking(false);
   }
   async function apply() {
     setBusy(true);
+    const optimistic = { ...p, status: "applied" as const, discard_reason: null, discard_note: null };
     try {
-      const r = await api.applyPosting(p.id);
-      toast.success(`Added ${r.application.company} to your applications`, {
-        action: { label: "Open", onClick: () => navigate(`/applications/${r.application.id}`) },
+      await write(optimistic, async () => {
+        const r = await api.applyPosting(p.id);
+        toast.success(`Added ${r.application.company} to your applications`, {
+          action: { label: "Open", onClick: () => navigate(`/applications/${r.application.id}`) },
+        });
+        return { ...optimistic, application_id: r.application.id };
       });
-      onChange();
-      status.refresh();
-    } catch (e) {
-      toast.error(errorText(e));
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   return (
     <>
+      {busy && !blocking && <span role="status" className="inline-flex items-center gap-2 text-xs"><Loader2 className="size-4 motion-safe:animate-spin" /> Saving…</span>}
       {p.status !== "applied" && (
         <>
           <Button size="sm" disabled={busy} onClick={apply}><Check /> Applied</Button>
@@ -69,7 +75,7 @@ export function PostingActions({ p, onChange, onBlocked }: { p: Posting; onChang
             <DiscardMenu disabled={busy} onPick={(reason) => void setStatus("dismissed", reason)} />
           )}
           {p.drop_reason !== "blocked" && (
-            <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={busy} onClick={hideCompany} title={`Never show ${p.company} again: hides its postings and blocks new ones`}><Ban /> Hide company</Button>
+            <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={busy} onClick={hideCompany} title={`Never show ${p.company} again: hides its postings and blocks new ones`}>{blocking ? <Loader2 className="motion-safe:animate-spin" /> : <Ban />} Hide company</Button>
           )}
         </>
       )}

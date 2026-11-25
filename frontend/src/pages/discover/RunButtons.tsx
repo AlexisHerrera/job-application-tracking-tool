@@ -1,7 +1,6 @@
-import { Download, Play, Sparkles } from "lucide-react";
+import { Download, Loader2, Play, Sparkles } from "lucide-react";
 import type { DiscoveryState } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 /** Collect only / Score pending / Run now. */
 export function RunButtons({ state, working, onRun }: { state: DiscoveryState; working: boolean; onRun: (score: boolean, collect: boolean) => void }) {
@@ -20,7 +19,7 @@ export function RunButtons({ state, working, onRun }: { state: DiscoveryState; w
         </Button>
       )}
       <Button size="sm" disabled={working || nothing} onClick={() => onRun(true, true)} title={`Reads ${sources}, then scores up to 1,000 waiting postings with AI (paid, about $0.0005 each)`}>
-        <Play className={cn(working && "animate-pulse")} /> {working ? "Running…" : "Run now"}
+        {working ? <Loader2 className="motion-safe:animate-spin" /> : <Play />} {working ? "Running…" : "Run now"}
       </Button>
     </>
   );

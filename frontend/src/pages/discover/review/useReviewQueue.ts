@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import type { Posting, PostingPage } from "@/api/discovery";
 
 /** The postings to go through one at a time. Starts from the page the list loaded and fetches
  * the next ones when the end is reached. A posting is "pending" while its status is still one
  * the queue asks for: deciding on it takes it out, skipping leaves it in. */
-export function useReviewQueue(first: PostingPage, query: Record<string, string>) {
+export function useReviewQueue(first: PostingPage, query: Record<string, string>, writing: boolean) {
   const [source, setSource] = useState(first);
   const [items, setItems] = useState(first.postings);
+  const latestItems = useRef(items);
+  useEffect(() => { latestItems.current = items; }, [items]);
   const [index, setIndex] = useState(0);
   const [exhausted, setExhausted] = useState(first.postings.length >= first.total);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function useReviewQueue(first: PostingPage, query: Record<string, string>
   const needMore = index >= items.length && !exhausted && !error;
 
   useEffect(() => {
-    if (!needMore) return;
+    if (!needMore || writing) return;
     let stale = false;
     // Decided postings have left the server's list, so the next ones start after the pending ones.
     api
@@ -36,14 +38,14 @@ export function useReviewQueue(first: PostingPage, query: Record<string, string>
         const known = new Set(items.map((p) => p.id));
         const fresh = page.postings.filter((p) => !known.has(p.id));
         if (fresh.length === 0) setExhausted(true);
-        else setItems([...items, ...fresh]);
+        else setItems((all) => [...all, ...fresh]);
       })
       .catch((e: unknown) => !stale && setError(e instanceof Error ? e.message : String(e)));
     return () => {
       stale = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needMore]);
+  }, [needMore, writing, source]);
 
   return {
     current: items[index] as Posting | undefined,
@@ -61,6 +63,10 @@ export function useReviewQueue(first: PostingPage, query: Record<string, string>
     back: () => setIndex((i) => Math.max(i - 1, 0)),
     /** Back to the first posting that was skipped. */
     restart: () => setIndex(Math.max(0, items.findIndex(isPending))),
+    goTo: (id: string) => {
+      const i = latestItems.current.findIndex((item) => item.id === id);
+      if (i >= 0) setIndex(i);
+    },
     replace: (p: Posting) => setItems((all) => all.map((x) => (x.id === p.id ? p : x))),
   };
 }

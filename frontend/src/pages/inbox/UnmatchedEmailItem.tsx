@@ -1,3 +1,5 @@
+import { PendingButton } from "@/components/PendingButton";
+import { usePending } from "@/lib/usePending";
 import { useState } from "react";
 import { Ban, Mail, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -12,12 +14,13 @@ import { useRefresh } from "@/lib/refresh";
 import { ApplicationPicker } from "./ApplicationPicker";
 
 export function UnmatchedEmailItem({ e, apps }: { e: TimelineEvent; apps: Application[] }) {
+  const { pending, run: runPending } = usePending<"assign" | "dismiss" | "create">();
   const { bump } = useRefresh();
   const hint = (e.company_hint ?? e.extracted_company ?? "").toLowerCase();
   const suggested = hint ? apps.filter((a) => a.company.toLowerCase() === hint).map((a) => a.id) : [];
   const [target, setTarget] = useState(suggested.length === 1 ? suggested[0] : "");
   const [creating, setCreating] = useState(false);
-  const run = async (fn: () => Promise<unknown>, done: string) => {
+  const run = (key: NonNullable<typeof pending>, fn: () => Promise<unknown>, done: string) => runPending(key, async () => {
     try {
       await fn();
       toast.success(done);
@@ -25,7 +28,7 @@ export function UnmatchedEmailItem({ e, apps }: { e: TimelineEvent; apps: Applic
     } catch (err) {
       toast.error(errorText(err));
     }
-  };
+  });
 
   return (
     <Card className="gap-3 py-4">
@@ -47,9 +50,9 @@ export function UnmatchedEmailItem({ e, apps }: { e: TimelineEvent; apps: Applic
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ApplicationPicker apps={apps} value={target} onChange={setTarget} suggested={suggested} placeholder="Assign to… (type company, role, status)" />
-          <Button size="sm" disabled={!target} onClick={() => run(() => api.assign(e.id, target), "Assigned. The sender is remembered.")}>Assign</Button>
-          <Button size="sm" variant="outline" onClick={() => setCreating(!creating)}><Plus /> New application</Button>
-          <Button size="sm" variant="ghost" onClick={() => run(() => api.dismiss(e.id), "Dismissed")}><Ban /> Not a job email</Button>
+          <PendingButton pending={pending === "assign"} size="sm" disabled={!target || pending !== null} onClick={() => run("assign", () => api.assign(e.id, target), "Assigned. The sender is remembered.")}>Assign</PendingButton>
+          <Button size="sm" variant="outline" disabled={pending !== null} onClick={() => setCreating(!creating)}><Plus /> New application</Button>
+          <PendingButton pending={pending === "dismiss"} disabled={pending !== null} size="sm" variant="ghost" onClick={() => run("dismiss", () => api.dismiss(e.id), "Dismissed")}>{pending !== "dismiss" && <Ban />} Not a job email</PendingButton>
         </div>
         {creating && (
           <div className="rounded-lg border p-4">
@@ -58,7 +61,7 @@ export function UnmatchedEmailItem({ e, apps }: { e: TimelineEvent; apps: Applic
               submitLabel="Create and assign"
               showStage={false}
               pasteFill={{ onUseExisting: (id) => { setTarget(id); setCreating(false); } }}
-              onSubmit={async (data) => { await api.createFromEvent(e.id, data); toast.success("Created and assigned"); bump(); }}
+              onSubmit={async (data) => { await runPending("create", async () => { await api.createFromEvent(e.id, data); toast.success("Created and assigned"); bump(); }); }}
             />
           </div>
         )}

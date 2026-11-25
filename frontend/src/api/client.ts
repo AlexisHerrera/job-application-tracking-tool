@@ -43,35 +43,61 @@ async function sha256Hex(text: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+const requestListeners = new Set<() => void>();
+let inFlightRequests = 0;
+let slowRequests = 0;
+
+export const getSlowRequestCount = () => Math.min(slowRequests, inFlightRequests);
+export function subscribeToRequests(listener: () => void) {
+  requestListeners.add(listener);
+  return () => { requestListeners.delete(listener); };
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {};
-  let payload: string | undefined;
-  if (body !== undefined) {
-    payload = JSON.stringify(body);
-    headers["Content-Type"] = "application/json";
-  }
-  if (method !== "GET" && method !== "HEAD") {
-    // CloudFront OAC signs requests to the Lambda Function URL, and Lambda doesn't accept unsigned
-    // payloads: every write carries the SHA-256 of its body (of "" when there is none).
-    headers["x-amz-content-sha256"] = await sha256Hex(payload ?? "");
-  }
-  const token = await idToken();
-  if (token) headers["X-Id-Token"] = token;
-  const res = await fetch(`/api${path}`, { method, headers, body: payload, credentials: "same-origin" });
-  // Prod only (both are no-ops locally): a 401 means the session ran out, so sign in again.
-  if (res.status === 401 && (await onUnauthorized())) return new Promise<T>(() => {}); // leaving for the login page
-  if (res.ok) onAuthorized();
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const data = await res.json();
-      detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
-    } catch {
-      /* not JSON */
+  inFlightRequests += 1;
+  let slow = false;
+  const timer = setTimeout(() => {
+    slow = true;
+    slowRequests += 1;
+    requestListeners.forEach((listener) => listener());
+  }, 300);
+  try {
+    const headers: Record<string, string> = {};
+    let payload: string | undefined;
+    if (body !== undefined) {
+      payload = JSON.stringify(body);
+      headers["Content-Type"] = "application/json";
     }
-    throw new ApiError(res.status, detail);
+    if (method !== "GET" && method !== "HEAD") {
+      // CloudFront OAC signs requests to the Lambda Function URL, and Lambda doesn't accept unsigned
+      // payloads: every write carries the SHA-256 of its body (of "" when there is none).
+      headers["x-amz-content-sha256"] = await sha256Hex(payload ?? "");
+    }
+    const token = await idToken();
+    if (token) headers["X-Id-Token"] = token;
+    const res = await fetch(`/api${path}`, { method, headers, body: payload, credentials: "same-origin" });
+    // Prod only (both are no-ops locally): a 401 means the session ran out, so sign in again.
+    if (res.status === 401 && (await onUnauthorized())) return new Promise<T>(() => {}); // leaving for the login page
+    if (res.ok) onAuthorized();
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const data = await res.json();
+        detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+      } catch {
+        /* not JSON */
+      }
+      throw new ApiError(res.status, detail);
+    }
+    return res.status === 204 ? (undefined as T) : await res.json();
+  } finally {
+    clearTimeout(timer);
+    inFlightRequests -= 1;
+    if (slow) {
+      slowRequests -= 1;
+      requestListeners.forEach((listener) => listener());
+    }
   }
-  return res.status === 204 ? (undefined as T) : res.json();
 }
 
 export const api = {

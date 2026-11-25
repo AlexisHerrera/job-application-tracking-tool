@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Ban, X } from "lucide-react";
+import { Ban, Loader2, X } from "lucide-react";
 import type { Discard, DiscardReason } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +8,12 @@ import { DISCARD_REASONS } from "@/features/discovery/discardReasons";
 import { useReviewKeys } from "./useReviewKeys";
 
 /** Why this one is out: one click (or 1–9) on a reason discards it. The note is optional. */
-export function DiscardPanel({ company, busy, onPick, onCancel, onHideCompany }: { company: string; busy: boolean; onPick: (d: Discard) => void; onCancel: () => void; onHideCompany: (() => void) | null }) {
+export function DiscardPanel({ company, busy, hideDisabled, onPick, onCancel, onHideCompany }: { company: string; busy: boolean; hideDisabled: boolean; onPick: (d: Discard) => void; onCancel: () => void; onHideCompany: (() => void) | null }) {
   const [note, setNote] = useState("");
   const pick = (reason: DiscardReason) => !busy && onPick({ reason, note: note.trim() });
 
   useReviewKeys((key) => {
+    if (busy) return false;
     if (key === "escape") onCancel();
     else if (/^[1-9]$/.test(key)) pick(DISCARD_REASONS[Number(key) - 1].value);
     else return false;
@@ -24,7 +25,7 @@ export function DiscardPanel({ company, busy, onPick, onCancel, onHideCompany }:
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h3 className="text-sm font-semibold">Why is it out?</h3>
         <span className="text-xs text-muted-foreground max-sm:hidden">The reasons add up, so the filters can be tuned later.</span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={onCancel}><X /> Cancel <Kbd className="pointer-coarse:hidden">Esc</Kbd></Button>
+        <Button size="sm" variant="ghost" className="ml-auto" disabled={busy} onClick={onCancel}><X /> Cancel <Kbd className="pointer-coarse:hidden">Esc</Kbd></Button>
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         {DISCARD_REASONS.map((r, i) => (
@@ -47,7 +48,7 @@ export function DiscardPanel({ company, busy, onPick, onCancel, onHideCompany }:
           value={note}
           onChange={(e) => setNote(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") onCancel();
+            if (!busy && e.key === "Escape") onCancel();
             if (e.key === "Enter") pick("other");
           }}
           maxLength={500}
@@ -55,8 +56,8 @@ export function DiscardPanel({ company, busy, onPick, onCancel, onHideCompany }:
           className="min-w-0 basis-full sm:min-w-64 sm:basis-0 sm:flex-1"
         />
         {onHideCompany && (
-          <Button variant="ghost" className="max-w-full text-muted-foreground" disabled={busy} onClick={onHideCompany} title={`Never show ${company} again: hides its postings and blocks new ones`}>
-            <Ban /> <span className="truncate">Hide everything from {company}</span>
+          <Button variant="ghost" className="max-w-full text-muted-foreground" disabled={busy || hideDisabled} aria-busy={busy || undefined} onClick={onHideCompany} title={`Never show ${company} again: hides its postings and blocks new ones`}>
+            {busy ? <Loader2 className="motion-safe:animate-spin" /> : <Ban />} <span className="truncate">Hide everything from {company}</span>
           </Button>
         )}
       </div>

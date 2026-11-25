@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { ApiProgress } from "@/components/ApiProgress";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import App from "@/app/App";
@@ -21,6 +22,7 @@ createRoot(document.getElementById("root")!).render(
               <CampaignProvider>
                 <DiscoveryStatusProvider>
                   <App />
+                  <ApiProgress />
                   <Toaster position="bottom-right" richColors closeButton />
                 </DiscoveryStatusProvider>
               </CampaignProvider>

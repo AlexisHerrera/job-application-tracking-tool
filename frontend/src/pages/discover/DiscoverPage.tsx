@@ -16,6 +16,7 @@ import { LastRunSummary } from "./progress/LastRunSummary";
 import { isReview, pageOf, queryFor, techsOf } from "./query";
 import { ReviewDeck } from "./review/ReviewDeck";
 import { RunButtons } from "./RunButtons";
+import { usePostingPage } from "./usePostingPage";
 import { SeedEmptyState } from "./SeedEmptyState";
 
 export default function DiscoverPage() {
@@ -23,7 +24,7 @@ export default function DiscoverPage() {
   const navigate = useNavigate();
   const state = useAsync(api.discoverySettings);
   const query = queryFor(params);
-  const list = useAsync(() => api.postings(query), [params.toString()]);
+  const list = usePostingPage(query);
   const review = isReview(params);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -74,9 +75,9 @@ export default function DiscoverPage() {
               {data.counts.total === 0 ? "Nothing collected yet. Run the searches to fill this page." : "Nothing here with these filters."}
             </Empty>
           ) : review ? (
-            <ReviewDeck data={data} query={query} onBlocked={reloadAll} onTech={addTech} />
+            <ReviewDeck key={params.toString()} data={data} query={query} onBlocked={reloadAll} onTech={addTech} />
           ) : (
-            <PostingList data={data} page={page} loading={list.loading} set={set} onChange={() => void list.reload()} onBlocked={reloadAll} onTech={addTech} />
+            <PostingList key={params.toString()} data={data} page={page} loading={list.loading} set={set} reload={() => list.reload(true)} onBlocked={reloadAll} onTech={addTech} />
           )}
         </>
       )}
