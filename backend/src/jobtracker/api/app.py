@@ -97,7 +97,7 @@ def create_app(
     verifier = TokenVerifier(settings)
     clock = SystemClock()
     tz = settings.tz
-    make_repo = repo_factory or (lambda: PostgresRepo.open(settings))
+    make_repo = repo_factory or PostgresRepo.factory(settings)
 
     def default_llm() -> LLMClient:
         from jobtracker.adapters.anthropic_llm import AnthropicLLM
@@ -187,6 +187,8 @@ def create_app(
                 repo.close()
 
     app = FastAPI(title="jobtracker", docs_url=None, redoc_url=None, openapi_url=None)
+    # For the Lambda's cold start (`lambdas/handlers.py`): fetch the keys, open the connection.
+    app.state.verifier, app.state.make_repo = verifier, make_repo
 
     @app.exception_handler(services.NotFound)
     def _not_found(_req, _exc):
