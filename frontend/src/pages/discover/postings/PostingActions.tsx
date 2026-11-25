@@ -7,6 +7,7 @@ import { useDiscoveryStatus } from "@/features/discovery/discoveryStatus";
 import { errorText } from "@/lib/errors";
 import { type DiscardReason, type Posting, type PostingStatus } from "@/api/discovery";
 import { Button } from "@/components/ui/button";
+import { AlreadyAppliedDialog } from "@/pages/discover/AlreadyAppliedDialog";
 import { DiscardMenu } from "./DiscardMenu";
 import { type WritePosting } from "./usePostingWrites";
 
@@ -15,12 +16,14 @@ export function PostingActions({ p, write, onBlocked }: { p: Posting; write: Wri
   const navigate = useNavigate();
   const status = useDiscoveryStatus();
   const [busy, setBusy] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  async function setStatus(next: PostingStatus, reason?: DiscardReason) {
+  async function setStatus(next: PostingStatus, reason?: DiscardReason, otherUnreviewedCount?: number) {
     setBusy(true);
     try {
       await write({ ...p, status: next, discard_reason: reason ?? null, discard_note: null }, async () => {
-        const saved = await api.setPostingStatus(p.id, next, reason && { reason });
+        const saved = await api.setPostingStatus(p.id, next, reason && { reason, otherUnreviewedCount });
+        if (saved.other_discarded) toast.success(`${saved.other_discarded + 1} postings marked as already applied`);
         return { ...p, status: saved.status, discard_reason: saved.discard_reason, discard_note: saved.discard_note };
       });
     } finally {
@@ -72,7 +75,7 @@ export function PostingActions({ p, write, onBlocked }: { p: Posting; write: Wri
           {p.status === "dismissed" ? (
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setStatus("new")}>Undo discard</Button>
           ) : (
-            <DiscardMenu disabled={busy} onPick={(reason) => void setStatus("dismissed", reason)} />
+            <DiscardMenu disabled={busy} onPick={(reason) => reason === "already_applied" ? setConfirmDiscard(true) : void setStatus("dismissed", reason)} />
           )}
           {p.drop_reason !== "blocked" && (
             <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={busy} onClick={hideCompany} title={`Never show ${p.company} again: hides its postings and blocks new ones`}>{blocking ? <Loader2 className="motion-safe:animate-spin" /> : <Ban />} Hide company</Button>
@@ -82,6 +85,10 @@ export function PostingActions({ p, write, onBlocked }: { p: Posting; write: Wri
       {p.status === "applied" && p.application_id && (
         <Button size="sm" variant="outline" onClick={() => navigate(`/applications/${p.application_id}`)}>Open application</Button>
       )}
+      {confirmDiscard && <AlreadyAppliedDialog posting={p} onCancel={() => setConfirmDiscard(false)} onConfirm={(otherUnreviewedCount) => {
+        setConfirmDiscard(false);
+        return setStatus("dismissed", "already_applied", otherUnreviewedCount);
+      }} />}
     </>
   );
 }

@@ -75,7 +75,7 @@ export default function DiscoverPage() {
               {data.counts.total === 0 ? "Nothing collected yet. Run the searches to fill this page." : "Nothing here with these filters."}
             </Empty>
           ) : review ? (
-            <ReviewDeck key={params.toString()} data={data} query={query} onBlocked={reloadAll} onTech={addTech} />
+            <ReviewDeck key={params.toString()} data={data} query={query} reload={() => list.reload(true)} onBlocked={reloadAll} onTech={addTech} />
           ) : (
             <PostingList key={params.toString()} data={data} page={page} loading={list.loading} set={set} reload={() => list.reload(true)} onBlocked={reloadAll} onTech={addTech} />
           )}

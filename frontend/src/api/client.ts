@@ -163,8 +163,9 @@ export const api = {
   calendarStatus: () => request<{ connected: boolean; calendar_id: string; last_sync_at: string | null }>("GET", "/calendar"),
   syncCalendar: () => request<CalendarSyncResult>("POST", "/calendar/sync", {}),
   postings: (params: Record<string, string> = {}) => request<PostingPage>("GET", `/discover?${new URLSearchParams(params)}`),
+  otherUnreviewed: (id: string) => request<{ count: number }>("GET", `/discover/${id}/other-unreviewed`),
   setPostingStatus: (id: string, status: PostingStatus, discard?: Discard) =>
-    request<PostingStatusSaved>("PATCH", `/discover/${id}`, { status, discard_reason: discard?.reason ?? null, discard_note: discard?.note || null }),
+    request<PostingStatusSaved>("PATCH", `/discover/${id}`, { status, discard_reason: discard?.reason ?? null, discard_note: discard?.note || null, other_unreviewed_count: discard?.otherUnreviewedCount }),
   applyPosting: (id: string) => request<{ posting_id: string; application: Application }>("POST", `/discover/${id}/apply`, {}),
   discoverySettings: () => request<DiscoveryState>("GET", "/discover/settings"),
   saveDiscoverySettings: (data: { criteria?: string; profile?: CriteriaProfile; rules?: Partial<DiscoveryRules> }) =>

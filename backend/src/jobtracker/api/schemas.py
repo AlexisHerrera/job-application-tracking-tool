@@ -523,6 +523,7 @@ class PostingPatch(BaseModel):
     # Only kept with status "dismissed"; any other status clears them.
     discard_reason: DiscardReason | None = None
     discard_note: str | None = Field(None, max_length=500)
+    other_unreviewed_count: int | None = Field(None, gt=0)
 
 
 class DiscoverySettingsIn(BaseModel):

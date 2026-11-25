@@ -501,6 +501,26 @@ class MemoryRepo:
                 n += 1
         return n
 
+    def _other_unreviewed(self, posting):
+        return [
+            p for p in self.postings.values()
+            if posting.company_normalized and p.company_normalized == posting.company_normalized
+            and p.id != posting.id and p.status == "new"
+            and p.reviewed_at is None and p.drop_reason is None
+        ]  # fmt: skip
+
+    def count_other_unreviewed(self, posting):
+        return len(self._other_unreviewed(posting))
+
+    def discard_other_unreviewed(self, posting, now):
+        from jobtracker.core.discovery import set_status
+        from jobtracker.core.models import PostingStatus
+
+        others = self._other_unreviewed(posting)
+        for p in others:
+            set_status(p, PostingStatus.DISMISSED, now, "already_applied")
+        return len(others)
+
 
 class FakeBoards:
     """Scripted company boards: `jobs` maps (ats, slug) to the postings on that board; a board

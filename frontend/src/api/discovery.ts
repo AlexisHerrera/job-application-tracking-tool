@@ -15,6 +15,7 @@ export type DiscardReason =
 export interface Discard {
   reason: DiscardReason | null;
   note?: string;
+  otherUnreviewedCount?: number;
 }
 export interface PostingStatusSaved {
   id: string;
@@ -22,6 +23,7 @@ export interface PostingStatusSaved {
   discard_reason: DiscardReason | null;
   discard_note: string | null;
   reviewed_at: string | null;
+  other_discarded: number;
 }
 
 export interface Posting {

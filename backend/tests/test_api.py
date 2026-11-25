@@ -332,6 +332,46 @@ def test_discover_page_flow(repo):
     assert client.patch(f"/api/discover/{contoso['id']}", json={"status": "bogus"}).status_code == 422  # fmt: skip
 
 
+def test_discard_already_applied_can_include_only_other_unreviewed_company_postings(client, repo):
+    from jobtracker.core.models import PostingStatus
+    from tests.fakes import posting
+
+    company = {"company_normalized": "northwind pay"}
+    anchor = posting(source_id="anchor", **company)
+    other = posting(source_id="other", **company)
+    saved = posting(source_id="saved", status=PostingStatus.INTERESTED, **company)
+    applied = posting(source_id="applied", status=PostingStatus.APPLIED, **company)
+    hidden = posting(source_id="hidden", drop_reason="location", **company)
+    unrelated = posting(source_id="unrelated", company="Other Co", company_normalized="other co")
+    for p in (anchor, other, saved, applied, hidden, unrelated):
+        repo.add_posting(p)
+
+    url = f"/api/discover/{anchor.id}"
+    assert client.get(f"{url}/other-unreviewed").json() == {"count": 1}
+    body = {"status": "dismissed", "discard_reason": "already_applied", "discard_note": "same role"}
+    assert client.patch(url, json=body).json()["other_discarded"] == 0
+    assert repo.get_posting(other.id).status == PostingStatus.NEW
+    assert client.patch(url, json={"status": "new"}).status_code == 200
+
+    bulk = {**body, "other_unreviewed_count": 1}
+    assert client.patch(url, json=bulk).json()["other_discarded"] == 1
+    assert client.get(f"{url}/other-unreviewed").json() == {"count": 0}
+    other_after = repo.get_posting(other.id)
+    assert (other_after.status, other_after.discard_reason) == (
+        PostingStatus.DISMISSED,
+        "already_applied",
+    )
+    assert other_after.reviewed_at is not None and other_after.discard_note is None
+    assert all(
+        repo.get_posting(p.id).status == p.status for p in (saved, applied, hidden, unrelated)
+    )
+
+    later = posting(source_id="later", **company)
+    repo.add_posting(later)
+    assert client.patch(url, json=bulk).json()["other_discarded"] == 0
+    assert repo.get_posting(later.id).status == PostingStatus.NEW
+
+
 def test_discover_insights(client, repo):
     from datetime import UTC, datetime, timedelta
 

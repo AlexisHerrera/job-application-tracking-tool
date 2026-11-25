@@ -7,6 +7,7 @@ import { Loading } from "@/components/common";
 import { useDiscoveryStatus } from "@/features/discovery/discoveryStatus";
 import { errorText } from "@/lib/errors";
 import { safeUrl } from "@/lib/links";
+import { AlreadyAppliedDialog } from "@/pages/discover/AlreadyAppliedDialog";
 import { DiscardPanel } from "./DiscardPanel";
 import { ReviewActions } from "./ReviewActions";
 import { ReviewCard } from "./ReviewCard";
@@ -16,7 +17,7 @@ import { useReviewKeys } from "./useReviewKeys";
 import { useReviewQueue } from "./useReviewQueue";
 
 /** The postings one at a time: read, decide, next. Every button has a key. */
-export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPage; query: Record<string, string>; onBlocked: () => void; onTech: (tech: string) => void }) {
+export function ReviewDeck({ data, query, reload, onBlocked, onTech }: { data: PostingPage; query: Record<string, string>; reload: () => Promise<boolean>; onBlocked: () => void; onTech: (tech: string) => void }) {
   const writes = useRef(new Set<string>());
   const [writing, setWriting] = useState(0);
   const q = useReviewQueue(data, query, writing > 0);
@@ -24,6 +25,7 @@ export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPa
   const status = useDiscoveryStatus();
   const [busy, setBusy] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState<Discard | null>(null);
   const p = q.current;
   const saving = !!p && writes.current.has(p.id);
   const pending = !!p && q.isPending(p) && p.status !== "applied" && p.status !== "dismissed";
@@ -67,6 +69,27 @@ export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPa
       return { ...optimistic, application_id: r.application.id };
     });
   };
+  async function discardAlreadyApplied(otherUnreviewedCount?: number) {
+    if (!p || !confirmDiscard) return;
+    if (otherUnreviewedCount === undefined) {
+      setConfirmDiscard(null);
+      await setStatus("dismissed", confirmDiscard);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await api.setPostingStatus(p.id, "dismissed", { ...confirmDiscard, otherUnreviewedCount });
+      q.replace({ ...p, ...r });
+      setConfirmDiscard(null);
+      setDiscarding(false);
+      status.refresh();
+      const reloaded = await reload();
+      if (!reloaded) toast.error("Postings were discarded. Refresh Review to update the queue.");
+      else toast.success(r.other_discarded ? `${r.other_discarded + 1} postings marked as already applied` : "Posting marked as already applied");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function hideCompany() {
     if (!p || busy || writes.current.size) return;
     setBusy(true);
@@ -113,11 +136,12 @@ export function ReviewDeck({ data, query, onBlocked, onTech }: { data: PostingPa
           <ReviewCard key={p.id} p={p} onTech={onTech} />
           <div className="sticky bottom-3 z-10 mt-3 rounded-2xl border bg-card/95 p-3 shadow-lg backdrop-blur">
             {discarding && pending ? (
-              <DiscardPanel company={p.company} busy={busy} hideDisabled={writing > 0} onPick={(d) => void setStatus("dismissed", d)} onCancel={() => setDiscarding(false)} onHideCompany={p.drop_reason === "blocked" ? null : () => void hideCompany()} />
+              <DiscardPanel company={p.company} busy={busy} hideDisabled={writing > 0} onPick={(d) => d.reason === "already_applied" ? setConfirmDiscard(d) : void setStatus("dismissed", d)} onCancel={() => setDiscarding(false)} onHideCompany={p.drop_reason === "blocked" ? null : () => void hideCompany()} />
             ) : (
               <ReviewActions p={p} pending={pending} busy={busy || saving} saving={saving} onDiscard={() => setDiscarding(true)} onSave={() => void save()} onApply={() => void apply()} onUndo={() => void undo()} onOpenApplication={() => navigate(`/applications/${p.application_id}`)} />
             )}
           </div>
+          {confirmDiscard && <AlreadyAppliedDialog posting={p} onCancel={() => setConfirmDiscard(null)} onConfirm={discardAlreadyApplied} bulkDisabled={writing > 0} />}
         </>
       ) : q.loadingMore || q.error ? (
         <Loading error={q.error} loading={q.loadingMore} />
