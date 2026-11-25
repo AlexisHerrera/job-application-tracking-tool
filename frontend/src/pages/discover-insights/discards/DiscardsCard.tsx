@@ -20,6 +20,7 @@ export function DiscardsCard({ data }: { data: DiscoveryInsights }) {
   const role = d.reasons.filter((r) => r.about === "criteria");
   const posting = d.reasons.filter((r) => r.about === "source");
   const application = d.reasons.filter((r) => r.about === "application");
+  const forHints = [...role, ...posting].reduce((total, reason) => total + reason.count, 0);
   const group = { max, open, onToggle: toggle };
 
   return (
@@ -37,9 +38,9 @@ export function DiscardsCard({ data }: { data: DiscoveryInsights }) {
           </Empty>
         ) : (
           <>
-            {(withReason < THIN || d.without_reason > 0) && (
+            {((forHints > 0 && forHints < THIN) || d.without_reason > 0) && (
               <p className="text-xs text-muted-foreground">
-                {withReason < THIN && <>Only {plural(withReason, "discard")} with a reason so far. A change is suggested once at least two discards share something (a word, a place, a technology), so most show up after a few dozen. </>}
+                {forHints > 0 && forHints < THIN && <>Suggestions appear as patterns emerge across repeated discards. </>}
                 {d.without_reason > 0 && <>{plural(d.without_reason, "more was", "more were")} discarded without a reason.</>}
               </p>
             )}

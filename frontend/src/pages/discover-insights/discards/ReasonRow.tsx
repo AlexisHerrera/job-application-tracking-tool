@@ -27,7 +27,7 @@ export function ReasonRow({ row, scale, open, onToggle }: { row: DiscardReasonRo
       <div className="mt-1.5 pl-6">
         {row.hints.length > 0 ? (
           <HintList hints={row.hints} />
-        ) : (
+        ) : row.about !== "application" && (
           <p className="text-xs text-muted-foreground">{row.count === 1 ? "One so far: nothing to point at yet." : "Nothing they share points at one change yet."}</p>
         )}
         {open && <ReasonDetails row={row} />}

@@ -24,7 +24,7 @@ export function DiscardPanel({ company, busy, hideDisabled, onPick, onCancel, on
   });
 
   return (
-    <div className="space-y-3">
+    <div className="max-h-[75dvh] space-y-3 overflow-y-auto p-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h3 className="text-sm font-semibold">Why is it out?</h3>
         <Button size="sm" variant="ghost" className="ml-auto" disabled={busy} onClick={onCancel}><X /> Cancel <Kbd className="pointer-coarse:hidden">Esc</Kbd></Button>
