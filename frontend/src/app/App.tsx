@@ -1,14 +1,17 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/api/client";
-import { EditorDialog } from "@/features/notes/EditorDialog";
 import { useAsync } from "@/lib/useAsync";
 import { AppRoutes } from "./AppRoutes";
 import { MobileHeader } from "./MobileHeader";
 import { Sidebar } from "./Sidebar";
 
+const EditorDialog = lazy(() => import("@/features/notes/EditorDialog").then((module) => ({ default: module.EditorDialog })));
+
 export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [params] = useSearchParams();
   const counts = useAsync(api.dashboard).data;
 
   return (
@@ -28,7 +31,11 @@ export default function App() {
         <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 md:px-8">
           <AppRoutes />
         </main>
-        <EditorDialog />
+        {(params.get("interview") || params.get("note")) && (
+          <Suspense fallback={<p role="status" className="fixed bottom-4 right-4 rounded-md border bg-popover p-3 text-sm">Loading editor…</p>}>
+            <EditorDialog />
+          </Suspense>
+        )}
       </div>
     </div>
   );

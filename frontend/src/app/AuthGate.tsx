@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { initAuth, type AuthState } from "@/lib/auth";
+import { ShellSkeleton } from "./ShellSkeleton";
 
-// Renders the app once sign-in is settled (prod), or right away (local, no login).
+// Renders the app once we have a session or local sign-in bypass.
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +30,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
   if (state?.status !== "ready") {
-    return <div className="min-h-svh bg-background" aria-busy="true" />;
+    return <ShellSkeleton />;
   }
   return children;
 }
