@@ -410,6 +410,19 @@ class MemoryRepo:
         page = rows[query.offset : query.offset + query.limit]
         return [copy.deepcopy(p) for p in page], len(rows)
 
+    def sidebar_status(self, review, *, run_except_trigger, oauth_provider):
+        from jobtracker.core.models import SidebarStatus
+
+        return SidebarStatus(
+            unassigned=len(self.list_unassigned()),
+            unassigned_interviews=len(self.list_unassigned_interviews()),
+            last_scan_at=self.last_sync_at(),
+            last_calendar_sync_at=self.last_calendar_sync_at(),
+            to_review=self.count_postings(review),
+            last_run=self.last_run(except_trigger=run_except_trigger),
+            oauth_stored=bool(oauth_provider and self.get_oauth(oauth_provider)),
+        )
+
     def count_postings(self, query):
         from jobtracker.core import discovery
 

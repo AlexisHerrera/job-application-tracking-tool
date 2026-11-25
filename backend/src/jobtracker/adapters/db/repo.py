@@ -38,6 +38,7 @@ from jobtracker.core.models import (
     PostingQuery,
     PostingStatus,
     ProcessStep,
+    SidebarStatus,
     Stage,
     StepKind,
     StepLink,
@@ -873,6 +874,50 @@ class PostgresRepo:
             (*args, query.limit, query.offset),
         )
         return [_posting_from(r) for r in rows], self.count_postings(query)
+
+    def sidebar_status(
+        self, review: PostingQuery, *, run_except_trigger: str, oauth_provider: str | None
+    ) -> SidebarStatus:
+        """Every count and date the sidebar shows, in one statement: on DSQL each statement is a
+        network round trip. Counts in SQL, never the rows (events carry whole emails)."""
+        where, args = _posting_where(review)
+        oauth = (
+            "EXISTS (SELECT 1 FROM oauth_credentials WHERE provider = %s)"
+            if oauth_provider
+            else "false"
+        )
+        run = ", ".join(f"r.{c}" for c in RUN_COLUMNS)
+        r = self._one(
+            "SELECT"
+            " (SELECT count(*) FROM events"
+            "   WHERE application_id IS NULL AND dismissed = false) AS unassigned,"
+            " (SELECT count(*) FROM interviews"
+            "   WHERE application_id IS NULL AND dismissed = false AND general IS NOT TRUE"
+            "   AND status = %s) AS unassigned_interviews,"
+            " (SELECT max(updated_at) FROM mail_sync_state) AS last_scan_at,"
+            " (SELECT max(updated_at) FROM calendar_sync_state) AS last_calendar_sync_at,"
+            f" (SELECT count(*) FROM job_postings WHERE {where}) AS to_review,"
+            f" {oauth} AS oauth_stored, {run}"
+            " FROM (SELECT 1) AS one LEFT JOIN"
+            "  (SELECT * FROM discovery_runs WHERE trigger <> %s"
+            "   ORDER BY started_at DESC LIMIT 1) AS r ON true",
+            (
+                InterviewStatus.SCHEDULED.value,
+                *args,
+                *((oauth_provider,) if oauth_provider else ()),
+                run_except_trigger,
+            ),
+        )
+        assert r is not None  # one row, always
+        return SidebarStatus(
+            unassigned=r["unassigned"],
+            unassigned_interviews=r["unassigned_interviews"],
+            last_scan_at=r["last_scan_at"],
+            last_calendar_sync_at=r["last_calendar_sync_at"],
+            to_review=r["to_review"],
+            last_run=_run_from(r) if r["id"] is not None else None,
+            oauth_stored=r["oauth_stored"],
+        )
 
     def count_postings(self, query: PostingQuery) -> int:
         where, args = _posting_where(query)

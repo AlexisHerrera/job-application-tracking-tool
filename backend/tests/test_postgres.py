@@ -510,3 +510,55 @@ def test_shared_connection_on_real_postgres(test_url):
     assert replaced is not fresh and replaced.execute("SELECT 1 AS ok").fetchone()["ok"] == 1
     shared.release(replaced)
     replaced.close()
+
+
+def test_shell_is_one_statement_with_the_same_answer(pg, clock, monkeypatch):
+    """GET /api/shell answers what /scan, /calendar, /discover/status and /dashboard's counts
+    answer, with one SQL statement (each one is a network round trip on DSQL)."""
+    from datetime import timedelta
+
+    from fastapi.testclient import TestClient
+
+    from jobtracker.api.app import create_app
+    from jobtracker.cli.seed import seed
+    from jobtracker.core.models import DiscoveryRun, PostingStatus
+    from jobtracker.core.ports import SyncState
+    from jobtracker.settings import Settings
+    from tests.fakes import posting
+
+    seed(pg, clock, TZ)
+    for i, (status, drop) in enumerate([("new", None), ("new", None), ("new", "title: java"),
+                                        ("interested", None), ("dismissed", None)]):  # fmt: skip
+        pg.add_posting(posting(source_id=f"s{i}", status=PostingStatus(status), drop_reason=drop,
+                               fetched_at=clock.now(), updated_at=clock.now()))  # fmt: skip
+    now = clock.now()
+    pg.save_run(DiscoveryRun(started_at=now - timedelta(hours=1), trigger="schedule", errors=1, notes=["a: 503"]))  # fmt: skip
+    pg.save_run(DiscoveryRun(started_at=now, trigger="rescore"))  # reads no source: not shown
+    pg.set_sync_state(SyncState("[Gmail]/All Mail", 1, 41))
+    pg.set_oauth("google_calendar", {"refresh_token": "fake", "token_uri": "https://x.test",
+                                     "client_id": "c", "client_secret": "s"})  # fmt: skip
+
+    settings = Settings.from_env(
+        {"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com"}
+    )
+    client = TestClient(create_app(settings, repo_factory=lambda: pg))
+    statements = []
+    execute = pg.conn.execute
+    monkeypatch.setattr(pg.conn, "execute", lambda *a, **kw: statements.append(a[0]) or execute(*a, **kw))  # fmt: skip
+    shell = client.get("/api/shell").json()
+    assert len(statements) == 1, statements
+
+    dashboard = client.get("/api/dashboard").json()
+    assert shell == {
+        "inbox": {
+            "unassigned": dashboard["unassigned"],
+            "unassigned_interviews": dashboard["unassigned_interviews"],
+        },
+        "scan": client.get("/api/scan").json(),
+        "calendar": client.get("/api/calendar").json(),
+        "discovery": client.get("/api/discover/status").json(),
+    }
+    assert shell["inbox"]["unassigned"] == 1 and shell["scan"]["last_scan_at"] is not None
+    assert shell["calendar"]["connected"] and shell["calendar"]["auth"] == "oauth"
+    assert shell["discovery"]["to_review"] == 2
+    assert shell["discovery"]["last_run"]["trigger"] == "schedule"
