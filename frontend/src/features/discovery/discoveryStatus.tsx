@@ -1,8 +1,6 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { useLocation } from "react-router-dom";
-import { api } from "@/api/client";
+import { useMemo } from "react";
 import type { DiscoveryStatus } from "@/api/discovery";
-import { useAsync } from "@/lib/useAsync";
+import { useShellStatus } from "@/features/shell/shellStatus";
 
 interface DiscoveryStatusState {
   status: DiscoveryStatus | null;
@@ -11,16 +9,10 @@ interface DiscoveryStatusState {
   refresh: () => void;
 }
 
-const Ctx = createContext<DiscoveryStatusState>({ status: null, refresh: () => {} });
-
-/** The sidebar's Review count and "Job sources" line, loaded once for the whole shell (the light
- * GET /discover/status, not the settings). It reloads on every navigation, on bump(), and when a
- * Discover page calls refresh(). */
-export function DiscoveryStatusProvider({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
-  const { data, reload } = useAsync(api.discoveryStatus, [pathname]);
-  const value = useMemo(() => ({ status: data, refresh: () => void reload() }), [data, reload]);
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+/** The sidebar's Review count and "Job sources" line: the discovery part of GET /shell
+ * (ShellStatusProvider), so it loads with the rest of the sidebar. refresh() reloads the shell. */
+export function useDiscoveryStatus(): DiscoveryStatusState {
+  const { shell, refresh } = useShellStatus();
+  const status = shell?.discovery ?? null;
+  return useMemo(() => ({ status, refresh }), [status, refresh]);
 }
-
-export const useDiscoveryStatus = () => useContext(Ctx);

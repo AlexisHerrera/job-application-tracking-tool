@@ -66,6 +66,37 @@ def test_csv_import_and_dashboard(client):
     assert stats["total"] == 2
 
 
+def test_shell_is_the_sidebar_in_one_request(repo):
+    from jobtracker.cli.seed import seed
+    from jobtracker.core.clock import SystemClock
+    from tests.conftest import TZ
+
+    opened = []
+
+    def one_repo():
+        opened.append(repo)
+        return repo
+
+    settings = Settings.from_env(
+        {"APP_ENV": "local", "AUTH_DEV_BYPASS": "true", "ALLOWED_EMAIL": "me@example.com"}
+    )
+    client = TestClient(create_app(settings, repo_factory=one_repo))
+    seed(repo, SystemClock(), TZ)
+
+    shell = client.get("/api/shell").json()
+    assert len(opened) == 1  # one connection for all four parts
+    dashboard = client.get("/api/dashboard").json()
+    assert shell["inbox"] == {
+        "unassigned": dashboard["unassigned"],
+        "unassigned_interviews": dashboard["unassigned_interviews"],
+    }
+    assert shell["inbox"]["unassigned"] == 1
+    assert shell["scan"] == client.get("/api/scan").json()
+    assert shell["calendar"] == client.get("/api/calendar").json()
+    assert shell["discovery"] == client.get("/api/discover/status").json()
+    assert shell["discovery"] == {"to_review": 0, "last_run": None}
+
+
 def test_inbox_assign_and_dismiss(client, repo):
     from jobtracker.cli.seed import seed
     from jobtracker.core.clock import SystemClock

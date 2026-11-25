@@ -982,6 +982,21 @@ def create_app(
         last = repo.last_run(except_trigger="rescore")
         return {"to_review": to_review, "last_run": s.run_json(last)}
 
+    @api.get("/shell")
+    def shell(repo: PostgresRepo = Depends(get_repo)):
+        """Everything the sidebar shows, in one request on one connection: in prod each request
+        that a page fires at the same time costs its own (often cold) Lambda instance. The parts
+        are the same as GET /scan, /calendar and /discover/status, plus the inbox counts."""
+        return {
+            "inbox": {
+                "unassigned": len(repo.list_unassigned()),
+                "unassigned_interviews": len(repo.list_unassigned_interviews()),
+            },
+            "scan": scan_status(repo),
+            "calendar": calendar_status(repo),
+            "discovery": discovery_status(repo),
+        }
+
     # the company watchlist (plan §21, round 6)
     @api.get("/discover/companies")
     def list_watched(
