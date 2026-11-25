@@ -4,7 +4,17 @@ Local app (docker compose): FastAPI + Postgres backend in `backend/`, React + Vi
 
 ## How we work
 
-- **The user reviews the frontend themselves.** Don't take screenshots, drive a browser, or use the Chrome extension to check UI work. Typecheck and build the frontend (`npm run typecheck`, `npm run build` in `frontend/`), then hand it over for review.
+- **The user reviews the frontend themselves.** Typecheck and build the frontend (`npm run typecheck`, `npm run build` in `frontend/`), then hand it over for review. Don't use the Chrome extension or the user's browser.
+- **A PR that changes the UI shows it**, as described in "PR captures" below, within 5 minutes. Past that, stop and write the fallback instead. PRs without UI changes skip this.
+
+## PR captures
+
+The repo is public, so a capture shows only fake data: the worktree's own stack (`scripts/worktree-env.sh`, `docker compose up -d`, `docker compose exec api jobtracker dev seed`, fake rows added to that database if a page needs more). Never the real local `jobtracker` database or prod. Local mode has no login.
+
+1. Note the start time. The whole capture, starting the stack included, gets 5 minutes.
+2. Playwright in a scratch folder (`npx -y playwright` or a scratch `npm i playwright`; never add it to `frontend/package.json`); Chromium is usually already in `~/Library/Caches/ms-playwright`. One PNG per changed screen, and a short GIF only when the change is an interaction: Playwright's video recording converted with the system `ffmpeg` (`/opt/homebrew/bin/ffmpeg`). Each Playwright version wants its own ffmpeg build (`ffmpeg-<n>` in that cache); if it's missing, `npx playwright@<same version> install ffmpeg` (~1.5 MB). `page.screenshot()` frames joined with the system `ffmpeg` also work. Look at each image before uploading.
+3. Upload to the `pr-media` branch (no shared history with `main`, never merged) under `pr-<number>/`, one file per call: `gh api -X PUT repos/{owner}/{repo}/contents/pr-<number>/<file> -f message="PR #<number> media" -f branch=pr-media -f content="$(base64 -i <file>)"`. Link it in the PR body as `![what it shows](https://github.com/{owner}/{repo}/blob/pr-media/pr-<number>/<file>?raw=true)`.
+4. **Fallback** when the time runs out or something blocks: a "How to see it" section in the PR: the route, how to get the data there, what to click, and what to look for. Say why there's no capture.
 - Build in phases and stop for review at the end of each one.
 - Ask before anything that reads the real Gmail inbox or Google Calendar, touches AWS, or costs money (LLM calls). The app stays local for now.
 - Never mutate the real local `jobtracker` database while testing. Use the test suite, or a throwaway database.

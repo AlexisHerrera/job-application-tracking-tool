@@ -17,6 +17,18 @@ if [ "$git_dir" = "$common_dir" ]; then
 fi
 
 if [ -z "$(value COMPOSE_PROJECT_NAME "$env_file")" ]; then
+  # Orca can create several worktrees at once: pick and write the ports one worktree at a time,
+  # or they all see the same free slot. mkdir is atomic; a lock older than a minute is stale.
+  lock="$common_dir/worktree-env.lock"
+  locked=""
+  for _ in $(seq 1 100); do
+    if mkdir "$lock" 2>/dev/null; then locked=1; break; fi
+    if [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then rmdir "$lock" 2>/dev/null || true; fi
+    sleep 0.2
+  done
+  [ -n "$locked" ] || { echo "Couldn't take $lock" >&2; exit 1; }
+  trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+
   # Ports of other worktrees count even if their stacks are stopped.
   claimed=" "
   while read -r path; do
