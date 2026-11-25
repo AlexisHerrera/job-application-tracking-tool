@@ -20,10 +20,16 @@ from jobtracker.core.matching import normalize_company
 from jobtracker.core.models import new_id
 from jobtracker.core.ports import Clock
 
-# (key, label, what goes in it). The first pass over a batch of 21 forms (2026-11-24) set them.
+# (key, label, what goes in it), from the first two batches of forms (2026-11-24).
 CATEGORIES: list[tuple[str, str, str]] = [
     ("projects", "Impact and projects", "What you built, what was yours, how you knew it worked"),
     ("ai", "AI in how you build", "Your setup, what you hand to agents, tooling you wrote"),
+    (
+        "stack",
+        "Stack and technical depth",
+        "Tools you know and how deep, hard bugs, technical calls",
+    ),
+    ("how_you_work", "How you work", "Strengths, feedback, teammates, what colleagues would say"),
     ("why_us", "Why us", "Depends on the company: answer with the posting in mind"),
     ("job_search", "Your job search", "Why now, what you're looking for"),
     ("interviews", "Interview process", "Live coding, take-homes, how you prepare"),
@@ -34,20 +40,31 @@ CATEGORY_KEYS = frozenset(k for k, _, _ in CATEGORIES)
 MAX_TEXT = 2000  # a question, as the form wrote it
 MAX_ANSWER = 20_000
 
-# Rules for questions the first pass didn't see. Order matters: the first match wins.
+# Rules for new questions, matched against normalize(text, company): lowercase words, the
+# company's name as "company". Order matters: the first match wins.
 _RULE_WORDS: list[tuple[str, list[str]]] = [
+    ("extra", [r"\bvideo\b", r"\bloom\b", r"cover letter", r"anything else",
+               r"additional information"]),
     ("job_search", [r"looking for", r"new (opportunit|role|job)", r"career goal", r"next (role|step)",
-                    r"ideal (role|job|team)", r"why (are you )?leaving"]),
-    ("why_us", [r"\bhave you used\b", r"^why\b", r"\bwhy (do|are|would) you\b",
-                r"interested in (this|the|joining|working|us\b|our)", r"interests you",
-                r"right (hire|fit|person|candidate)", r"\bqualif", r"drawn to", r"excit"]),
-    ("ai", [r"\bAI\b", r"\bLLMs?\b", r"artificial intelligence", r"\bagents?\b", r"copilot",
+                    r"ideal (role|job|team)", r"why (are you )?leaving", r"work next",
+                    r"where you want to work", r"priorit"]),
+    ("why_us", [r"\bhave you used company\b", r"^why\b", r"\bwhy (do|are|would) you\b",
+                r"interested in (this|joining|working|us|our|company)\b", r"interests you",
+                r"right (hire|fit|person|candidate)", r"\bqualif", r"drawn to",
+                r"excit(ed|es you) (about|by) (this|the|us|our|company|joining|working)",
+                r"if you joined", r"first \d+ days"]),
+    ("ai", [r"\bai\b", r"\bllms?\b", r"artificial intelligence", r"\bagents?\b", r"copilot",
             r"cursor", r"claude", r"chatgpt"]),
+    ("how_you_work", [r"strength", r"weakness", r"colleague", r"\bmanager", r"teammate",
+                      r"feedback", r"conflict", r"disagree", r"collaborat", r"work style",
+                      r"mentor"]),
     ("projects", [r"\bbuil[td]\b", r"project", r"proud", r"impact", r"owned", r"ownership",
                   r"system", r"product", r"challeng", r"problem", r"success", r"worked\b",
                   r"contribution", r"shipp", r"\btool"]),
-    ("interviews", [r"interview", r"live[- ]coding", r"take[- ]home", r"technical (test|assessment)"]),
-    ("extra", [r"cover letter", r"anything else", r"additional information", r"\bshare\b"]),
+    ("stack", [r"\bhave you (used|worked with)\b", r"\bsql\b", r"database", r"debug", r"root cause", r"language", r"framework",
+               r"\bstack\b", r"architect", r"technolog", r"technical"]),
+    ("interviews", [r"interview", r"live coding", r"take home"]),
+    ("extra", [r"share"]),
 ]  # fmt: skip
 _RULES = [(category, re.compile("|".join(words), re.I)) for category, words in _RULE_WORDS]
 
@@ -171,9 +188,10 @@ def normalize(text: str, company: str = "") -> str:
     return " ".join(words)[:500]
 
 
-def classify(text: str) -> str:
+def classify(text: str, company: str = "") -> str:
+    words = normalize(text, company)
     for category, rule in _RULES:
-        if rule.search(text):
+        if rule.search(words):
             return category
     return "other"
 
@@ -220,7 +238,10 @@ def record(
     created = q is None
     if q is None:
         q = FormQuestion(
-            text=text, normalized=norm, category=category or classify(text), created_at=now
+            text=text,
+            normalized=norm,
+            category=category or classify(text, source.company),
+            created_at=now,
         )
         q.updated_at = now
         repo.save_question(q)

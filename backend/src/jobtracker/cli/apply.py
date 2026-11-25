@@ -94,7 +94,7 @@ def collect_questions(
         kept = [f for f in fields if apply.is_open_question(f)]
         typer.echo(f"  {origin:8} {ats:10} {len(kept):2} open of {len(fields):2}  {where.company} | {where.role_title}")  # fmt: skip
         for f in kept if dry_run else []:
-            typer.echo(f"      [{apply.classify(f.label)}] {f.label[:110]}")
+            typer.echo(f"      [{apply.classify(f.label, where.company)}] {f.label[:110]}")
         forms.append((where, fields))
         time.sleep(0.3)
     if dry_run:

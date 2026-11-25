@@ -46,11 +46,43 @@ def client(repo):
         ("Why are you looking for a new opportunity now?", "LongText", "job_search"),
         ("Do you have experience with live coding interviews?", "LongText", "interviews"),
         ("Add a Cover Letter or anything else you'd like to share", "LongText", "extra"),
+        ("Record a 1-minute loom video about something you're excited about", "LongText", "extra"),
+        ("How have you used SQL and databases in your work?", "LongText", "stack"),
+        (
+            "Can you share an example of an issue you debugged and its root cause?",
+            "LongText",
+            "stack",
+        ),
+        (
+            "What would your former colleagues say is your greatest strength?",
+            "LongText",
+            "how_you_work",
+        ),
+        (
+            "How would you rank your priorities in deciding where you want to work next?",
+            "LongText",
+            "job_search",
+        ),
+        (
+            "If you joined Acme, what would you hope to accomplish in your first 90 days?",
+            "LongText",
+            "why_us",
+        ),
+        (
+            "Describe a technically challenging project. We're interested in the technical details.",
+            "LongText",
+            "projects",
+        ),
     ],
 )
 def test_open_questions_and_their_category(label, kind, expected):
     assert apply.is_open_question(FormField(label, kind))
-    assert apply.classify(label) == expected
+    assert apply.classify(label, "Acme") == expected
+
+
+def test_have_you_used_is_about_the_company_only_when_it_names_it():
+    assert apply.classify("Have you used Acme in a side project?", "Acme") == "why_us"
+    assert apply.classify("Have you used Postgres?", "Acme") == "stack"
 
 
 @pytest.mark.parametrize(
